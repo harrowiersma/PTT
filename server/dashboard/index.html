@@ -39,7 +39,8 @@
         /* Login */
         .login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: var(--space-lg); }
         .login-box { background: var(--color-surface); padding: var(--space-xl); border-radius: var(--radius-md); box-shadow: 0 2px 8px rgba(0,0,0,0.1); width: 100%; max-width: 320px; }
-        .login-box h1 { font-size: 1.25rem; margin-bottom: var(--space-lg); }
+        .login-box h1 { font-size: 1.25rem; margin-bottom: var(--space-lg); display: flex; align-items: center; gap: var(--space-sm); }
+        .login-box h1 img { height: 32px; width: 32px; object-fit: contain; }
         .login-box input { width: 100%; padding: var(--space-sm) var(--space-md); border: 1px solid var(--color-border); border-radius: var(--radius-sm); margin-bottom: 0.75rem; font-size: 0.875rem; min-height: var(--min-touch); }
         .login-box button { width: 100%; padding: var(--space-sm); background: var(--color-accent); color: white; border: none; border-radius: var(--radius-sm); cursor: pointer; font-size: 0.875rem; min-height: var(--min-touch); }
         .login-box button:hover { background: var(--color-accent-hover); }
@@ -160,7 +161,7 @@
     <!-- Login -->
     <div class="login-page" id="loginPage" role="main" aria-label="Login">
         <div class="login-box">
-            <h1><img src="logo.jpg" alt="PTT"> Wiersma PTT Admin</h1>
+            <h1><img src="logo.jpg" alt="PTT" width="28" height="28" style="border-radius:4px"> Wiersma PTT Admin</h1>
             <div class="error" id="loginError" role="alert">Invalid credentials</div>
             <label for="loginUser" style="display:none">Username</label>
             <input type="text" id="loginUser" placeholder="Username" value="admin" aria-label="Username">
@@ -173,7 +174,7 @@
     <!-- App -->
     <div class="app" id="appPage">
         <div class="topbar">
-            <h1><img src="logo.jpg" alt="PTT"> Wiersma PTT Admin</h1>
+            <h1><img src="logo.jpg" alt="PTT" width="28" height="28" style="border-radius:4px"> Wiersma PTT Admin</h1>
             <div class="status">
                 <span class="dot" id="murmurDot" aria-hidden="true"></span>
                 <span id="murmurStatus" role="status">Checking...</span>
