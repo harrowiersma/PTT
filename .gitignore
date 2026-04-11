@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+venv/
+.venv/
+env/
+
+# Environment
+.env
+*.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# PostgreSQL data (mounted volume)
+pgdata/
+
+# Logs
+*.log
+logs/
+
+# Claude Code local config
+.claude/
+
+# gstack design artifacts
+harrowiersma-*.md

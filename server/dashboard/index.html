@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PTT Admin</title>
+    <style>
+        :root {
+            --color-bg: #f5f5f5;
+            --color-surface: #ffffff;
+            --color-text: #1a1a1a;
+            --color-text-secondary: #6b7280;
+            --color-accent: #2563eb;
+            --color-accent-hover: #1d4ed8;
+            --color-success: #22c55e;
+            --color-success-bg: #dcfce7;
+            --color-success-text: #166534;
+            --color-danger: #ef4444;
+            --color-danger-bg: #fef2f2;
+            --color-danger-text: #991b1b;
+            --color-warning-bg: #fefce8;
+            --color-warning-text: #854d0e;
+            --color-border: #e5e7eb;
+            --color-border-light: #f3f4f6;
+            --color-topbar: #1e293b;
+            --radius-sm: 4px;
+            --radius-md: 8px;
+            --radius-full: 9999px;
+            --space-xs: 0.25rem;
+            --space-sm: 0.5rem;
+            --space-md: 1rem;
+            --space-lg: 1.5rem;
+            --space-xl: 2rem;
+            --min-touch: 44px;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: var(--color-bg); color: var(--color-text); }
+
+        /* Login */
+        .login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: var(--space-lg); }
+        .login-box { background: var(--color-surface); padding: var(--space-xl); border-radius: var(--radius-md); box-shadow: 0 2px 8px rgba(0,0,0,0.1); width: 100%; max-width: 320px; }
+        .login-box h1 { font-size: 1.25rem; margin-bottom: var(--space-lg); }
+        .login-box input { width: 100%; padding: var(--space-sm) var(--space-md); border: 1px solid var(--color-border); border-radius: var(--radius-sm); margin-bottom: 0.75rem; font-size: 0.875rem; min-height: var(--min-touch); }
+        .login-box button { width: 100%; padding: var(--space-sm); background: var(--color-accent); color: white; border: none; border-radius: var(--radius-sm); cursor: pointer; font-size: 0.875rem; min-height: var(--min-touch); }
+        .login-box button:hover { background: var(--color-accent-hover); }
+        .login-box .error { color: var(--color-danger); font-size: 0.75rem; margin-bottom: var(--space-sm); display: none; }
+
+        /* App shell */
+        .app { display: none; }
+        .app.active { display: block; }
+
+        /* Topbar */
+        .topbar { background: var(--color-topbar); color: white; padding: 0.75rem var(--space-lg); display: flex; justify-content: space-between; align-items: center; }
+        .topbar h1 { font-size: 1rem; font-weight: 600; }
+        .topbar .status { font-size: 0.75rem; display: flex; align-items: center; gap: var(--space-sm); }
+        .topbar .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .dot.green { background: var(--color-success); }
+        .dot.red { background: var(--color-danger); }
+        .topbar button { background: transparent; border: 1px solid rgba(255,255,255,0.3); color: white; padding: var(--space-xs) 0.75rem; border-radius: var(--radius-sm); cursor: pointer; font-size: 0.75rem; min-height: var(--min-touch); }
+
+        /* Alert banner */
+        .alert-banner { padding: var(--space-sm) var(--space-lg); font-size: 0.875rem; display: none; }
+        .alert-banner.error { background: var(--color-danger-bg); color: var(--color-danger-text); display: block; }
+        .alert-banner.warning { background: var(--color-warning-bg); color: var(--color-warning-text); display: block; }
+
+        /* Toast */
+        .toast { position: fixed; bottom: var(--space-lg); right: var(--space-lg); padding: var(--space-sm) var(--space-lg); border-radius: var(--radius-sm); color: white; font-size: 0.875rem; z-index: 200; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+        .toast.success { background: #16a34a; }
+        .toast.error { background: var(--color-danger); }
+        .toast.show { opacity: 1; }
+
+        /* Tabs */
+        .tabs { display: flex; background: var(--color-surface); border-bottom: 1px solid var(--color-border); padding: 0 var(--space-lg); overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .tab { padding: 0.75rem var(--space-md); cursor: pointer; font-size: 0.875rem; border-bottom: 2px solid transparent; color: var(--color-text-secondary); white-space: nowrap; min-height: var(--min-touch); display: flex; align-items: center; }
+        .tab:focus { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+        .tab.active { color: var(--color-accent); border-bottom-color: var(--color-accent); }
+
+        /* Content */
+        .content { padding: var(--space-lg); max-width: 960px; margin: 0 auto; }
+
+        /* Cards */
+        .card { background: var(--color-surface); border-radius: var(--radius-md); box-shadow: 0 1px 3px rgba(0,0,0,0.06); padding: 1.25rem; margin-bottom: var(--space-md); }
+        .card h2 { font-size: 0.875rem; color: var(--color-text-secondary); margin-bottom: var(--space-md); text-transform: uppercase; letter-spacing: 0.05em; }
+
+        /* Stats */
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--space-md); margin-bottom: var(--space-lg); }
+        .stat { padding: var(--space-md); background: var(--color-surface); border-radius: var(--radius-md); box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+        .stat .value { font-size: 1.75rem; font-weight: 700; }
+        .stat .label { font-size: 0.75rem; color: var(--color-text-secondary); margin-top: var(--space-xs); }
+
+        /* Skeleton loading */
+        .skeleton { background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: var(--radius-sm); }
+        @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+        .skeleton-line { height: 1rem; margin-bottom: var(--space-sm); }
+        .skeleton-stat { height: 2.5rem; width: 4rem; }
+
+        /* Tables */
+        .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+        th { text-align: left; padding: var(--space-sm); border-bottom: 2px solid var(--color-border); font-weight: 600; color: var(--color-text-secondary); font-size: 0.75rem; text-transform: uppercase; white-space: nowrap; }
+        td { padding: var(--space-sm); border-bottom: 1px solid var(--color-border-light); }
+
+        .badge { display: inline-block; padding: 0.125rem var(--space-sm); border-radius: var(--radius-full); font-size: 0.75rem; font-weight: 500; }
+        .badge.online { background: var(--color-success-bg); color: var(--color-success-text); }
+        .badge.offline { background: var(--color-border-light); color: var(--color-text-secondary); }
+
+        /* Empty states */
+        .empty-state { text-align: center; padding: var(--space-xl) var(--space-md); color: var(--color-text-secondary); }
+        .empty-state .icon { font-size: 2rem; margin-bottom: var(--space-sm); opacity: 0.5; }
+        .empty-state p { font-size: 0.875rem; margin-bottom: var(--space-md); }
+        .empty-state .action { color: var(--color-accent); cursor: pointer; text-decoration: underline; font-size: 0.875rem; }
+
+        /* Actions */
+        .actions { display: flex; gap: var(--space-sm); flex-wrap: wrap; }
+        .btn { padding: 0.375rem 0.75rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); cursor: pointer; font-size: 0.75rem; min-height: var(--min-touch); display: inline-flex; align-items: center; }
+        .btn.primary { background: var(--color-accent); color: white; border-color: var(--color-accent); }
+        .btn.danger { color: var(--color-danger); border-color: #fecaca; }
+        .btn:hover { opacity: 0.8; }
+        .btn:focus { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+        /* Forms */
+        .form-row { display: flex; gap: var(--space-sm); margin-bottom: 0.75rem; flex-wrap: wrap; }
+        .form-row input { flex: 1; min-width: 120px; padding: 0.375rem var(--space-sm); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 0.875rem; min-height: var(--min-touch); }
+        .form-row input:focus { outline: 2px solid var(--color-accent); outline-offset: -1px; border-color: var(--color-accent); }
+
+        .search-bar { margin-bottom: var(--space-md); }
+        .search-bar input { width: 100%; padding: var(--space-sm) var(--space-md); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 0.875rem; min-height: var(--min-touch); }
+
+        /* QR Modal */
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 100; padding: var(--space-lg); }
+        .modal-content { background: var(--color-surface); border-radius: var(--radius-md); padding: var(--space-xl); text-align: center; max-width: 400px; width: 100%; }
+        .modal-content h2 { font-size: 1rem; margin-bottom: var(--space-sm); }
+        .modal-content img { max-width: 200px; margin: var(--space-md) 0; }
+        .modal-content .url { font-size: 0.75rem; color: var(--color-text-secondary); word-break: break-all; margin-bottom: var(--space-md); }
+        .modal-content .instructions { text-align: left; background: var(--color-bg); border-radius: var(--radius-sm); padding: var(--space-md); margin-bottom: var(--space-md); font-size: 0.8125rem; }
+        .modal-content .instructions ol { padding-left: var(--space-lg); }
+        .modal-content .instructions li { margin-bottom: var(--space-xs); }
+
+        /* Delete confirmation modal */
+        .confirm-modal .modal-content { max-width: 320px; }
+        .confirm-modal .modal-actions { display: flex; gap: var(--space-sm); justify-content: center; margin-top: var(--space-md); }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .topbar { padding: 0.75rem var(--space-md); }
+            .topbar h1 { font-size: 0.875rem; }
+            .content { padding: var(--space-md); }
+            .stats { grid-template-columns: repeat(2, 1fr); }
+            .form-row { flex-direction: column; }
+            .form-row input { min-width: unset; }
+        }
+        @media (max-width: 480px) {
+            .stats { grid-template-columns: 1fr 1fr; gap: var(--space-sm); }
+            .stat .value { font-size: 1.25rem; }
+        }
+    </style>
+</head>
+<body>
+    <!-- Login -->
+    <div class="login-page" id="loginPage" role="main" aria-label="Login">
+        <div class="login-box">
+            <h1>PTT Admin</h1>
+            <div class="error" id="loginError" role="alert">Invalid credentials</div>
+            <label for="loginUser" style="display:none">Username</label>
+            <input type="text" id="loginUser" placeholder="Username" value="admin" aria-label="Username">
+            <label for="loginPass" style="display:none">Password</label>
+            <input type="password" id="loginPass" placeholder="Password" aria-label="Password">
+            <button onclick="doLogin()">Sign In</button>
+        </div>
+    </div>
+
+    <!-- App -->
+    <div class="app" id="appPage">
+        <div class="topbar">
+            <h1>PTT Admin</h1>
+            <div class="status">
+                <span class="dot" id="murmurDot" aria-hidden="true"></span>
+                <span id="murmurStatus" role="status">Checking...</span>
+                <button onclick="doLogout()">Logout</button>
+            </div>
+        </div>
+
+        <!-- Alert banner for server issues -->
+        <div class="alert-banner" id="alertBanner" role="alert"></div>
+
+        <nav class="tabs" role="tablist" aria-label="Dashboard sections">
+            <div class="tab active" data-tab="overview" role="tab" tabindex="0" aria-selected="true" onclick="switchTab('overview')" onkeydown="if(event.key==='Enter')switchTab('overview')">Overview</div>
+            <div class="tab" data-tab="users" role="tab" tabindex="0" aria-selected="false" onclick="switchTab('users')" onkeydown="if(event.key==='Enter')switchTab('users')">Users</div>
+            <div class="tab" data-tab="channels" role="tab" tabindex="0" aria-selected="false" onclick="switchTab('channels')" onkeydown="if(event.key==='Enter')switchTab('channels')">Channels</div>
+        </nav>
+
+        <!-- Overview Tab -->
+        <div class="content tab-content" id="tab-overview" role="tabpanel" aria-label="Overview">
+            <div class="stats" id="statsContainer">
+                <div class="stat"><div class="value" id="statOnline"><span class="skeleton skeleton-stat"></span></div><div class="label">Online</div></div>
+                <div class="stat"><div class="value" id="statTotal"><span class="skeleton skeleton-stat"></span></div><div class="label">Total Users</div></div>
+                <div class="stat"><div class="value" id="statChannels"><span class="skeleton skeleton-stat"></span></div><div class="label">Channels</div></div>
+                <div class="stat"><div class="value" id="statServer"><span class="skeleton skeleton-stat"></span></div><div class="label">Server</div></div>
+            </div>
+            <div class="card">
+                <h2>Online Devices</h2>
+                <div class="table-wrap">
+                    <table aria-label="Online devices">
+                        <thead><tr><th>User</th><th>Channel</th><th>Duration</th><th>Status</th></tr></thead>
+                        <tbody id="onlineTable">
+                            <tr><td colspan="4"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Users Tab -->
+        <div class="content tab-content" id="tab-users" style="display:none" role="tabpanel" aria-label="Users">
+            <div class="card">
+                <h2>Add User</h2>
+                <div class="form-row">
+                    <input type="text" id="newUsername" placeholder="Username" aria-label="New username">
+                    <input type="text" id="newDisplayName" placeholder="Display Name" aria-label="Display name">
+                    <input type="password" id="newPassword" placeholder="Password" aria-label="Password">
+                    <button class="btn primary" onclick="createUser()">Add</button>
+                </div>
+            </div>
+            <div class="card">
+                <h2>All Users</h2>
+                <div class="search-bar">
+                    <input type="search" id="userSearch" placeholder="Search users..." aria-label="Search users" oninput="filterUsers()">
+                </div>
+                <div class="table-wrap">
+                    <table aria-label="User list">
+                        <thead><tr><th>Username</th><th>Display Name</th><th>Created</th><th>Actions</th></tr></thead>
+                        <tbody id="usersTable">
+                            <tr><td colspan="4"><div class="skeleton skeleton-line" style="width:80%"></div></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Channels Tab -->
+        <div class="content tab-content" id="tab-channels" style="display:none" role="tabpanel" aria-label="Channels">
+            <div class="card">
+                <h2>Add Channel</h2>
+                <div class="form-row">
+                    <input type="text" id="newChannelName" placeholder="Channel Name" aria-label="Channel name">
+                    <input type="text" id="newChannelDesc" placeholder="Description" aria-label="Channel description">
+                    <button class="btn primary" onclick="createChannel()">Add</button>
+                </div>
+            </div>
+            <div class="card">
+                <h2>All Channels</h2>
+                <div class="table-wrap">
+                    <table aria-label="Channel list">
+                        <thead><tr><th>Name</th><th>Description</th><th>Created</th><th>Actions</th></tr></thead>
+                        <tbody id="channelsTable">
+                            <tr><td colspan="4"><div class="skeleton skeleton-line" style="width:80%"></div></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast notification -->
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <!-- QR Modal -->
+    <div class="modal-overlay" id="qrModal" style="display:none" onclick="if(event.target===this)closeModal('qrModal')" role="dialog" aria-label="QR Code">
+        <div class="modal-content">
+            <h2>Device Enrollment</h2>
+            <p style="font-size:0.875rem;color:var(--color-text-secondary)" id="qrUsername"></p>
+            <img id="qrImage" src="" alt="QR code for device enrollment">
+            <div class="instructions">
+                <ol>
+                    <li>Open <strong>HamMumble</strong> on the P50</li>
+                    <li>Scan this QR code with the camera</li>
+                    <li>Press the PTT button to test the connection</li>
+                </ol>
+            </div>
+            <div class="url" id="qrUrl"></div>
+            <button class="btn" onclick="closeModal('qrModal')">Close</button>
+        </div>
+    </div>
+
+    <!-- Delete confirmation modal -->
+    <div class="modal-overlay confirm-modal" id="confirmModal" style="display:none" onclick="if(event.target===this)closeModal('confirmModal')" role="dialog" aria-label="Confirm delete">
+        <div class="modal-content">
+            <p id="confirmMessage" style="font-size:0.875rem"></p>
+            <div class="modal-actions">
+                <button class="btn" onclick="closeModal('confirmModal')">Cancel</button>
+                <button class="btn danger" id="confirmBtn">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    let token = localStorage.getItem('ptt_token');
+    let allUsers = [];
+    let refreshTimer;
+
+    if (token) showApp();
+    else showLogin();
+
+    function showLogin() {
+        document.getElementById('loginPage').style.display = 'flex';
+        document.getElementById('appPage').classList.remove('active');
+    }
+
+    function showApp() {
+        document.getElementById('loginPage').style.display = 'none';
+        document.getElementById('appPage').classList.add('active');
+        refreshAll();
+        refreshTimer = setInterval(refreshStatus, 10000);
+    }
+
+    function showToast(message, type) {
+        const toast = document.getElementById('toast');
+        toast.textContent = message;
+        toast.className = 'toast ' + type + ' show';
+        setTimeout(() => { toast.classList.remove('show'); }, 3000);
+    }
+
+    function closeModal(id) {
+        document.getElementById(id).style.display = 'none';
+    }
+
+    // Keyboard: Escape closes modals
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            document.querySelectorAll('.modal-overlay').forEach(m => m.style.display = 'none');
+        }
+    });
+
+    async function api(path, opts = {}) {
+        try {
+            const res = await fetch(path, {
+                ...opts,
+                headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json', ...opts.headers }
+            });
+            if (res.status === 401) { doLogout(); return null; }
+            if (res.status === 204) return null;
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({ detail: 'Request failed' }));
+                showToast(err.detail || 'Error', 'error');
+                return null;
+            }
+            return res.json();
+        } catch (e) {
+            showToast('Network error. Check your connection.', 'error');
+            return null;
+        }
+    }
+
+    async function doLogin() {
+        const user = document.getElementById('loginUser').value;
+        const pass = document.getElementById('loginPass').value;
+        try {
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: user, password: pass })
+            });
+            if (!res.ok) {
+                document.getElementById('loginError').style.display = 'block';
+                return;
+            }
+            const data = await res.json();
+            token = data.access_token;
+            localStorage.setItem('ptt_token', token);
+            showApp();
+        } catch (e) {
+            document.getElementById('loginError').style.display = 'block';
+        }
+    }
+
+    function doLogout() {
+        token = null;
+        localStorage.removeItem('ptt_token');
+        clearInterval(refreshTimer);
+        showLogin();
+    }
+
+    function switchTab(name) {
+        document.querySelectorAll('.tab').forEach(t => {
+            const isActive = t.dataset.tab === name;
+            t.classList.toggle('active', isActive);
+            t.setAttribute('aria-selected', isActive);
+        });
+        document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
+        document.getElementById('tab-' + name).style.display = 'block';
+        if (name === 'users') refreshUsers();
+        if (name === 'channels') refreshChannels();
+    }
+
+    async function refreshAll() {
+        refreshStatus();
+        refreshUsers();
+        refreshChannels();
+    }
+
+    async function refreshStatus() {
+        const data = await api('/api/status/server');
+        if (!data) return;
+
+        const dot = document.getElementById('murmurDot');
+        const status = document.getElementById('murmurStatus');
+        const banner = document.getElementById('alertBanner');
+
+        if (data.murmur_connected) {
+            dot.className = 'dot green';
+            status.textContent = 'Murmur connected';
+            banner.className = 'alert-banner';
+            banner.style.display = 'none';
+        } else {
+            dot.className = 'dot red';
+            status.textContent = 'Murmur disconnected';
+            banner.className = 'alert-banner error';
+            banner.textContent = 'Voice server offline. Device status shown from last known state.';
+            banner.style.display = 'block';
+        }
+
+        const totalUsers = allUsers.length || '...';
+        document.getElementById('statOnline').textContent = data.users_online + '/' + totalUsers;
+        document.getElementById('statServer').textContent = data.is_running ? 'Running' : 'Stopped';
+
+        const tbody = document.getElementById('onlineTable');
+        if (data.users.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state"><div class="icon">&#128225;</div><p>No devices connected yet.</p><span class="action" onclick="switchTab(\'users\')">Set up your first P50 in the Users tab</span></div></td></tr>';
+        } else {
+            tbody.innerHTML = data.users.map(u => '<tr>' +
+                '<td>' + esc(u.username) + '</td>' +
+                '<td>Channel ' + u.channel_id + '</td>' +
+                '<td>' + formatDuration(u.online_secs) + '</td>' +
+                '<td><span class="badge online">Online</span></td>' +
+                '</tr>').join('');
+        }
+    }
+
+    async function refreshUsers() {
+        const data = await api('/api/users');
+        if (!data) return;
+        allUsers = data;
+        document.getElementById('statTotal').textContent = data.length;
+        renderUsers(data);
+    }
+
+    function renderUsers(users) {
+        const tbody = document.getElementById('usersTable');
+        if (users.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state"><div class="icon">&#128100;</div><p>No users yet. Add your first user above to get started.</p></div></td></tr>';
+        } else {
+            tbody.innerHTML = users.map(u => '<tr>' +
+                '<td>' + esc(u.username) + '</td>' +
+                '<td>' + esc(u.display_name || '\u2014') + '</td>' +
+                '<td>' + new Date(u.created_at).toLocaleDateString() + '</td>' +
+                '<td class="actions">' +
+                '<button class="btn" onclick="showQR(' + u.id + ')">QR</button>' +
+                '<button class="btn danger" onclick="confirmDelete(\'user\',' + u.id + ',\'' + esc(u.username) + '\')">Delete</button>' +
+                '</td></tr>').join('');
+        }
+    }
+
+    function filterUsers() {
+        const q = document.getElementById('userSearch').value.toLowerCase();
+        const filtered = allUsers.filter(u =>
+            u.username.toLowerCase().includes(q) ||
+            (u.display_name && u.display_name.toLowerCase().includes(q))
+        );
+        renderUsers(filtered);
+    }
+
+    async function refreshChannels() {
+        const data = await api('/api/channels');
+        if (!data) return;
+        document.getElementById('statChannels').textContent = data.length;
+        const tbody = document.getElementById('channelsTable');
+        if (data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state"><div class="icon">&#128227;</div><p>No channels yet. Create your first channel to organize PTT groups.</p></div></td></tr>';
+        } else {
+            tbody.innerHTML = data.map(c => '<tr>' +
+                '<td>' + esc(c.name) + '</td>' +
+                '<td>' + esc(c.description || '\u2014') + '</td>' +
+                '<td>' + new Date(c.created_at).toLocaleDateString() + '</td>' +
+                '<td class="actions">' +
+                '<button class="btn danger" onclick="confirmDelete(\'channel\',' + c.id + ',\'' + esc(c.name) + '\')">Delete</button>' +
+                '</td></tr>').join('');
+        }
+    }
+
+    async function createUser() {
+        const username = document.getElementById('newUsername').value.trim();
+        const display = document.getElementById('newDisplayName').value.trim();
+        const password = document.getElementById('newPassword').value.trim();
+        if (!username || !password) { showToast('Username and password required', 'error'); return; }
+        const result = await api('/api/users', {
+            method: 'POST',
+            body: JSON.stringify({ username: username, display_name: display || null, password: password })
+        });
+        if (result) {
+            document.getElementById('newUsername').value = '';
+            document.getElementById('newDisplayName').value = '';
+            document.getElementById('newPassword').value = '';
+            showToast('User "' + username + '" created', 'success');
+            refreshUsers();
+        }
+    }
+
+    function confirmDelete(type, id, name) {
+        const modal = document.getElementById('confirmModal');
+        document.getElementById('confirmMessage').textContent = 'Delete ' + type + ' "' + name + '"? This cannot be undone.';
+        const btn = document.getElementById('confirmBtn');
+        btn.onclick = async function() {
+            closeModal('confirmModal');
+            await api('/api/' + type + 's/' + id, { method: 'DELETE' });
+            showToast(type.charAt(0).toUpperCase() + type.slice(1) + ' deleted', 'success');
+            if (type === 'user') refreshUsers();
+            else refreshChannels();
+        };
+        modal.style.display = 'flex';
+    }
+
+    async function createChannel() {
+        const name = document.getElementById('newChannelName').value.trim();
+        const desc = document.getElementById('newChannelDesc').value.trim();
+        if (!name) { showToast('Channel name required', 'error'); return; }
+        const result = await api('/api/channels', {
+            method: 'POST',
+            body: JSON.stringify({ name: name, description: desc || null })
+        });
+        if (result) {
+            document.getElementById('newChannelName').value = '';
+            document.getElementById('newChannelDesc').value = '';
+            showToast('Channel "' + name + '" created', 'success');
+            refreshChannels();
+        }
+    }
+
+    async function showQR(userId) {
+        const data = await api('/api/users/' + userId + '/qr');
+        if (!data) return;
+        document.getElementById('qrUsername').textContent = data.username;
+        document.getElementById('qrImage').src = data.qr_code_url + '?token=' + token;
+        document.getElementById('qrUrl').textContent = data.mumble_url;
+        document.getElementById('qrModal').style.display = 'flex';
+    }
+
+    function formatDuration(secs) {
+        if (secs < 60) return secs + 's';
+        if (secs < 3600) return Math.floor(secs / 60) + 'm';
+        return Math.floor(secs / 3600) + 'h ' + Math.floor((secs % 3600) / 60) + 'm';
+    }
+
+    function esc(s) {
+        if (!s) return '';
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+    }
+    </script>
+</body>
+</html>

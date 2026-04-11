@@ -1,0 +1,60 @@
+services:
+  murmur:
+    image: mumblevoip/mumble-server:latest
+    # Port 64738 exposed for direct access (fallback if SNI routing not configured)
+    # When SNI routing is active, Nginx stream module forwards voice.harro.ch:443 -> murmur:64738
+    ports:
+      - "64738:64738/tcp"
+      - "64738:64738/udp"
+    volumes:
+      - murmur-data:/data
+      - ./murmur.ini:/etc/mumble/mumble-server.ini:ro
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ptt
+      POSTGRES_PASSWORD: ptt
+      POSTGRES_DB: ptt
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  admin:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    # Port 8000 only exposed for development; in production, accessed via Nginx
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+      - murmur
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      # Main config: loads both http and stream modules
+      - ./nginx-main.conf:/etc/nginx/nginx.conf:ro
+      # HTTP config: admin dashboard proxy
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # Stream config: SNI routing on port 443
+      - ./nginx-stream.conf:/etc/nginx/stream.d/ptt.conf:ro
+      # TLS certificates
+      - certdata:/etc/letsencrypt
+    depends_on:
+      - admin
+      - murmur
+    restart: unless-stopped
+
+volumes:
+  murmur-data:
+  pgdata:
+  certdata:
