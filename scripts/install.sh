@@ -83,8 +83,9 @@ fi
 # --- Step 5: Generate .env ---
 if [ ! -f "$PTT_DIR/.env" ]; then
     echo "[5/8] Generating configuration..."
-    SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))" 2>/dev/null || openssl rand -base64 32)
+    SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))" 2>/dev/null || openssl rand -hex 32)
     ADMIN_PASS=$(openssl rand -base64 12 | tr -d '/+=' | head -c 16)
+    DB_PASS=$(openssl rand -hex 16)
 
     cat > "$PTT_DIR/.env" <<EOF
 # PTT Admin Service Configuration
@@ -94,8 +95,8 @@ PTT_ADMIN_USERNAME=admin
 PTT_ADMIN_PASSWORD=${ADMIN_PASS}
 PTT_SECRET_KEY=${SECRET_KEY}
 
-PTT_DATABASE_URL=postgresql+asyncpg://ptt:ptt@postgres:5432/ptt
-PTT_DATABASE_URL_SYNC=postgresql+psycopg2://ptt:ptt@postgres:5432/ptt
+PTT_DATABASE_URL=postgresql+asyncpg://ptt:${DB_PASS}@postgres:5432/ptt
+PTT_DATABASE_URL_SYNC=postgresql+psycopg2://ptt:${DB_PASS}@postgres:5432/ptt
 
 PTT_MURMUR_ICE_HOST=murmur
 PTT_MURMUR_ICE_PORT=6502
@@ -103,6 +104,9 @@ PTT_MURMUR_ICE_SECRET=
 
 PTT_PUBLIC_HOST=${DOMAIN_VOICE}
 PTT_PUBLIC_PORT=443
+
+# PostgreSQL (used by docker-compose.yml)
+POSTGRES_PASSWORD=${DB_PASS}
 EOF
 
     echo ""

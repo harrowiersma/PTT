@@ -1,6 +1,9 @@
+import io
 import secrets
 
+import qrcode
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,7 +11,9 @@ from server.api.schemas import QRResponse, UserCreate, UserResponse
 from server.auth import get_current_admin
 from server.config import settings
 from server.database import get_db
+from server.dependencies import get_murmur_client
 from server.models import User
+from server.murmur.client import MurmurClient
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -27,6 +32,7 @@ async def create_user(
     user_data: UserCreate,
     db: AsyncSession = Depends(get_db),
     _admin: dict = Depends(get_current_admin),
+    murmur: MurmurClient | None = Depends(get_murmur_client),
 ):
     existing = await db.execute(select(User).where(User.username == user_data.username))
     if existing.scalar_one_or_none():
@@ -47,11 +53,8 @@ async def create_user(
     await db.commit()
     await db.refresh(user)
 
-    # Register in Murmur if connected
-    from server.main import murmur_client
-
-    if murmur_client and murmur_client.is_connected:
-        murmur_client.register_user(user.username, mumble_password)
+    if murmur and murmur.is_connected:
+        murmur.register_user(user.username, mumble_password)
 
     return user
 
@@ -113,11 +116,6 @@ async def get_user_qr_image(
     db: AsyncSession = Depends(get_db),
     _admin: dict = Depends(get_current_admin),
 ):
-    import io
-
-    import qrcode
-    from fastapi.responses import StreamingResponse
-
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:

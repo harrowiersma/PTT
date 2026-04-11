@@ -5,7 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from server.api.schemas import ChannelCreate, ChannelResponse
 from server.auth import get_current_admin
 from server.database import get_db
+from server.dependencies import get_murmur_client
 from server.models import Channel
+from server.murmur.client import MurmurClient
 
 router = APIRouter(prefix="/api/channels", tags=["channels"])
 
@@ -24,6 +26,7 @@ async def create_channel(
     channel_data: ChannelCreate,
     db: AsyncSession = Depends(get_db),
     _admin: dict = Depends(get_current_admin),
+    murmur: MurmurClient | None = Depends(get_murmur_client),
 ):
     existing = await db.execute(select(Channel).where(Channel.name == channel_data.name))
     if existing.scalar_one_or_none():
@@ -32,12 +35,9 @@ async def create_channel(
             detail="Channel name already exists",
         )
 
-    # Create in Murmur if connected
     mumble_id = None
-    from server.main import murmur_client
-
-    if murmur_client and murmur_client.is_connected:
-        mumble_id = murmur_client.create_channel(channel_data.name)
+    if murmur and murmur.is_connected:
+        mumble_id = murmur.create_channel(channel_data.name)
 
     channel = Channel(
         name=channel_data.name,
@@ -69,17 +69,15 @@ async def delete_channel(
     channel_id: int,
     db: AsyncSession = Depends(get_db),
     _admin: dict = Depends(get_current_admin),
+    murmur: MurmurClient | None = Depends(get_murmur_client),
 ):
     result = await db.execute(select(Channel).where(Channel.id == channel_id))
     channel = result.scalar_one_or_none()
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
 
-    # Remove from Murmur if connected
-    from server.main import murmur_client
-
-    if murmur_client and murmur_client.is_connected and channel.mumble_id is not None:
-        murmur_client.remove_channel(channel.mumble_id)
+    if murmur and murmur.is_connected and channel.mumble_id is not None:
+        murmur.remove_channel(channel.mumble_id)
 
     await db.delete(channel)
     await db.commit()

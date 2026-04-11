@@ -2,7 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 
 from server.api.auth import router as auth_router
@@ -19,13 +19,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-murmur_client: MurmurClient | None = None
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global murmur_client
-
     logger.info("Starting PTT Admin Service")
 
     # Initialize database
@@ -33,12 +29,13 @@ async def lifespan(app: FastAPI):
     logger.info("Database initialized")
 
     # Connect to Murmur
-    murmur_client = MurmurClient(
+    client = MurmurClient(
         host=settings.murmur_ice_host,
         port=settings.murmur_ice_port,
         secret=settings.murmur_ice_secret,
     )
-    connected = murmur_client.connect()
+    connected = client.connect()
+    app.state.murmur_client = client
     if connected:
         logger.info("Connected to Murmur ICE interface")
     else:
@@ -51,8 +48,8 @@ async def lifespan(app: FastAPI):
     yield
 
     # Cleanup
-    if murmur_client:
-        murmur_client.disconnect()
+    if app.state.murmur_client:
+        app.state.murmur_client.disconnect()
     logger.info("PTT Admin Service stopped")
 
 

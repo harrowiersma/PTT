@@ -15,7 +15,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: ptt
-      POSTGRES_PASSWORD: ptt
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ptt}
       POSTGRES_DB: ptt
     volumes:
       - pgdata:/var/lib/postgresql/data

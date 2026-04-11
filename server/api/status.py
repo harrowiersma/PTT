@@ -1,16 +1,19 @@
 from fastapi import APIRouter, Depends
 
-from server.api.schemas import DeviceHealthResponse, ServerStatusResponse, UserOnline
+from server.api.schemas import ServerStatusResponse, UserOnline
 from server.auth import get_current_admin
+from server.dependencies import get_murmur_client
+from server.murmur.client import MurmurClient
 
 router = APIRouter(prefix="/api/status", tags=["status"])
 
 
 @router.get("/server", response_model=ServerStatusResponse)
-async def get_server_status(_admin: dict = Depends(get_current_admin)):
-    from server.main import murmur_client
-
-    if not murmur_client or not murmur_client.is_connected:
+async def get_server_status(
+    _admin: dict = Depends(get_current_admin),
+    murmur: MurmurClient | None = Depends(get_murmur_client),
+):
+    if not murmur or not murmur.is_connected:
         return ServerStatusResponse(
             is_running=False,
             users_online=0,
@@ -19,7 +22,7 @@ async def get_server_status(_admin: dict = Depends(get_current_admin)):
             users=[],
         )
 
-    status = murmur_client.get_status()
+    status = murmur.get_status()
     users = [
         UserOnline(
             username=u.name,
@@ -42,11 +45,11 @@ async def get_server_status(_admin: dict = Depends(get_current_admin)):
 
 
 @router.get("/health")
-async def health_check():
+async def health_check(
+    murmur: MurmurClient | None = Depends(get_murmur_client),
+):
     """Public health check endpoint for monitoring."""
-    from server.main import murmur_client
-
-    murmur_ok = murmur_client.is_connected if murmur_client else False
+    murmur_ok = murmur.is_connected if murmur else False
     return {
         "status": "healthy" if murmur_ok else "degraded",
         "murmur": "connected" if murmur_ok else "disconnected",
