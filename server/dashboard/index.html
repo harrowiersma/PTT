@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PTT Admin</title>
+    <title>Wiersma PTT Admin</title>
     <style>
         :root {
             --color-bg: #f5f5f5;
@@ -51,7 +51,8 @@
 
         /* Topbar */
         .topbar { background: var(--color-topbar); color: white; padding: 0.75rem var(--space-lg); display: flex; justify-content: space-between; align-items: center; }
-        .topbar h1 { font-size: 1rem; font-weight: 600; }
+        .topbar h1 { font-size: 1rem; font-weight: 600; display: flex; align-items: center; gap: var(--space-sm); }
+        .topbar h1 img { height: 28px; width: 28px; object-fit: contain; border-radius: 4px; background: white; }
         .topbar .status { font-size: 0.75rem; display: flex; align-items: center; gap: var(--space-sm); }
         .topbar .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
         .dot.green { background: var(--color-success); }
@@ -159,7 +160,7 @@
     <!-- Login -->
     <div class="login-page" id="loginPage" role="main" aria-label="Login">
         <div class="login-box">
-            <h1>PTT Admin</h1>
+            <h1><img src="logo.jpg" alt="PTT"> Wiersma PTT Admin</h1>
             <div class="error" id="loginError" role="alert">Invalid credentials</div>
             <label for="loginUser" style="display:none">Username</label>
             <input type="text" id="loginUser" placeholder="Username" value="admin" aria-label="Username">
@@ -172,7 +173,7 @@
     <!-- App -->
     <div class="app" id="appPage">
         <div class="topbar">
-            <h1>PTT Admin</h1>
+            <h1><img src="logo.jpg" alt="PTT"> Wiersma PTT Admin</h1>
             <div class="status">
                 <span class="dot" id="murmurDot" aria-hidden="true"></span>
                 <span id="murmurStatus" role="status">Checking...</span>
