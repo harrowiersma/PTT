@@ -30,3 +30,23 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def validate_settings() -> None:
+    """Refuse to start with insecure defaults. Called during app lifespan."""
+    import sys
+    import logging
+
+    logger = logging.getLogger(__name__)
+    fatal = False
+
+    if settings.secret_key == "change-me-in-production":
+        logger.critical("PTT_SECRET_KEY is the default value. Set a real secret in .env")
+        fatal = True
+    if settings.admin_password == "admin":
+        logger.critical("PTT_ADMIN_PASSWORD is 'admin'. Set a real password in .env")
+        fatal = True
+
+    if fatal:
+        logger.critical("Refusing to start with insecure defaults. Create .env from .env.example or run scripts/install.sh")
+        sys.exit(1)

@@ -9,7 +9,7 @@ from server.api.auth import router as auth_router
 from server.api.channels import router as channels_router
 from server.api.status import router as status_router
 from server.api.users import router as users_router
-from server.config import settings
+from server.config import settings, validate_settings
 from server.database import init_db
 from server.murmur.client import MurmurClient
 
@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting PTT Admin Service")
+    validate_settings()
 
     # Initialize database
     await init_db()

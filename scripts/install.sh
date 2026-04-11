@@ -183,6 +183,15 @@ else
     fi
 fi
 
+# --- Enable SSL config if certs were obtained ---
+if [ "$CERTS_OK" = true ]; then
+    # Copy the SSL config so Nginx loads it
+    cp "$PTT_DIR/nginx-ssl.conf" "$PTT_DIR/nginx-ssl-active.conf"
+else
+    # Create empty file so Docker mount doesn't fail
+    echo "# TLS not configured yet. Run certbot and restart." > "$PTT_DIR/nginx-ssl-active.conf"
+fi
+
 # --- Step 8: Start services ---
 echo "[8/8] Starting PTT server..."
 cd "$PTT_DIR"

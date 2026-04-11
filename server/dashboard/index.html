@@ -539,7 +539,12 @@
         const data = await api('/api/users/' + userId + '/qr');
         if (!data) return;
         document.getElementById('qrUsername').textContent = data.username;
-        document.getElementById('qrImage').src = data.qr_code_url + '?token=' + token;
+        // Fetch QR image via XHR to avoid leaking JWT in URL/logs
+        const qrRes = await fetch(data.qr_code_url, { headers: { 'Authorization': 'Bearer ' + token } });
+        if (qrRes.ok) {
+            const blob = await qrRes.blob();
+            document.getElementById('qrImage').src = URL.createObjectURL(blob);
+        }
         document.getElementById('qrUrl').textContent = data.mumble_url;
         document.getElementById('qrModal').style.display = 'flex';
     }
