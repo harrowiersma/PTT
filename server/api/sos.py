@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/sos", tags=["sos"])
 
+# Track original channels so we can move users back after SOS
+_original_channels: dict[int, int] = {}  # session_id -> channel_id
+
 
 class SOSRequest(BaseModel):
     username: str
@@ -27,12 +30,101 @@ class SOSAcknowledge(BaseModel):
     acknowledged_by: str = "admin"
 
 
+def _get_murmur():
+    """Get the murmur client from app state."""
+    try:
+        from server.main import app
+        return getattr(app.state, "murmur_client", None)
+    except Exception:
+        return None
+
+
+def _move_all_to_emergency(murmur) -> int | None:
+    """Create Emergency channel if needed, save original channels, move all users there."""
+    if not murmur or not murmur.has_mumble:
+        return None
+
+    mm = murmur._mumble
+    if not mm:
+        return None
+
+    # Find or create Emergency channel
+    emergency_id = None
+    for chan_id, chan in mm.channels.items():
+        if chan["name"] == "Emergency":
+            emergency_id = chan_id
+            break
+
+    if emergency_id is None:
+        mm.channels.new_channel(0, "Emergency", temporary=False)
+        import time
+        time.sleep(0.5)
+        for chan_id, chan in mm.channels.items():
+            if chan["name"] == "Emergency":
+                emergency_id = chan_id
+                break
+
+    if emergency_id is None:
+        logger.error("Could not create Emergency channel")
+        return None
+
+    # Save original channels and move all users to Emergency
+    _original_channels.clear()
+    for session_id, user in mm.users.items():
+        if user["name"] == "PTTAdmin":
+            continue
+        current_channel = user.get("channel_id", 0)
+        if current_channel != emergency_id:
+            _original_channels[session_id] = current_channel
+            mm.users[session_id].move_in(emergency_id)
+
+    # Send alert message to Emergency channel
+    if emergency_id in mm.channels:
+        mm.channels[emergency_id].send_text_message(
+            "<b style='color:red'>SOS ALERT</b> — All users moved to Emergency channel"
+        )
+
+    user_count = len(_original_channels)
+    logger.warning("SOS: Moved %d users to Emergency channel (ID %d)", user_count, emergency_id)
+    return emergency_id
+
+
+def _restore_channels(murmur):
+    """Move all users back to their original channels after SOS is acknowledged."""
+    if not murmur or not murmur.has_mumble:
+        return
+
+    mm = murmur._mumble
+    if not mm:
+        return
+
+    restored = 0
+    for session_id, original_channel in _original_channels.items():
+        if session_id in mm.users:
+            try:
+                mm.users[session_id].move_in(original_channel)
+                restored += 1
+            except Exception as e:
+                logger.warning("Could not restore user session %d: %s", session_id, e)
+
+    # Send all-clear message
+    for chan_id, chan in mm.channels.items():
+        if chan["name"] == "Emergency":
+            mm.channels[chan_id].send_text_message(
+                "<b style='color:green'>ALL CLEAR</b> — Users returned to original channels"
+            )
+            break
+
+    _original_channels.clear()
+    logger.info("SOS acknowledged: restored %d users to original channels", restored)
+
+
 @router.post("")
 async def trigger_sos(
     sos: SOSRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Trigger an SOS alert. Can be called by Traccar webhook or directly."""
+    """Trigger an SOS alert. Moves all users to Emergency channel."""
     event = SOSEvent(
         username=sos.username,
         latitude=sos.latitude,
@@ -44,6 +136,10 @@ async def trigger_sos(
     await db.refresh(event)
 
     logger.warning("SOS ALERT: %s at (%f, %f) - %s", sos.username, sos.latitude, sos.longitude, sos.message)
+
+    # Move all users to Emergency channel
+    murmur = _get_murmur()
+    _move_all_to_emergency(murmur)
 
     # Send webhook if configured
     if settings.sos_webhook_url:
@@ -88,6 +184,10 @@ async def traccar_event_webhook(
             await db.commit()
             logger.warning("SOS via Traccar: %s", device.get("name"))
 
+            # Move all users to Emergency channel
+            murmur = _get_murmur()
+            _move_all_to_emergency(murmur)
+
         return {"status": "received"}
     except Exception as e:
         logger.error("Traccar event webhook error: %s", e)
@@ -126,7 +226,7 @@ async def acknowledge_sos(
     db: AsyncSession = Depends(get_db),
     _admin: dict = Depends(get_current_admin),
 ):
-    """Acknowledge an SOS alert."""
+    """Acknowledge an SOS alert. Moves users back to original channels."""
     result = await db.execute(select(SOSEvent).where(SOSEvent.id == sos_id))
     event = result.scalar_one_or_none()
     if not event:
@@ -136,6 +236,10 @@ async def acknowledge_sos(
     event.acknowledged_at = datetime.now(timezone.utc)
     event.acknowledged_by = ack.acknowledged_by
     await db.commit()
+
+    # Restore users to original channels
+    murmur = _get_murmur()
+    _restore_channels(murmur)
 
     logger.info("SOS %d acknowledged by %s", sos_id, ack.acknowledged_by)
     return {"status": "acknowledged"}
