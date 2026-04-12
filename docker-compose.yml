@@ -1,8 +1,6 @@
 services:
   murmur:
     image: mumblevoip/mumble-server:latest
-    # Port 64738 exposed for direct access (fallback if SNI routing not configured)
-    # When SNI routing is active, Nginx stream module forwards voice.harro.ch:443 -> murmur:64738
     ports:
       - "64738:64738/tcp"
       - "64738:64738/udp"
@@ -25,7 +23,6 @@ services:
     build:
       context: ./server
       dockerfile: Dockerfile
-    # Not exposed to host. Accessed only via Nginx reverse proxy.
     expose:
       - "8000"
     env_file:
@@ -38,22 +35,14 @@ services:
   nginx:
     image: nginx:alpine
     ports:
-      - "443:443"
       - "80:80"
+      - "443:443"
     volumes:
-      # Main config: loads both http and stream modules
       - ./nginx-main.conf:/etc/nginx/nginx.conf:ro
-      # HTTP config: admin dashboard proxy
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      # SSL config: mounted as .available, install.sh copies to ssl.conf after certbot
-      - ./nginx-ssl-active.conf:/etc/nginx/conf.d/ssl.conf:ro
-      # Stream config: SNI routing on port 443
-      - ./nginx-stream.conf:/etc/nginx/stream.d/ptt.conf:ro
-      # TLS certificates (mounted from host, managed by certbot)
       - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - admin
-      - murmur
     restart: unless-stopped
 
 volumes:
