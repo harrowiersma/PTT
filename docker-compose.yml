@@ -12,7 +12,6 @@ services:
       MUMBLE_CONFIG_BANDWIDTH: "24000"
       MUMBLE_CONFIG_USERS: "50"
       MUMBLE_CONFIG_OPUS_THRESHOLD: "0"
-      # Disable autoban: the admin service TCP health checks trigger it
       MUMBLE_CONFIG_AUTOBANATTEMPTS: "0"
     volumes:
       - murmur-data:/data
@@ -26,6 +25,18 @@ services:
       POSTGRES_DB: ptt
     volumes:
       - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  traccar:
+    image: traccar/traccar:latest
+    ports:
+      - "5055:5055/tcp"
+      - "5055:5055/udp"
+    volumes:
+      - traccar-data:/opt/traccar/data
+      - ./traccar.xml:/opt/traccar/conf/traccar.xml:ro
+    depends_on:
+      - admin
     restart: unless-stopped
 
   admin:
@@ -56,3 +67,4 @@ services:
 volumes:
   murmur-data:
   pgdata:
+  traccar-data:

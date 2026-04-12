@@ -26,6 +26,19 @@ class Settings(BaseSettings):
     public_host: str = "localhost"
     public_port: int = 443
 
+    # Traccar GPS tracking
+    traccar_api_url: str = "http://traccar:8082"
+    traccar_admin_email: str = "admin@ptt.local"
+    traccar_admin_password: str = "admin"
+
+    # SOS notifications
+    sos_webhook_url: str = ""
+    sos_smtp_host: str = ""
+    sos_smtp_port: int = 587
+    sos_smtp_user: str = ""
+    sos_smtp_password: str = ""
+    sos_email_to: str = ""
+
     model_config = {"env_prefix": "PTT_", "env_file": ".env"}
 
 

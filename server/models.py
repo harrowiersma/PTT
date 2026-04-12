@@ -36,6 +36,37 @@ class Channel(Base):
     )
 
 
+class SOSEvent(Base):
+    __tablename__ = "sos_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(64), nullable=False)
+    latitude: Mapped[float] = mapped_column(nullable=True, default=0)
+    longitude: Mapped[float] = mapped_column(nullable=True, default=0)
+    message: Mapped[str] = mapped_column(String(512), nullable=True)
+    acknowledged: Mapped[bool] = mapped_column(Boolean, default=False)
+    acknowledged_by: Mapped[str] = mapped_column(String(64), nullable=True)
+    acknowledged_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    triggered_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class DispatchEvent(Base):
+    __tablename__ = "dispatch_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    target_username: Mapped[str] = mapped_column(String(64), nullable=False)
+    message: Mapped[str] = mapped_column(String(512), nullable=False)
+    latitude: Mapped[float] = mapped_column(nullable=True, default=0)
+    longitude: Mapped[float] = mapped_column(nullable=True, default=0)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class DeviceHealth(Base):
     __tablename__ = "device_health"
 

@@ -1,0 +1,38 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE properties SYSTEM 'http://java.sun.com/dtd/properties.dtd'>
+
+<properties>
+
+    <!-- Database: H2 embedded (default, zero config) -->
+    <entry key='database.driver'>org.h2.Driver</entry>
+    <entry key='database.url'>jdbc:h2:/opt/traccar/data/database</entry>
+    <entry key='database.user'>sa</entry>
+    <entry key='database.password'></entry>
+
+    <!-- OsmAnd protocol on port 5055 (Traccar Client uses this) -->
+    <entry key='osmand.port'>5055</entry>
+
+    <!-- Web interface + REST API -->
+    <entry key='web.port'>8082</entry>
+
+    <!-- Device timeout: mark offline after 300 seconds (5 min) -->
+    <entry key='status.timeout'>300</entry>
+
+    <!-- Allow new device auto-registration -->
+    <entry key='database.registerUnknown'>true</entry>
+
+    <!-- Logging -->
+    <entry key='logger.enable'>true</entry>
+    <entry key='logger.level'>info</entry>
+    <entry key='logger.file'>/opt/traccar/logs/tracker-server.log</entry>
+
+    <!-- Forward events to our admin service (SOS alerts) -->
+    <entry key='event.forward.enable'>true</entry>
+    <entry key='event.forward.url'>http://admin:8000/api/traccar/event</entry>
+    <entry key='event.forward.headers'>Content-Type: application/json</entry>
+
+    <!-- Map: OpenStreetMap (no API key needed) -->
+    <entry key='map.type'>osm</entry>
+
+</properties>

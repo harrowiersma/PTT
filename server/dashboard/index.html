@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Wiersma PTT Admin</title>
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         :root {
             --color-bg: #f5f5f5;
@@ -142,6 +145,18 @@
         .confirm-modal .modal-content { max-width: 320px; }
         .confirm-modal .modal-actions { display: flex; gap: var(--space-sm); justify-content: center; margin-top: var(--space-md); }
 
+        /* Map */
+        #mapContainer { border-radius: var(--radius-md); }
+        .leaflet-popup-content { font-family: inherit; font-size: 0.8125rem; }
+        .leaflet-popup-content strong { display: block; margin-bottom: 2px; }
+        .dispatch-card { display: flex; justify-content: space-between; align-items: center; padding: var(--space-sm); border-bottom: 1px solid var(--color-border-light); }
+        .dispatch-card:last-child { border-bottom: none; }
+        .dispatch-distance { font-size: 0.75rem; color: var(--color-text-secondary); }
+
+        /* SOS pulse */
+        .sos-marker { background: var(--color-danger); border: 3px solid white; border-radius: 50%; width: 20px; height: 20px; animation: sos-pulse 1s infinite; }
+        @keyframes sos-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.4); } 50% { box-shadow: 0 0 0 12px rgba(239,68,68,0); } }
+
         /* Responsive */
         @media (max-width: 768px) {
             .topbar { padding: 0.75rem var(--space-md); }
@@ -189,7 +204,13 @@
             <div class="tab active" data-tab="overview" role="tab" tabindex="0" aria-selected="true" onclick="switchTab('overview')" onkeydown="if(event.key==='Enter')switchTab('overview')">Overview</div>
             <div class="tab" data-tab="users" role="tab" tabindex="0" aria-selected="false" onclick="switchTab('users')" onkeydown="if(event.key==='Enter')switchTab('users')">Users</div>
             <div class="tab" data-tab="channels" role="tab" tabindex="0" aria-selected="false" onclick="switchTab('channels')" onkeydown="if(event.key==='Enter')switchTab('channels')">Channels</div>
+            <div class="tab" data-tab="map" role="tab" tabindex="0" aria-selected="false" onclick="switchTab('map')" onkeydown="if(event.key==='Enter')switchTab('map')">Map</div>
         </nav>
+
+        <!-- SOS Alert Banner -->
+        <div class="alert-banner error" id="sosBanner" style="display:none;cursor:pointer" onclick="switchTab('map')">
+            <strong>SOS ALERT</strong> <span id="sosInfo"></span> — click to view on map
+        </div>
 
         <!-- Overview Tab -->
         <div class="content tab-content" id="tab-overview" role="tabpanel" aria-label="Overview">
@@ -259,6 +280,17 @@
                         </tbody>
                     </table>
                 </div>
+            </div>
+        </div>
+        <!-- Map Tab -->
+        <div class="content tab-content" id="tab-map" style="display:none" role="tabpanel" aria-label="Map">
+            <div class="card" style="padding:0;overflow:hidden">
+                <div id="mapContainer" style="height:500px;width:100%"></div>
+            </div>
+            <div class="card" id="dispatchPanel" style="display:none">
+                <h2>Dispatch Worker</h2>
+                <p style="font-size:0.875rem;color:var(--color-text-secondary);margin-bottom:var(--space-md)" id="dispatchLocation"></p>
+                <div id="nearestList"></div>
             </div>
         </div>
     </div>
@@ -392,6 +424,7 @@
         document.getElementById('tab-' + name).style.display = 'block';
         if (name === 'users') refreshUsers();
         if (name === 'channels') refreshChannels();
+        if (name === 'map') { setTimeout(function() { initMap(); if (map) map.invalidateSize(); }, 100); }
     }
 
     async function refreshAll() {
@@ -555,6 +588,147 @@
         if (secs < 60) return secs + 's';
         if (secs < 3600) return Math.floor(secs / 60) + 'm';
         return Math.floor(secs / 3600) + 'h ' + Math.floor((secs % 3600) / 60) + 'm';
+    }
+
+    // === MAP + GPS + SOS + DISPATCH ===
+    let map = null;
+    let mapMarkers = {};
+    let sosMarkers = {};
+    let mapInitialized = false;
+
+    function initMap() {
+        if (mapInitialized) return;
+        map = L.map('mapContainer').setView([52.37, 4.89], 10); // Default: Netherlands
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap',
+            maxZoom: 19,
+        }).addTo(map);
+
+        // Click map to dispatch
+        map.on('click', function(e) {
+            showDispatchPanel(e.latlng.lat, e.latlng.lng);
+        });
+
+        mapInitialized = true;
+        refreshMap();
+        setInterval(refreshMap, 10000);
+        setInterval(checkSOS, 10000);
+    }
+
+    async function refreshMap() {
+        if (!map) return;
+        const data = await api('/api/gps/positions');
+        if (!data) return;
+
+        // Remove old markers not in new data
+        const currentIds = new Set(data.map(d => d.username));
+        Object.keys(mapMarkers).forEach(k => {
+            if (!currentIds.has(k)) { map.removeLayer(mapMarkers[k]); delete mapMarkers[k]; }
+        });
+
+        data.forEach(d => {
+            if (d.latitude === 0 && d.longitude === 0) return;
+            const popup = '<strong>' + esc(d.username) + '</strong>' +
+                'Accuracy: ' + Math.round(d.accuracy) + 'm<br>' +
+                'Battery: ' + (d.battery >= 0 ? d.battery + '%' : 'N/A') + '<br>' +
+                '<small>' + new Date(d.timestamp).toLocaleTimeString() + '</small>';
+
+            if (mapMarkers[d.username]) {
+                mapMarkers[d.username].setLatLng([d.latitude, d.longitude]);
+                mapMarkers[d.username].setPopupContent(popup);
+            } else {
+                mapMarkers[d.username] = L.marker([d.latitude, d.longitude])
+                    .addTo(map)
+                    .bindPopup(popup)
+                    .bindTooltip(d.username, { permanent: true, direction: 'top', offset: [0, -10] });
+            }
+        });
+
+        // Auto-fit bounds if markers exist
+        const markers = Object.values(mapMarkers);
+        if (markers.length > 0 && !map._userPanned) {
+            const group = L.featureGroup(markers);
+            map.fitBounds(group.getBounds().pad(0.2));
+        }
+    }
+
+    async function checkSOS() {
+        const data = await api('/api/sos/active');
+        if (!data) return;
+        const banner = document.getElementById('sosBanner');
+        const info = document.getElementById('sosInfo');
+
+        if (data.length > 0) {
+            banner.style.display = 'block';
+            const latest = data[0];
+            info.textContent = latest.username + ' at ' + new Date(latest.triggered_at).toLocaleTimeString();
+
+            // Add SOS markers to map
+            data.forEach(s => {
+                if (s.latitude === 0 && s.longitude === 0) return;
+                if (!sosMarkers[s.id]) {
+                    const sosIcon = L.divIcon({ className: 'sos-marker', iconSize: [20, 20] });
+                    sosMarkers[s.id] = L.marker([s.latitude, s.longitude], { icon: sosIcon })
+                        .addTo(map)
+                        .bindPopup('<strong style="color:var(--color-danger)">SOS: ' + esc(s.username) + '</strong><br>' +
+                            esc(s.message) + '<br>' +
+                            '<button class="btn danger" onclick="acknowledgeSOS(' + s.id + ')">Acknowledge</button>');
+                }
+            });
+        } else {
+            banner.style.display = 'none';
+            // Remove acknowledged SOS markers
+            Object.keys(sosMarkers).forEach(k => {
+                if (!data.find(s => s.id == k)) {
+                    map.removeLayer(sosMarkers[k]);
+                    delete sosMarkers[k];
+                }
+            });
+        }
+    }
+
+    async function acknowledgeSOS(id) {
+        await api('/api/sos/' + id + '/acknowledge', {
+            method: 'POST',
+            body: JSON.stringify({ acknowledged_by: 'admin' })
+        });
+        showToast('SOS acknowledged', 'success');
+        checkSOS();
+    }
+
+    async function showDispatchPanel(lat, lng) {
+        const panel = document.getElementById('dispatchPanel');
+        document.getElementById('dispatchLocation').textContent = 'Location: ' + lat.toFixed(5) + ', ' + lng.toFixed(5);
+        panel.style.display = 'block';
+
+        const data = await api('/api/dispatch/nearest?lat=' + lat + '&lng=' + lng);
+        if (!data || data.length === 0) {
+            document.getElementById('nearestList').innerHTML = '<p style="color:var(--color-text-secondary)">No devices with GPS data</p>';
+            return;
+        }
+
+        document.getElementById('nearestList').innerHTML = data.map(d =>
+            '<div class="dispatch-card">' +
+            '<div><strong>' + esc(d.username) + '</strong><span class="dispatch-distance">' + formatDistance(d.distance_m) + ' away</span></div>' +
+            '<button class="btn primary" onclick="dispatchWorker(\'' + esc(d.username) + '\',' + lat + ',' + lng + ')">Dispatch</button>' +
+            '</div>'
+        ).join('');
+    }
+
+    async function dispatchWorker(username, lat, lng) {
+        const message = prompt('Message for ' + username + ':');
+        if (!message) return;
+        await api('/api/dispatch', {
+            method: 'POST',
+            body: JSON.stringify({ target_username: username, message: message, latitude: lat, longitude: lng })
+        });
+        showToast('Dispatched ' + username, 'success');
+        document.getElementById('dispatchPanel').style.display = 'none';
+    }
+
+    function formatDistance(m) {
+        if (m < 1000) return m + 'm';
+        return (m / 1000).toFixed(1) + 'km';
     }
 
     function esc(s) {
