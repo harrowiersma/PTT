@@ -4,6 +4,8 @@ services:
     ports:
       - "64738:64738/tcp"
       - "64738:64738/udp"
+      # Map host 443 -> container 64738 for cellular networks that block non-standard ports
+      - "443:64738/tcp"
     environment:
       MUMBLE_CONFIG_ICE: "tcp -h 0.0.0.0 -p 6502"
       MUMBLE_CONFIG_WELCOMETEXT: "<br/>Welcome to the Wiersma PTT server.<br/>Use your PTT button to transmit."
@@ -43,7 +45,6 @@ services:
     image: nginx:alpine
     ports:
       - "80:80"
-      - "443:443"
     volumes:
       - ./nginx-main.conf:/etc/nginx/nginx.conf:ro
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
