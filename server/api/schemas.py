@@ -25,6 +25,7 @@ class UserResponse(BaseModel):
 class UserOnline(BaseModel):
     username: str
     channel_id: int
+    channel_name: str = ""
     is_muted: bool
     is_deaf: bool
     online_secs: int

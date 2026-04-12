@@ -23,10 +23,15 @@ async def get_server_status(
         )
 
     status = murmur.get_status()
+
+    # Build channel ID -> name map
+    channel_names = {ch.id: ch.name for ch in status.channels}
+
     users = [
         UserOnline(
             username=u.name,
             channel_id=u.channel_id,
+            channel_name=channel_names.get(u.channel_id, f"Channel {u.channel_id}"),
             is_muted=u.is_muted,
             is_deaf=u.is_deaf,
             online_secs=u.online_secs,

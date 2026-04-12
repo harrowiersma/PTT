@@ -464,7 +464,7 @@
         } else {
             tbody.innerHTML = data.users.map(u => '<tr>' +
                 '<td>' + esc(u.username) + '</td>' +
-                '<td>Channel ' + u.channel_id + '</td>' +
+                '<td>' + esc(u.channel_name || ('Channel ' + u.channel_id)) + '</td>' +
                 '<td>' + formatDuration(u.online_secs) + '</td>' +
                 '<td><span class="badge online">Online</span></td>' +
                 '</tr>').join('');
