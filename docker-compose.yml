@@ -10,6 +10,8 @@ services:
       MUMBLE_CONFIG_BANDWIDTH: "24000"
       MUMBLE_CONFIG_USERS: "50"
       MUMBLE_CONFIG_OPUS_THRESHOLD: "0"
+      # Disable autoban: the admin service TCP health checks trigger it
+      MUMBLE_CONFIG_AUTOBANATTEMPTS: "0"
     volumes:
       - murmur-data:/data
     restart: unless-stopped
