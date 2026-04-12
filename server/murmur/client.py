@@ -44,19 +44,48 @@ class ServerStatus:
 
 
 class MurmurClient:
-    """Client for Murmur's ICE administration interface."""
+    """Client for Murmur server administration.
 
-    def __init__(self, host: str, port: int, secret: str = ""):
+    Supports two modes:
+    - Full ICE mode: requires zeroc-ice + Murmur slice stubs. Provides user/channel management.
+    - Health-check mode: just pings the Mumble TCP port. Shows server as "running" in dashboard.
+    """
+
+    def __init__(self, host: str, port: int, secret: str = "",
+                 mumble_host: str = "murmur", mumble_port: int = 64738):
         self.host = host
         self.port = port
         self.secret = secret
+        self.mumble_host = mumble_host
+        self.mumble_port = mumble_port
         self._ice = None
         self._meta = None
         self._server = None
+        self._ice_connected = False
         self._connected = False
 
     def connect(self) -> bool:
-        """Connect to Murmur's ICE interface."""
+        """Connect to Murmur. Tries ICE first, falls back to TCP health check."""
+        # Try ICE connection first (full admin capabilities)
+        if self._connect_ice():
+            self._connected = True
+            return True
+
+        # Fall back to TCP health check (server status only)
+        if self._check_tcp():
+            self._connected = True
+            logger.info(
+                "Murmur is running (TCP check on %s:%d) but ICE is not available. "
+                "Dashboard will show server status. User/channel sync with Murmur is disabled.",
+                self.mumble_host, self.mumble_port,
+            )
+            return True
+
+        logger.warning("Murmur is not reachable at %s:%d", self.mumble_host, self.mumble_port)
+        return False
+
+    def _connect_ice(self) -> bool:
+        """Try to connect via ICE for full admin capabilities."""
         try:
             import Ice
 
@@ -73,33 +102,36 @@ class MurmurClient:
             proxy_str = f"Meta:tcp -h {self.host} -p {self.port}"
             proxy = self._ice.stringToProxy(proxy_str)
 
-            # Import generated Murmur module
             import Murmur
 
             self._meta = Murmur.MetaPrx.checkedCast(proxy)
             if not self._meta:
-                logger.error("Failed to cast ICE proxy to Murmur.Meta")
                 return False
 
             servers = self._meta.getBootedServers()
             if servers:
                 self._server = servers[0]
-                self._connected = True
+                self._ice_connected = True
                 logger.info("Connected to Murmur ICE at %s:%d", self.host, self.port)
                 return True
-            else:
-                logger.warning("No booted Murmur servers found")
-                return False
+            return False
 
         except ImportError:
-            logger.warning(
-                "ICE or Murmur module not available. "
-                "Run slice2py on Murmur.ice to generate stubs. "
-                "Using stub implementation."
-            )
+            logger.info("zeroc-ice not installed. ICE admin features disabled.")
             return False
         except Exception as e:
-            logger.error("Failed to connect to Murmur ICE: %s", e)
+            logger.info("ICE connection failed (%s). Falling back to TCP health check.", e)
+            return False
+
+    def _check_tcp(self) -> bool:
+        """Simple TCP connect to verify Murmur is running."""
+        import socket
+        try:
+            sock = socket.create_connection((self.mumble_host, self.mumble_port), timeout=5)
+            sock.close()
+            return True
+        except (socket.timeout, ConnectionRefusedError, OSError) as e:
+            logger.debug("TCP check to %s:%d failed: %s", self.mumble_host, self.mumble_port, e)
             return False
 
     @property
@@ -108,8 +140,13 @@ class MurmurClient:
 
     def get_status(self) -> ServerStatus:
         """Get current server status including online users."""
-        if not self._connected or not self._server:
+        if not self._connected:
             return ServerStatus()
+
+        # Without ICE, just report server is running (from TCP check)
+        if not self._ice_connected or not self._server:
+            alive = self._check_tcp()
+            return ServerStatus(is_running=alive, users_online=0, max_users=50)
 
         try:
             users_dict = self._server.getUsers()

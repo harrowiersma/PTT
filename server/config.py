@@ -18,8 +18,8 @@ class Settings(BaseSettings):
     murmur_ice_port: int = 6502
     murmur_ice_secret: str = ""
 
-    # Murmur connection
-    murmur_host: str = "127.0.0.1"
+    # Murmur connection (Docker service name)
+    murmur_host: str = "murmur"
     murmur_port: int = 64738
 
     # Server public address (for QR codes)

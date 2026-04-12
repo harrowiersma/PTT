@@ -34,6 +34,8 @@ async def lifespan(app: FastAPI):
         host=settings.murmur_ice_host,
         port=settings.murmur_ice_port,
         secret=settings.murmur_ice_secret,
+        mumble_host=settings.murmur_host,
+        mumble_port=settings.murmur_port,
     )
     connected = client.connect()
     app.state.murmur_client = client
