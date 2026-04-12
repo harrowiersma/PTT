@@ -460,7 +460,7 @@
 
         const tbody = document.getElementById('onlineTable');
         if (data.users.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state"><div class="icon">&#128225;</div><p>No devices connected yet.</p><span class="action" onclick="switchTab(\'users\')">Set up your first P50 in the Users tab</span></div></td></tr>';
+            tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state"><div class="icon">&#128225;</div><p>No devices connected yet.</p><span class="action" onclick="switchTab(\'users\')">Set up your first device in the Users tab</span></div></td></tr>';
         } else {
             tbody.innerHTML = data.users.map(u => '<tr>' +
                 '<td>' + esc(u.username) + '</td>' +

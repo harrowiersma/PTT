@@ -1,13 +1,13 @@
-"""Murmur ICE client for server administration.
+"""Murmur client using pymumble for server administration.
 
-Connects to Murmur's ICE interface to manage users, channels, and query
-server status. Requires zeroc-ice and the Murmur.ice slice definitions.
-
-If ICE is unavailable (e.g., during development without Murmur running),
-falls back to a stub implementation that returns empty/mock data.
+Connects as a bot user to Murmur to manage channels, query online users,
+and send text messages. Replaces the ICE-based client (zeroc-ice doesn't
+compile on python:3.11-slim).
 """
 
 import logging
+import threading
+import time
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
@@ -44,217 +44,198 @@ class ServerStatus:
 
 
 class MurmurClient:
-    """Client for Murmur server administration.
-
-    Supports two modes:
-    - Full ICE mode: requires zeroc-ice + Murmur slice stubs. Provides user/channel management.
-    - Health-check mode: just pings the Mumble TCP port. Shows server as "running" in dashboard.
-    """
+    """Client for Murmur using pymumble (connects as a bot user)."""
 
     def __init__(self, host: str, port: int, secret: str = "",
                  mumble_host: str = "murmur", mumble_port: int = 64738):
-        self.host = host
-        self.port = port
+        self.host = host  # ICE host (unused with pymumble)
+        self.port = port  # ICE port (unused with pymumble)
         self.secret = secret
         self.mumble_host = mumble_host
         self.mumble_port = mumble_port
-        self._ice = None
-        self._meta = None
-        self._server = None
-        self._ice_connected = False
+        self._mumble = None
         self._connected = False
+        self._thread = None
 
     def connect(self) -> bool:
-        """Connect to Murmur. Tries ICE first, falls back to TCP health check."""
-        # Try ICE connection first (full admin capabilities)
-        if self._connect_ice():
-            self._connected = True
-            return True
+        """Connect to Murmur as a bot user via pymumble."""
+        try:
+            import pymumble_py3 as pymumble
 
-        # Fall back to TCP health check (server status only)
-        if self._check_tcp():
+            self._mumble = pymumble.Mumble(
+                self.mumble_host,
+                "PTTAdmin",
+                port=self.mumble_port,
+                reconnect=True,
+            )
+            self._mumble.set_application_string("PTT Admin Service")
+            self._mumble.start()
+            self._mumble.is_ready()
+            time.sleep(1)
+
             self._connected = True
             logger.info(
-                "Murmur is running (TCP check on %s:%d) but ICE is not available. "
-                "Dashboard will show server status. User/channel sync with Murmur is disabled.",
+                "Connected to Murmur via pymumble at %s:%d",
                 self.mumble_host, self.mumble_port,
             )
             return True
 
-        logger.warning("Murmur is not reachable at %s:%d", self.mumble_host, self.mumble_port)
-        return False
-
-    def _connect_ice(self) -> bool:
-        """Try to connect via ICE for full admin capabilities."""
-        try:
-            import Ice
-
-            props = Ice.createProperties()
-            props.setProperty("Ice.ImplicitContext", "Shared")
-            props.setProperty("Ice.Default.EncodingVersion", "1.0")
-            init_data = Ice.InitializationData()
-            init_data.properties = props
-            self._ice = Ice.initialize(init_data)
-
-            if self.secret:
-                self._ice.getImplicitContext().put("secret", self.secret)
-
-            proxy_str = f"Meta:tcp -h {self.host} -p {self.port}"
-            proxy = self._ice.stringToProxy(proxy_str)
-
-            import Murmur
-
-            self._meta = Murmur.MetaPrx.checkedCast(proxy)
-            if not self._meta:
-                return False
-
-            servers = self._meta.getBootedServers()
-            if servers:
-                self._server = servers[0]
-                self._ice_connected = True
-                logger.info("Connected to Murmur ICE at %s:%d", self.host, self.port)
-                return True
-            return False
-
         except ImportError:
-            logger.info("zeroc-ice not installed. ICE admin features disabled.")
-            return False
+            logger.warning("pymumble not installed. Trying TCP health check.")
+            return self._check_tcp()
         except Exception as e:
-            logger.info("ICE connection failed (%s). Falling back to TCP health check.", e)
-            return False
+            logger.error("pymumble connection failed: %s. Trying TCP health check.", e)
+            return self._check_tcp()
 
     def _check_tcp(self) -> bool:
-        """Simple TCP connect to verify Murmur is running."""
+        """Fallback: simple TCP connect to verify Murmur is running."""
         import socket
         try:
             sock = socket.create_connection((self.mumble_host, self.mumble_port), timeout=5)
             sock.close()
+            self._connected = True
+            logger.info(
+                "Murmur is running (TCP check on %s:%d) but pymumble not available.",
+                self.mumble_host, self.mumble_port,
+            )
             return True
         except (socket.timeout, ConnectionRefusedError, OSError) as e:
-            logger.debug("TCP check to %s:%d failed: %s", self.mumble_host, self.mumble_port, e)
+            logger.warning("Murmur not reachable at %s:%d: %s", self.mumble_host, self.mumble_port, e)
             return False
 
     @property
     def is_connected(self) -> bool:
         return self._connected
 
+    @property
+    def has_mumble(self) -> bool:
+        return self._mumble is not None
+
     def get_status(self) -> ServerStatus:
         """Get current server status including online users."""
         if not self._connected:
             return ServerStatus()
 
-        # Without ICE, just report server is running (from TCP check)
-        if not self._ice_connected or not self._server:
-            alive = self._check_tcp()
-            return ServerStatus(is_running=alive, users_online=0, max_users=50)
+        if not self._mumble:
+            # TCP-only mode: just report server is running
+            import socket
+            try:
+                sock = socket.create_connection((self.mumble_host, self.mumble_port), timeout=5)
+                sock.close()
+                return ServerStatus(is_running=True, users_online=0, max_users=50)
+            except Exception:
+                return ServerStatus()
 
         try:
-            users_dict = self._server.getUsers()
-            channels_dict = self._server.getChannels()
-
             users = []
-            for session_id, state in users_dict.items():
+            for session_id, user in self._mumble.users.items():
+                if user["name"] == "PTTAdmin":
+                    continue  # Skip our own bot user
                 users.append(
                     MumbleUser(
                         session=session_id,
-                        name=state.name,
-                        channel_id=state.channel,
-                        is_muted=state.mute,
-                        is_deaf=state.deaf,
-                        online_secs=state.onlinesecs,
-                        address=".".join(str(b) for b in state.address[:4])
-                        if state.address
-                        else "",
+                        name=user["name"],
+                        channel_id=user.get("channel_id", 0),
+                        is_muted=user.get("mute", False),
+                        is_deaf=user.get("deaf", False),
+                        online_secs=0,
+                        address="",
                     )
                 )
 
             channels = []
-            for chan_id, chan_state in channels_dict.items():
+            for chan_id, chan in self._mumble.channels.items():
                 channels.append(
                     MumbleChannel(
                         id=chan_id,
-                        name=chan_state.name,
-                        parent_id=chan_state.parent,
-                        description=chan_state.description,
+                        name=chan["name"],
+                        parent_id=chan.get("parent", 0),
+                        description=chan.get("description", ""),
                     )
                 )
-
-            conf = self._server.getAllConf()
-            max_users = int(conf.get("users", "100"))
 
             return ServerStatus(
                 is_running=True,
                 users_online=len(users),
-                max_users=max_users,
+                max_users=50,
                 users=users,
                 channels=channels,
             )
         except Exception as e:
             logger.error("Error querying Murmur status: %s", e)
-            return ServerStatus()
-
-    def register_user(self, username: str, password: str) -> int | None:
-        """Register a new user in Murmur. Returns the registered user ID."""
-        if not self._connected or not self._server:
-            logger.warning("Not connected to Murmur, cannot register user")
-            return None
-
-        try:
-            import Murmur
-
-            info = {Murmur.UserInfo.UserName: username, Murmur.UserInfo.UserPassword: password}
-            user_id = self._server.registerUser(info)
-            logger.info("Registered user '%s' with ID %d", username, user_id)
-            return user_id
-        except Exception as e:
-            logger.error("Failed to register user '%s': %s", username, e)
-            return None
-
-    def remove_user(self, user_id: int) -> bool:
-        """Unregister a user from Murmur."""
-        if not self._connected or not self._server:
-            return False
-
-        try:
-            self._server.unregisterUser(user_id)
-            logger.info("Unregistered user ID %d", user_id)
-            return True
-        except Exception as e:
-            logger.error("Failed to unregister user %d: %s", user_id, e)
-            return False
+            return ServerStatus(is_running=True)
 
     def create_channel(self, name: str, parent_id: int = 0) -> int | None:
-        """Create a new channel. Returns the channel ID."""
-        if not self._connected or not self._server:
+        """Create a new channel in Murmur."""
+        if not self._mumble:
+            logger.warning("pymumble not available, cannot create channel in Murmur")
             return None
 
         try:
-            chan_id = self._server.addChannel(name, parent_id)
-            logger.info("Created channel '%s' with ID %d", name, chan_id)
-            return chan_id
+            self._mumble.channels.new_channel(parent_id, name, temporary=False)
+            time.sleep(0.5)
+            # Find the channel we just created
+            for chan_id, chan in self._mumble.channels.items():
+                if chan["name"] == name:
+                    logger.info("Created channel '%s' with ID %d in Murmur", name, chan_id)
+                    return chan_id
+            logger.warning("Channel '%s' created but not found in channel list", name)
+            return None
         except Exception as e:
             logger.error("Failed to create channel '%s': %s", name, e)
             return None
 
     def remove_channel(self, channel_id: int) -> bool:
-        """Remove a channel."""
-        if not self._connected or not self._server:
+        """Remove a channel from Murmur."""
+        if not self._mumble:
             return False
 
         try:
-            self._server.removeChannel(channel_id)
-            logger.info("Removed channel ID %d", channel_id)
-            return True
+            if channel_id in self._mumble.channels:
+                self._mumble.channels[channel_id].remove()
+                logger.info("Removed channel ID %d from Murmur", channel_id)
+                return True
+            return False
         except Exception as e:
             logger.error("Failed to remove channel %d: %s", channel_id, e)
             return False
 
+    def send_message(self, channel_id: int, message: str) -> bool:
+        """Send a text message to a channel."""
+        if not self._mumble:
+            return False
+
+        try:
+            if channel_id in self._mumble.channels:
+                self._mumble.channels[channel_id].send_text_message(message)
+                logger.info("Sent message to channel %d", channel_id)
+                return True
+            return False
+        except Exception as e:
+            logger.error("Failed to send message to channel %d: %s", channel_id, e)
+            return False
+
+    def register_user(self, username: str, password: str) -> int | None:
+        """Register a user. pymumble can't register users directly.
+        Users auto-register when they connect to Murmur."""
+        logger.info(
+            "User '%s' will auto-register when they connect to Murmur. "
+            "pymumble doesn't support server-side user registration.",
+            username,
+        )
+        return None
+
+    def remove_user(self, user_id: int) -> bool:
+        """Remove a registered user. Not supported via pymumble."""
+        logger.info("User removal requires ICE or direct DB access.")
+        return False
+
     def disconnect(self):
-        """Clean up ICE connection."""
-        if self._ice:
+        """Clean up pymumble connection."""
+        if self._mumble:
             try:
-                self._ice.destroy()
+                self._mumble.stop()
             except Exception:
                 pass
-            self._ice = None
+            self._mumble = None
             self._connected = False
