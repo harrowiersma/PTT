@@ -9,5 +9,9 @@ python-multipart==0.0.18
 pydantic==2.10.3
 pydantic-settings==2.7.1
 qrcode[pil]==8.0
-zeroc-ice==3.7.10.1
 alembic==1.14.1
+# zeroc-ice==3.7.10.1
+# Commented out: ICE bindings fail to compile on Python 3.11-slim.
+# The admin service runs fine without it (MurmurClient handles ImportError).
+# To enable Murmur ICE integration, install zeroc-ice manually on a system
+# with a full C++ toolchain, or use the grpc interface when available.
