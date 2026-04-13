@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Admin service
-    app_name: str = "PTT Admin"
+    app_name: str = "openPTT TRX-Admin"
     secret_key: str = "change-me-in-production"
     access_token_expire_minutes: int = 60
     admin_username: str = "admin"

@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Starting PTT Admin Service")
+    logger.info("Starting openPTT TRX-Server")
     validate_settings()
 
     # Initialize database
@@ -131,12 +131,12 @@ async def lifespan(app: FastAPI):
     # Cleanup
     if app.state.murmur_client:
         app.state.murmur_client.disconnect()
-    logger.info("PTT Admin Service stopped")
+    logger.info("openPTT TRX-Server stopped")
 
 
 app = FastAPI(
     title=settings.app_name,
-    description="Admin service for self-hosted PTT server (Murmur backend)",
+    description="openPTT TRX-Server admin dashboard",
     version="0.1.0",
     lifespan=lifespan,
 )

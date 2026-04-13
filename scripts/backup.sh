@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# PTT Server Daily Backup
+# openPTT TRX-Server Daily Backup
 # Backs up PostgreSQL + Murmur data to /opt/ptt/backups/
 # Keeps 30 days of daily backups, auto-prunes older ones.
 #
@@ -16,7 +16,7 @@ KEEP_DAYS=30
 
 mkdir -p "$BACKUP_PATH"
 
-echo "[$(date)] Starting PTT backup..."
+echo "[$(date)] Starting openPTT TRX backup..."
 
 # Backup PostgreSQL
 echo "  Backing up PostgreSQL..."

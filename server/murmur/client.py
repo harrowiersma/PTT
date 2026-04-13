@@ -70,7 +70,7 @@ class MurmurClient:
                 port=self.mumble_port,
                 reconnect=True,
             )
-            self._mumble.set_application_string("PTT Admin Service")
+            self._mumble.set_application_string("openPTT TRX-Server")
             self._mumble.callbacks.set_callback(
                 pymumble.constants.PYMUMBLE_CLBK_TEXTMESSAGERECEIVED,
                 self._on_text_message,

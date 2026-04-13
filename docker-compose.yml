@@ -8,7 +8,7 @@ services:
       # Direct 64738 still available as fallback
     environment:
       MUMBLE_CONFIG_ICE: "tcp -h 0.0.0.0 -p 6502"
-      MUMBLE_CONFIG_WELCOMETEXT: "<br/>Welcome to the Wiersma PTT server.<br/>Use your PTT button to transmit."
+      MUMBLE_CONFIG_WELCOMETEXT: "<br/>Welcome to the openPTT TRX server.<br/>Use your PTT button to transmit."
       MUMBLE_CONFIG_BANDWIDTH: "24000"
       MUMBLE_CONFIG_USERS: "50"
       MUMBLE_CONFIG_OPUS_THRESHOLD: "0"
