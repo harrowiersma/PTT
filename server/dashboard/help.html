@@ -7,7 +7,10 @@
     <link rel="icon" type="image/png" href="favicon.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        :root { --bg: #0a0e17; --surface: #131926; --text: #e8edf5; --muted: #8892a4; --accent: #3b82f6; --border: #1e2a3a; --success: #34d399; --danger: #f87171; --warning: #fbbf24; }
+        :root, [data-theme="dark"] { --bg: #0a0e17; --surface: #131926; --text: #e8edf5; --muted: #8892a4; --accent: #3b82f6; --border: #1e2a3a; --success: #34d399; --danger: #f87171; --warning: #fbbf24; }
+        [data-theme="light"] { --bg: #f0f2f5; --surface: #ffffff; --text: #111827; --muted: #6b7280; --accent: #2563eb; --border: #e2e5ea; --success: #16a34a; --danger: #dc2626; --warning: #a16207; }
+        [data-theme="light"] .header { box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+        [data-theme="light"] .feature { box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'DM Sans', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
         .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
@@ -41,7 +44,10 @@
 <body>
     <div class="header">
         <h1><img src="logo.svg" alt="openPTT TRX"> openPTT TRX Help</h1>
-        <a href="/">← Back to Dashboard</a>
+        <div style="display:flex;align-items:center;gap:0.75rem">
+            <button onclick="toggleTheme()" id="helpThemeBtn" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:1rem">☾</button>
+            <a href="/">← Back to Dashboard</a>
+        </div>
     </div>
     <div class="container">
         <h2>openPTT TRX Documentation</h2>
@@ -199,5 +205,22 @@
 
         <p style="margin-top:3rem;color:var(--muted);font-size:0.75rem;text-align:center">openPTT TRX — Self-hosted Push-to-Talk for field operations</p>
     </div>
+    <script>
+    function initTheme() {
+        var t = localStorage.getItem('ptt_theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', t);
+        var b = document.getElementById('helpThemeBtn');
+        if (b) b.textContent = t === 'dark' ? '\u263E' : '\u2600';
+    }
+    function toggleTheme() {
+        var c = document.documentElement.getAttribute('data-theme') || 'dark';
+        var n = c === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', n);
+        localStorage.setItem('ptt_theme', n);
+        var b = document.getElementById('helpThemeBtn');
+        if (b) b.textContent = n === 'dark' ? '\u263E' : '\u2600';
+    }
+    initTheme();
+    </script>
 </body>
 </html>
