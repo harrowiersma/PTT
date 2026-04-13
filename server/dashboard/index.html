@@ -165,8 +165,7 @@
         .form-row { display: flex; gap: var(--space-sm); margin-bottom: 0.75rem; flex-wrap: wrap; }
         .form-row input { flex: 1; min-width: 120px; padding: 0.375rem var(--space-sm); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 0.8125rem; min-height: var(--min-touch); background: var(--color-bg); color: var(--color-text); font-family: inherit; transition: border-color 0.2s; }
         .form-row input:focus { outline: none; border-color: var(--color-accent); box-shadow: 0 0 0 3px var(--color-accent-glow); }
-        input[type="checkbox"] { width: 14px; height: 14px; margin: 0; accent-color: var(--color-accent); cursor: pointer; flex-shrink: 0; }
-        label:has(input[type="checkbox"]) { gap: 4px !important; }
+        input[type="checkbox"] { transform: scale(0.75); margin: 0 -2px 0 0; accent-color: var(--color-accent); cursor: pointer; }
 
         .search-bar { margin-bottom: var(--space-md); }
         .search-bar input { width: 100%; padding: var(--space-sm) var(--space-md); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 0.8125rem; min-height: var(--min-touch); background: var(--color-bg); color: var(--color-text); font-family: inherit; transition: border-color 0.2s; }
@@ -288,8 +287,8 @@
                     <input type="text" id="newUsername" placeholder="Username" aria-label="New username">
                     <input type="text" id="newDisplayName" placeholder="Display Name" aria-label="Display name">
                     <input type="password" id="newPassword" placeholder="Password" aria-label="Password">
-                    <label style="display:flex;align-items:center;gap:3px;font-size:0.8125rem;white-space:nowrap"><input type="checkbox" id="newIsAdmin" style="width:13px;height:13px;margin:0"> Admin</label>
-                    <label style="display:flex;align-items:center;gap:3px;font-size:0.8125rem;white-space:nowrap"><input type="checkbox" id="newIsLoneWorker" style="width:13px;height:13px;margin:0"> Lone Worker</label>
+                    <label style="display:flex;align-items:center;gap:3px;font-size:0.8125rem;white-space:nowrap"><input type="checkbox" id="newIsAdmin"> Admin</label>
+                    <label style="display:flex;align-items:center;gap:3px;font-size:0.8125rem;white-space:nowrap"><input type="checkbox" id="newIsLoneWorker"> Lone Worker</label>
                     <button class="btn primary" onclick="createUser()">Add</button>
                 </div>
             </div>
@@ -356,10 +355,10 @@
                 <p style="font-size:0.8125rem;color:var(--color-text-secondary);margin-bottom:var(--space-md)">When enabled, workers must check in periodically. Overdue workers show red on the Overview. Optionally auto-triggers SOS.</p>
                 <div id="loneWorkerAdminConfig" style="display:flex;flex-wrap:wrap;gap:var(--space-md);align-items:center">
                     <label style="display:flex;align-items:center;gap:3px;font-size:0.8125rem;cursor:pointer">
-                        <input type="checkbox" id="lwEnabled" onchange="saveLoneWorkerConfig()" style="width:13px;height:13px;margin:0"> Enable Lone Worker Monitoring
+                        <input type="checkbox" id="lwEnabled" onchange="saveLoneWorkerConfig()"> Enable Lone Worker Monitoring
                     </label>
                     <label style="display:flex;align-items:center;gap:3px;font-size:0.8125rem;cursor:pointer">
-                        <input type="checkbox" id="lwAutoSos" onchange="saveLoneWorkerConfig()" style="width:13px;height:13px;margin:0"> Auto-SOS on overdue
+                        <input type="checkbox" id="lwAutoSos" onchange="saveLoneWorkerConfig()"> Auto-SOS on overdue
                     </label>
                     <div style="display:flex;align-items:center;gap:var(--space-xs);font-size:0.8125rem">
                         <label for="lwInterval">Check-in every</label>
@@ -507,10 +506,10 @@
             <label style="font-size:0.8125rem;display:block;margin-bottom:var(--space-xs)">New Password (leave blank to keep current)</label>
             <input type="password" id="editPassword" placeholder="Leave blank to keep" style="width:100%;padding:var(--space-sm);border:1px solid var(--color-border);border-radius:var(--radius-sm);margin-bottom:var(--space-md)">
             <div id="editRoleRow" style="margin-bottom:var(--space-sm)">
-                <label style="font-size:0.8125rem;display:flex;align-items:center;gap:var(--space-xs)"><input type="checkbox" id="editIsAdmin" style="width:13px;height:13px;margin:0"> Admin role</label>
+                <label style="font-size:0.8125rem;display:flex;align-items:center;gap:var(--space-xs)"><input type="checkbox" id="editIsAdmin"> Admin role</label>
             </div>
             <div id="editLoneWorkerRow" style="margin-bottom:var(--space-md)">
-                <label style="font-size:0.8125rem;display:flex;align-items:center;gap:var(--space-xs)"><input type="checkbox" id="editIsLoneWorker" style="width:13px;height:13px;margin:0"> Lone Worker (requires periodic check-in)</label>
+                <label style="font-size:0.8125rem;display:flex;align-items:center;gap:var(--space-xs)"><input type="checkbox" id="editIsLoneWorker"> Lone Worker (requires periodic check-in)</label>
             </div>
             <div style="display:flex;gap:var(--space-sm);justify-content:flex-end">
                 <button class="btn" onclick="closeModal('editUserModal')">Cancel</button>
