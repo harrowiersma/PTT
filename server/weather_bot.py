@@ -239,7 +239,7 @@ class WeatherBot:
                     result = await db.execute(select(Channel).where(Channel.name == name))
                     if result.scalar_one_or_none():
                         return  # Already exists
-                    ch = Channel(name=name, description=description, mumble_id=mumble_id)
+                    ch = Channel(name=name, description=description, mumble_id=mumble_id, max_users=0)
                     db.add(ch)
                     await db.commit()
                     logger.info("Created '%s' channel in database (mumble_id=%d)", name, mumble_id)
