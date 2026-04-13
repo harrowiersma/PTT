@@ -225,6 +225,10 @@
             <label for="loginPass" style="display:none">Password</label>
             <input type="password" id="loginPass" placeholder="Password" aria-label="Password">
             <button onclick="doLogin()">Sign In</button>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:var(--space-md);font-size:0.75rem">
+                <a href="help.html" style="color:var(--color-text-secondary);text-decoration:none">Help & Documentation</a>
+                <button onclick="toggleTheme()" style="background:none;border:none;color:var(--color-text-secondary);cursor:pointer;font-size:0.875rem;padding:2px" id="loginThemeBtn">☾</button>
+            </div>
         </div>
     </div>
 
@@ -535,8 +539,11 @@
         updateThemeIcon(next);
     }
     function updateThemeIcon(theme) {
+        const icon = theme === 'dark' ? '\u263E' : '\u2600';
         const btn = document.getElementById('themeBtn');
-        if (btn) btn.textContent = theme === 'dark' ? '\u263E' : '\u2600';
+        const loginBtn = document.getElementById('loginThemeBtn');
+        if (btn) btn.textContent = icon;
+        if (loginBtn) loginBtn.textContent = icon;
     }
     initTheme();
 
