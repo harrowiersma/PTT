@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>openPTT TRX - Help</title>
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root { --bg: #0a0e17; --surface: #131926; --text: #e8edf5; --muted: #8892a4; --accent: #3b82f6; --border: #1e2a3a; --success: #34d399; --danger: #f87171; --warning: #fbbf24; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'DM Sans', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+        .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { font-size: 1rem; display: flex; align-items: center; gap: 0.5rem; }
+        .header h1 img { width: 24px; height: 24px; border-radius: 5px; }
+        .header a { color: var(--accent); text-decoration: none; font-size: 0.875rem; }
+        .container { max-width: 800px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+        h2 { font-size: 1.5rem; font-weight: 700; margin: 2.5rem 0 1rem; letter-spacing: -0.02em; color: var(--text); }
+        h2:first-of-type { margin-top: 1rem; }
+        h3 { font-size: 1rem; font-weight: 600; margin: 1.5rem 0 0.5rem; color: var(--text); }
+        p { color: var(--muted); margin-bottom: 0.75rem; font-size: 0.9rem; }
+        .feature { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; }
+        .feature h3 { margin-top: 0; color: var(--accent); font-size: 0.9rem; }
+        .feature p { margin-bottom: 0.25rem; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 0.7rem; font-weight: 500; }
+        .badge-voice { background: rgba(52,211,153,0.12); color: var(--success); }
+        .badge-safety { background: rgba(248,113,113,0.12); color: var(--danger); }
+        .badge-ops { background: rgba(59,130,246,0.12); color: var(--accent); }
+        .badge-admin { background: rgba(251,191,36,0.12); color: var(--warning); }
+        code { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-size: 0.8rem; font-family: 'DM Sans', monospace; }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.85rem; }
+        th { text-align: left; padding: 0.5rem; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+        td { padding: 0.5rem; border-bottom: 1px solid #182030; }
+        .toc { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; margin: 1rem 0 2rem; }
+        .toc h3 { margin: 0 0 0.5rem; font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+        .toc a { color: var(--accent); text-decoration: none; font-size: 0.85rem; display: block; padding: 2px 0; }
+        .toc a:hover { text-decoration: underline; }
+        @media (max-width: 600px) { .container { padding: 1rem; } h2 { font-size: 1.25rem; } }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1><img src="logo.svg" alt="openPTT TRX"> openPTT TRX Help</h1>
+        <a href="/">← Back to Dashboard</a>
+    </div>
+    <div class="container">
+        <h2>openPTT TRX Documentation</h2>
+        <p>Self-hosted Push-to-Talk server with GPS tracking, emergency alerts, weather reporting, and fleet dispatch.</p>
+
+        <div class="toc">
+            <h3>Contents</h3>
+            <a href="#voice">Voice Communication (PTT)</a>
+            <a href="#channels">Channels</a>
+            <a href="#gps">GPS Tracking & Map</a>
+            <a href="#sos">Emergency SOS</a>
+            <a href="#weather">Weather Channel (ATIS)</a>
+            <a href="#dispatch">Dispatch</a>
+            <a href="#loneworker">Lone Worker Safety</a>
+            <a href="#users">User Management</a>
+            <a href="#admin">Admin Accounts</a>
+            <a href="#enrollment">Bulk Enrollment</a>
+            <a href="#audit">Audit Log</a>
+            <a href="#monitoring">Monitoring</a>
+            <a href="#p50setup">P50 Device Setup</a>
+            <a href="#ports">Network & Ports</a>
+        </div>
+
+        <h2 id="voice">Voice Communication (PTT)</h2>
+        <div class="feature">
+            <h3><span class="badge badge-voice">Voice</span> Push-to-Talk</h3>
+            <p>Two-way voice communication using the Mumble protocol. Press the hardware PTT button on the P50 to transmit. Release to listen. Audio is encoded with Opus at 16-24 kbps for clear voice quality with low latency (&lt;200ms).</p>
+            <p><strong>Server:</strong> Murmur (Mumble server) handles voice routing, encoding, and channel management.</p>
+            <p><strong>Client:</strong> HamMumble app on Hytera P50 devices.</p>
+        </div>
+
+        <h2 id="channels">Channels</h2>
+        <div class="feature">
+            <h3><span class="badge badge-voice">Voice</span> Channel Management</h3>
+            <p>Create channels for different teams or purposes (e.g., Warehouse, Security, Office). Users join a channel to hear and talk to other members. Managed from the <strong>Channels</strong> tab.</p>
+            <p><strong>Special channels:</strong></p>
+            <p>• <strong>Emergency</strong> — Auto-created for SOS events. All users are moved here during emergencies.</p>
+            <p>• <strong>Weather</strong> — Double-PTT to hear a spoken weather report for your GPS location.</p>
+        </div>
+
+        <h2 id="gps">GPS Tracking & Map</h2>
+        <div class="feature">
+            <h3><span class="badge badge-ops">Operations</span> Live Device Tracking</h3>
+            <p>Each P50 device runs the Traccar Client app in the background, reporting GPS position every 30 seconds. The <strong>Map</strong> tab shows all device locations on an interactive map (OpenStreetMap).</p>
+            <p><strong>Overview tab</strong> shows GPS coordinates, battery level, and last seen time per device.</p>
+            <p><strong>Requires:</strong> Traccar Client APK installed on the P50, configured with server <code>ptt.harro.ch:5055</code>.</p>
+        </div>
+
+        <h2 id="sos">Emergency SOS</h2>
+        <div class="feature">
+            <h3><span class="badge badge-safety">Safety</span> Emergency Alert System</h3>
+            <p>When an SOS is triggered:</p>
+            <p>1. <strong>All connected users</strong> are automatically moved to the Emergency channel</p>
+            <p>2. <strong>Red alert banner</strong> appears on the admin dashboard with GPS location</p>
+            <p>3. <strong>Webhook/email notification</strong> sent to configured admin contacts</p>
+            <p>4. Everyone can hear the person in distress, regardless of which channel they were in</p>
+            <p><strong>Acknowledge:</strong> An admin can acknowledge from the dashboard or type "OK" in the Emergency channel chat. All users are moved back to their original channels.</p>
+            <p><strong>Trigger methods:</strong> Traccar Client alarm (man-down/SOS), or API call.</p>
+        </div>
+
+        <h2 id="weather">Weather Channel (ATIS)</h2>
+        <div class="feature">
+            <h3><span class="badge badge-ops">Operations</span> Spoken Weather Reports</h3>
+            <p>Aviation-style weather reporting. Join the <strong>Weather</strong> channel and press PTT twice quickly (within 10 seconds). The system:</p>
+            <p>1. Looks up your GPS position from Traccar</p>
+            <p>2. Fetches current weather from Open-Meteo (free, no API key)</p>
+            <p>3. Generates a spoken ATIS-style report using TinyTTS</p>
+            <p>4. Plays the audio in the Weather channel</p>
+            <p><strong>Report includes:</strong> temperature, wind speed and direction, cloud cover, precipitation, weather conditions.</p>
+            <p><strong>Rate limit:</strong> One request per user per 60 seconds.</p>
+            <p><strong>Also available via API:</strong> <code>POST /api/weather</code> with <code>{"location": "Paris, France"}</code></p>
+        </div>
+
+        <h2 id="dispatch">Dispatch</h2>
+        <div class="feature">
+            <h3><span class="badge badge-ops">Operations</span> Nearest Worker Dispatch</h3>
+            <p>From the <strong>Dispatch</strong> tab, enter a location name or coordinates. The system geocodes the location and finds the nearest workers by GPS distance.</p>
+            <p>Click <strong>Dispatch</strong> to send a message to the selected worker via Mumble text.</p>
+            <p><strong>Also on Map tab:</strong> Click anywhere on the map to dispatch to that location.</p>
+        </div>
+
+        <h2 id="loneworker">Lone Worker Safety</h2>
+        <div class="feature">
+            <h3><span class="badge badge-safety">Safety</span> Periodic Check-In System</h3>
+            <p>For field workers who work alone. When enabled:</p>
+            <p>• Workers flagged as <strong>Lone Worker</strong> must check in every X minutes (configurable)</p>
+            <p>• If a worker goes overdue, they receive a <strong>TTS voice reminder</strong>: "Automated check-in for {name}, please respond"</p>
+            <p>• Status shown on the Users tab: <span style="color:var(--success)">OK</span> / <span style="color:var(--warning)">Due soon</span> / <span style="color:var(--danger)">OVERDUE</span></p>
+            <p>• Optionally auto-triggers SOS when a worker goes overdue</p>
+            <p><strong>Enable:</strong> Admin tab → Lone Worker Safety → toggle on.</p>
+            <p><strong>Per-user:</strong> Only users with the "Lone Worker" flag are monitored. Set this when creating or editing a user.</p>
+        </div>
+
+        <h2 id="users">User Management</h2>
+        <div class="feature">
+            <h3><span class="badge badge-admin">Admin</span> Device User Accounts</h3>
+            <p>Create users for each P50 device from the <strong>Users</strong> tab. Each user gets a username, password, and optional display name.</p>
+            <p><strong>QR Code:</strong> Click QR to generate a QR code for quick device enrollment. Scan with the P50 camera to auto-configure HamMumble.</p>
+            <p><strong>Roles:</strong></p>
+            <p>• <strong>Admin</strong> — Can acknowledge SOS from the radio (type "OK" in Emergency channel)</p>
+            <p>• <strong>Lone Worker</strong> — Subject to periodic check-in monitoring</p>
+            <p>• <strong>User</strong> — Standard radio user</p>
+        </div>
+
+        <h2 id="admin">Admin Accounts</h2>
+        <div class="feature">
+            <h3><span class="badge badge-admin">Admin</span> Dashboard Administrators</h3>
+            <p>Manage admin dashboard accounts from the <strong>Admin</strong> tab. Passwords are hashed with bcrypt.</p>
+            <p><strong>Roles:</strong> Admin (full access) or Viewer (read-only dashboard).</p>
+        </div>
+
+        <h2 id="enrollment">Bulk Enrollment</h2>
+        <div class="feature">
+            <h3><span class="badge badge-admin">Admin</span> CSV Upload</h3>
+            <p>From the <strong>Admin</strong> tab, upload a CSV file to create multiple users at once. Download the template, fill in usernames and passwords, upload. Returns a ZIP file with QR codes for each device.</p>
+        </div>
+
+        <h2 id="audit">Audit Log</h2>
+        <div class="feature">
+            <h3><span class="badge badge-admin">Admin</span> Action History</h3>
+            <p>The <strong>Audit Log</strong> tab shows every admin action: user creation/deletion, admin management, SOS events. Filterable by action type. Includes timestamp, admin username, and IP address.</p>
+        </div>
+
+        <h2 id="monitoring">Monitoring</h2>
+        <div class="feature">
+            <h3><span class="badge badge-admin">Admin</span> Prometheus Metrics</h3>
+            <p><code>GET /metrics</code> returns Prometheus-compatible metrics: uptime, Murmur connection status, users online, total users, channels, SOS events.</p>
+            <p><strong>Health check:</strong> <code>GET /api/status/health</code> returns <code>{"status": "healthy", "murmur": "connected"}</code></p>
+        </div>
+
+        <h2 id="p50setup">P50 Device Setup</h2>
+        <div class="feature">
+            <h3>Hytera P50 Configuration</h3>
+            <p><strong>Two apps needed:</strong></p>
+            <table>
+                <tr><th>App</th><th>Purpose</th><th>Server</th><th>Port</th></tr>
+                <tr><td>HamMumble</td><td>Voice PTT + text</td><td>voice.harro.ch</td><td>443</td></tr>
+                <tr><td>Traccar Client</td><td>GPS tracking</td><td>ptt.harro.ch</td><td>5055</td></tr>
+            </table>
+            <p><strong>Sideload via adb:</strong> <code>adb install HamMumble.apk</code> and <code>adb install TraccarClient.apk</code></p>
+            <p><strong>P50 settings:</strong> Disable battery optimization for both apps. Enable background running.</p>
+        </div>
+
+        <h2 id="ports">Network & Ports</h2>
+        <div class="feature">
+            <h3>Server Ports</h3>
+            <table>
+                <tr><th>Port</th><th>Protocol</th><th>Service</th></tr>
+                <tr><td>443</td><td>TCP</td><td>Mumble voice (via Nginx SNI) + HTTPS admin</td></tr>
+                <tr><td>80</td><td>TCP</td><td>HTTP redirect to HTTPS</td></tr>
+                <tr><td>64738</td><td>TCP+UDP</td><td>Mumble voice (direct fallback)</td></tr>
+                <tr><td>5055</td><td>TCP+UDP</td><td>Traccar GPS client</td></tr>
+            </table>
+        </div>
+
+        <p style="margin-top:3rem;color:var(--muted);font-size:0.75rem;text-align:center">openPTT TRX — Self-hosted Push-to-Talk for field operations</p>
+    </div>
+</body>
+</html>
