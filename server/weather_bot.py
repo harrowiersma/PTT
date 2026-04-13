@@ -9,9 +9,7 @@ Like airport ATIS, but personalized to your location.
 """
 
 import asyncio
-import io
 import logging
-import struct
 import time
 from datetime import datetime, timezone
 

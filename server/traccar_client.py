@@ -57,6 +57,13 @@ class TraccarClient:
                 resp = await client.get(
                     f"{self.base_url}/api/positions", headers=headers
                 )
+                if resp.status_code == 401:
+                    # Session expired, clear and retry once
+                    self._session_cookie = None
+                    headers = await self._get_session()
+                    resp = await client.get(
+                        f"{self.base_url}/api/positions", headers=headers
+                    )
                 if resp.status_code != 200:
                     logger.warning("Traccar positions failed: %s", resp.status_code)
                     return []

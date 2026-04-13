@@ -19,8 +19,8 @@
     <!-- Device timeout: mark offline after 300 seconds (5 min) -->
     <entry key='status.timeout'>300</entry>
 
-    <!-- Allow new device auto-registration -->
-    <entry key='database.registerUnknown'>true</entry>
+    <!-- Devices must be registered via admin dashboard (no auto-registration) -->
+    <entry key='database.registerUnknown'>false</entry>
 
     <!-- Logging -->
     <entry key='logger.enable'>true</entry>
