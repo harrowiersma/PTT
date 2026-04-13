@@ -56,6 +56,7 @@ class MurmurClient:
         self._mumble = None
         self._connected = False
         self._thread = None
+        self._on_sos_acknowledge = None  # Callback: fn(username) called when admin types OK in Emergency
 
     def connect(self) -> bool:
         """Connect to Murmur as a bot user via pymumble."""
@@ -69,6 +70,10 @@ class MurmurClient:
                 reconnect=True,
             )
             self._mumble.set_application_string("PTT Admin Service")
+            self._mumble.callbacks.set_callback(
+                pymumble.constants.PYMUMBLE_CLBK_TEXTMESSAGERECEIVED,
+                self._on_text_message,
+            )
             self._mumble.start()
             self._mumble.is_ready()
             time.sleep(1)
@@ -229,6 +234,53 @@ class MurmurClient:
         """Remove a registered user. Not supported via pymumble."""
         logger.info("User removal requires ICE or direct DB access.")
         return False
+
+    def set_sos_acknowledge_callback(self, callback):
+        """Set callback for when an admin acknowledges SOS via text in Emergency channel.
+        callback(username: str) is called when recognized."""
+        self._on_sos_acknowledge = callback
+
+    def _on_text_message(self, text):
+        """Handle incoming text messages. Check for SOS acknowledgement keywords."""
+        try:
+            message = text.message.strip().lower()
+            # Strip HTML tags that Mumble might wrap around the message
+            import re
+            message = re.sub(r'<[^>]+>', '', message).strip().lower()
+
+            actor = text.actor
+            if actor not in self._mumble.users:
+                return
+
+            username = self._mumble.users[actor]["name"]
+            if username == "PTTAdmin":
+                return
+
+            # Check if this is an SOS acknowledgement keyword
+            ack_keywords = {"ok", "acknowledge", "ack", "all clear", "allclear", "roger"}
+            if message not in ack_keywords:
+                return
+
+            # Check if the user is in the Emergency channel
+            user_channel = self._mumble.users[actor].get("channel_id", -1)
+            emergency_id = None
+            for chan_id, chan in self._mumble.channels.items():
+                if chan["name"] == "Emergency":
+                    emergency_id = chan_id
+                    break
+
+            if emergency_id is None or user_channel != emergency_id:
+                return
+
+            logger.info("SOS acknowledgement received from '%s' in Emergency channel", username)
+
+            if self._on_sos_acknowledge:
+                self._on_sos_acknowledge(username)
+            else:
+                logger.warning("SOS acknowledge callback not set")
+
+        except Exception as e:
+            logger.error("Error handling text message: %s", e)
 
     def disconnect(self):
         """Clean up pymumble connection."""

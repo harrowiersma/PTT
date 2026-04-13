@@ -8,6 +8,7 @@ class UserCreate(BaseModel):
     display_name: str | None = None
     password: str
     channel_id: int | None = None
+    is_admin: bool = False
 
 
 class UserResponse(BaseModel):
@@ -15,6 +16,7 @@ class UserResponse(BaseModel):
     username: str
     display_name: str | None
     channel_id: int | None
+    is_admin: bool
     is_active: bool
     created_at: datetime
     last_seen: datetime | None

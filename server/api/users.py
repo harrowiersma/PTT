@@ -48,6 +48,7 @@ async def create_user(
         display_name=user_data.display_name,
         mumble_password=mumble_password,
         channel_id=user_data.channel_id,
+        is_admin=user_data.is_admin,
     )
     db.add(user)
     await db.commit()

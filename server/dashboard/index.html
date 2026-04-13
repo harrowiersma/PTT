@@ -241,6 +241,7 @@
                     <input type="text" id="newUsername" placeholder="Username" aria-label="New username">
                     <input type="text" id="newDisplayName" placeholder="Display Name" aria-label="Display name">
                     <input type="password" id="newPassword" placeholder="Password" aria-label="Password">
+                    <label style="display:flex;align-items:center;gap:var(--space-xs);font-size:0.8125rem;white-space:nowrap"><input type="checkbox" id="newIsAdmin"> Admin</label>
                     <button class="btn primary" onclick="createUser()">Add</button>
                 </div>
             </div>
@@ -251,7 +252,7 @@
                 </div>
                 <div class="table-wrap">
                     <table aria-label="User list">
-                        <thead><tr><th>Username</th><th>Display Name</th><th>Created</th><th>Actions</th></tr></thead>
+                        <thead><tr><th>Username</th><th>Display Name</th><th>Role</th><th>Created</th><th>Actions</th></tr></thead>
                         <tbody id="usersTable">
                             <tr><td colspan="4"><div class="skeleton skeleton-line" style="width:80%"></div></td></tr>
                         </tbody>
@@ -482,11 +483,12 @@
     function renderUsers(users) {
         const tbody = document.getElementById('usersTable');
         if (users.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state"><div class="icon">&#128100;</div><p>No users yet. Add your first user above to get started.</p></div></td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="icon">&#128100;</div><p>No users yet. Add your first user above to get started.</p></div></td></tr>';
         } else {
             tbody.innerHTML = users.map(u => '<tr>' +
                 '<td>' + esc(u.username) + '</td>' +
                 '<td>' + esc(u.display_name || '\u2014') + '</td>' +
+                '<td>' + (u.is_admin ? '<span class="badge online">Admin</span>' : 'User') + '</td>' +
                 '<td>' + new Date(u.created_at).toLocaleDateString() + '</td>' +
                 '<td class="actions">' +
                 '<button class="btn" onclick="showQR(' + u.id + ')">QR</button>' +
@@ -529,12 +531,13 @@
         if (!username || !password) { showToast('Username and password required', 'error'); return; }
         const result = await api('/api/users', {
             method: 'POST',
-            body: JSON.stringify({ username: username, display_name: display || null, password: password })
+            body: JSON.stringify({ username: username, display_name: display || null, password: password, is_admin: document.getElementById('newIsAdmin').checked })
         });
         if (result) {
             document.getElementById('newUsername').value = '';
             document.getElementById('newDisplayName').value = '';
             document.getElementById('newPassword').value = '';
+            document.getElementById('newIsAdmin').checked = false;
             showToast('User "' + username + '" created', 'success');
             refreshUsers();
         }
