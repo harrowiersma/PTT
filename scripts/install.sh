@@ -246,5 +246,32 @@ echo "    cd $PTT_DIR && docker compose restart     # restart"
 echo "    cd $PTT_DIR && docker compose down        # stop"
 echo ""
 echo "  TLS auto-renewal is handled by certbot's systemd timer."
+
+# Set up daily backup cron
+if ! crontab -l 2>/dev/null | grep -q "backup.sh"; then
+    (crontab -l 2>/dev/null; echo "0 3 * * * $PTT_DIR/scripts/backup.sh >> /var/log/ptt-backup.log 2>&1") | crontab -
+    echo "  Daily backup cron installed (3:00 AM)"
+fi
+
+# Set up systemd service for auto-start on reboot
+cat > /etc/systemd/system/ptt.service <<SVCEOF
+[Unit]
+Description=PTT Server (Docker Compose)
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=$PTT_DIR
+ExecStart=/usr/bin/docker compose up -d
+ExecStop=/usr/bin/docker compose down
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+systemctl daemon-reload
+systemctl enable ptt.service 2>/dev/null || true
 echo "  Verify: certbot renew --dry-run"
 echo "================================================"

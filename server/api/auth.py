@@ -1,16 +1,25 @@
-import secrets
-import time
-from collections import defaultdict
+import logging
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from passlib.hash import bcrypt
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.api.schemas import LoginRequest, TokenResponse
 from server.auth import create_access_token
 from server.config import settings
+from server.database import get_db
+from server.models import AdminUser
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-# Simple in-memory rate limiter: max 5 failed attempts per IP per 5 minutes
+# Simple in-memory rate limiter
+import time
+from collections import defaultdict
+
 _failed_attempts: dict[str, list[float]] = defaultdict(list)
 _MAX_ATTEMPTS = 5
 _WINDOW_SECONDS = 300
@@ -18,7 +27,6 @@ _WINDOW_SECONDS = 300
 
 def _check_rate_limit(ip: str) -> None:
     now = time.time()
-    # Clean old entries
     _failed_attempts[ip] = [t for t in _failed_attempts[ip] if now - t < _WINDOW_SECONDS]
     if len(_failed_attempts[ip]) >= _MAX_ATTEMPTS:
         raise HTTPException(
@@ -32,20 +40,43 @@ def _record_failure(ip: str) -> None:
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(request: LoginRequest, req: Request):
+async def login(
+    request: LoginRequest,
+    req: Request,
+    db: AsyncSession = Depends(get_db),
+):
     client_ip = req.client.host if req.client else "unknown"
     _check_rate_limit(client_ip)
 
-    if not secrets.compare_digest(request.username, settings.admin_username) or \
-       not secrets.compare_digest(request.password, settings.admin_password):
-        _record_failure(client_ip)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
+    # Try database admin accounts first
+    result = await db.execute(
+        select(AdminUser).where(
+            AdminUser.username == request.username,
+            AdminUser.is_active == True,
         )
+    )
+    admin = result.scalar_one_or_none()
 
-    # Clear failures on successful login
-    _failed_attempts.pop(client_ip, None)
+    if admin and bcrypt.verify(request.password, admin.password_hash):
+        # Update last login
+        admin.last_login = datetime.now(timezone.utc)
+        await db.commit()
+        _failed_attempts.pop(client_ip, None)
+        token = create_access_token(data={"sub": admin.username, "role": admin.role})
+        return TokenResponse(access_token=token)
 
-    token = create_access_token(data={"sub": request.username})
-    return TokenResponse(access_token=token)
+    # Fallback: check .env admin credentials (for initial setup before first DB admin is created)
+    if (
+        request.username == settings.admin_username
+        and request.password == settings.admin_password
+        and settings.admin_password != "admin"  # Don't allow default password
+    ):
+        _failed_attempts.pop(client_ip, None)
+        token = create_access_token(data={"sub": request.username, "role": "admin"})
+        return TokenResponse(access_token=token)
+
+    _record_failure(client_ip)
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid credentials",
+    )

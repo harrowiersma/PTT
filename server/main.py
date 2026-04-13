@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 
+from server.api.admin import router as admin_router
 from server.api.auth import router as auth_router
 from server.api.channels import router as channels_router
 from server.api.dispatch import router as dispatch_router
@@ -139,6 +140,7 @@ app = FastAPI(
 )
 
 # API routes
+app.include_router(admin_router)
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(channels_router)

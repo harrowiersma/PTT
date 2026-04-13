@@ -1,12 +1,12 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class UserCreate(BaseModel):
-    username: str
-    display_name: str | None = None
-    password: str
+    username: str = Field(min_length=1, max_length=64, pattern=r'^[a-zA-Z0-9_-]+$')
+    display_name: str | None = Field(default=None, max_length=128)
+    password: str = Field(min_length=4, max_length=128)
     channel_id: int | None = None
     is_admin: bool = False
 
@@ -41,8 +41,8 @@ class UserOnline(BaseModel):
 
 
 class ChannelCreate(BaseModel):
-    name: str
-    description: str | None = None
+    name: str = Field(min_length=1, max_length=128, pattern=r'^[a-zA-Z0-9_ -]+$')
+    description: str | None = Field(default=None, max_length=512)
     max_users: int = 0
 
 
