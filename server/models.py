@@ -48,6 +48,7 @@ class User(Base):
     mumble_password: Mapped[str] = mapped_column(String(256), nullable=False)
     channel_id: Mapped[int] = mapped_column(Integer, nullable=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_lone_worker: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

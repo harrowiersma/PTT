@@ -287,6 +287,7 @@
                     <input type="text" id="newDisplayName" placeholder="Display Name" aria-label="Display name">
                     <input type="password" id="newPassword" placeholder="Password" aria-label="Password">
                     <label style="display:flex;align-items:center;gap:var(--space-xs);font-size:0.8125rem;white-space:nowrap"><input type="checkbox" id="newIsAdmin"> Admin</label>
+                    <label style="display:flex;align-items:center;gap:var(--space-xs);font-size:0.8125rem;white-space:nowrap"><input type="checkbox" id="newIsLoneWorker"> Lone Worker</label>
                     <button class="btn primary" onclick="createUser()">Add</button>
                 </div>
             </div>
@@ -503,8 +504,11 @@
             <input type="text" id="editDisplayName" style="width:100%;padding:var(--space-sm);border:1px solid var(--color-border);border-radius:var(--radius-sm);margin-bottom:var(--space-md)">
             <label style="font-size:0.8125rem;display:block;margin-bottom:var(--space-xs)">New Password (leave blank to keep current)</label>
             <input type="password" id="editPassword" placeholder="Leave blank to keep" style="width:100%;padding:var(--space-sm);border:1px solid var(--color-border);border-radius:var(--radius-sm);margin-bottom:var(--space-md)">
-            <div id="editRoleRow" style="margin-bottom:var(--space-md)">
+            <div id="editRoleRow" style="margin-bottom:var(--space-sm)">
                 <label style="font-size:0.8125rem;display:flex;align-items:center;gap:var(--space-xs)"><input type="checkbox" id="editIsAdmin"> Admin role</label>
+            </div>
+            <div id="editLoneWorkerRow" style="margin-bottom:var(--space-md)">
+                <label style="font-size:0.8125rem;display:flex;align-items:center;gap:var(--space-xs)"><input type="checkbox" id="editIsLoneWorker"> Lone Worker (requires periodic check-in)</label>
             </div>
             <div style="display:flex;gap:var(--space-sm);justify-content:flex-end">
                 <button class="btn" onclick="closeModal('editUserModal')">Cancel</button>
@@ -732,11 +736,11 @@
             tbody.innerHTML = users.map(u => '<tr>' +
                 '<td>' + esc(u.username) + '</td>' +
                 '<td>' + esc(u.display_name || '\u2014') + '</td>' +
-                '<td>' + (u.is_admin ? '<span class="badge online">Admin</span>' : 'User') + '</td>' +
+                '<td>' + (u.is_admin ? '<span class="badge online">Admin</span> ' : '') + (u.is_lone_worker ? '<span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning-text)">Lone Worker</span>' : (!u.is_admin ? 'User' : '')) + '</td>' +
                 '<td>' + new Date(u.created_at).toLocaleDateString() + '</td>' +
                 '<td class="actions">' +
                 '<button class="btn" onclick="showQR(' + u.id + ')">QR</button>' +
-                '<button class="btn" onclick="openEditUser(' + u.id + ',\'' + esc(u.username) + '\',\'' + esc(u.display_name || '') + '\',' + u.is_admin + ')">Edit</button>' +
+                '<button class="btn" onclick="openEditUser(' + u.id + ',\'' + esc(u.username) + '\',\'' + esc(u.display_name || '') + '\',' + u.is_admin + ',' + (u.is_lone_worker || false) + ')">Edit</button>' +
                 '<button class="btn danger" onclick="confirmDelete(\'user\',' + u.id + ',\'' + esc(u.username) + '\')">Delete</button>' +
                 '</td></tr>').join('');
         }
@@ -776,13 +780,14 @@
         if (!username || !password) { showToast('Username and password required', 'error'); return; }
         const result = await api('/api/users', {
             method: 'POST',
-            body: JSON.stringify({ username: username, display_name: display || null, password: password, is_admin: document.getElementById('newIsAdmin').checked })
+            body: JSON.stringify({ username: username, display_name: display || null, password: password, is_admin: document.getElementById('newIsAdmin').checked, is_lone_worker: document.getElementById('newIsLoneWorker').checked })
         });
         if (result) {
             document.getElementById('newUsername').value = '';
             document.getElementById('newDisplayName').value = '';
             document.getElementById('newPassword').value = '';
             document.getElementById('newIsAdmin').checked = false;
+            document.getElementById('newIsLoneWorker').checked = false;
             showToast('User "' + username + '" created', 'success');
             refreshUsers();
         }
@@ -936,14 +941,16 @@
     }
 
     // === EDIT USER/ADMIN ===
-    function openEditUser(id, username, displayName, isAdmin) {
+    function openEditUser(id, username, displayName, isAdmin, isLoneWorker) {
         document.getElementById('editUserId').value = id;
         document.getElementById('editUserType').value = 'user';
         document.getElementById('editUserName').textContent = username;
         document.getElementById('editDisplayName').value = displayName || '';
         document.getElementById('editPassword').value = '';
         document.getElementById('editIsAdmin').checked = isAdmin;
+        document.getElementById('editIsLoneWorker').checked = isLoneWorker || false;
         document.getElementById('editRoleRow').style.display = 'block';
+        document.getElementById('editLoneWorkerRow').style.display = 'block';
         document.getElementById('editUserModal').style.display = 'flex';
     }
 
@@ -955,7 +962,7 @@
         document.getElementById('editPassword').value = '';
         document.getElementById('editIsAdmin').checked = role === 'admin';
         document.getElementById('editRoleRow').style.display = 'block';
-        // Hide display name for admin users
+        document.getElementById('editLoneWorkerRow').style.display = 'none';
         document.getElementById('editDisplayName').parentElement.previousElementSibling.style.display = 'none';
         document.getElementById('editDisplayName').style.display = 'none';
         document.getElementById('editUserModal').style.display = 'flex';
@@ -972,6 +979,7 @@
             if (displayName !== '') body.display_name = displayName;
             if (password) body.password = password;
             body.is_admin = document.getElementById('editIsAdmin').checked;
+            body.is_lone_worker = document.getElementById('editIsLoneWorker').checked;
 
             const result = await api('/api/users/' + id, {
                 method: 'PATCH',

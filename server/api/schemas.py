@@ -9,12 +9,14 @@ class UserCreate(BaseModel):
     password: str = Field(min_length=4, max_length=128)
     channel_id: int | None = None
     is_admin: bool = False
+    is_lone_worker: bool = False
 
 
 class UserUpdate(BaseModel):
     display_name: str | None = Field(default=None, max_length=128)
     password: str | None = Field(default=None, min_length=4, max_length=128)
     is_admin: bool | None = None
+    is_lone_worker: bool | None = None
 
 
 class UserResponse(BaseModel):
@@ -23,6 +25,7 @@ class UserResponse(BaseModel):
     display_name: str | None
     channel_id: int | None
     is_admin: bool
+    is_lone_worker: bool
     is_active: bool
     created_at: datetime
     last_seen: datetime | None

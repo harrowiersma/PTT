@@ -49,6 +49,7 @@ async def create_user(
         mumble_password=mumble_password,
         channel_id=user_data.channel_id,
         is_admin=user_data.is_admin,
+        is_lone_worker=user_data.is_lone_worker,
     )
     db.add(user)
     await db.commit()
@@ -91,6 +92,8 @@ async def update_user(
         user.mumble_password = user_data.password
     if user_data.is_admin is not None:
         user.is_admin = user_data.is_admin
+    if user_data.is_lone_worker is not None:
+        user.is_lone_worker = user_data.is_lone_worker
 
     await db.commit()
     await db.refresh(user)

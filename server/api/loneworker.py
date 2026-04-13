@@ -175,7 +175,7 @@ async def get_status(
         return {"enabled": False, "users": []}
 
     now = datetime.now(timezone.utc)
-    result = await db.execute(select(User).where(User.is_active == True))
+    result = await db.execute(select(User).where(User.is_active == True, User.is_lone_worker == True))
     users = result.scalars().all()
 
     statuses = []
