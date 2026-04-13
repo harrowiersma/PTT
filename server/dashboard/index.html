@@ -221,12 +221,12 @@
                 <div class="stat"><div class="value" id="statServer"><span class="skeleton skeleton-stat"></span></div><div class="label">Server</div></div>
             </div>
             <div class="card">
-                <h2>Online Devices</h2>
+                <h2>Devices</h2>
                 <div class="table-wrap">
-                    <table aria-label="Online devices">
-                        <thead><tr><th>User</th><th>Channel</th><th>Duration</th><th>Status</th></tr></thead>
+                    <table aria-label="Devices">
+                        <thead><tr><th>User</th><th>Channel</th><th>Location</th><th>Battery</th><th>Last Seen</th><th>Status</th></tr></thead>
                         <tbody id="onlineTable">
-                            <tr><td colspan="4"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div></td></tr>
+                            <tr><td colspan="6"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div></td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -459,16 +459,53 @@
         document.getElementById('statOnline').textContent = data.users_online + '/' + totalUsers;
         document.getElementById('statServer').textContent = data.is_running ? 'Running' : 'Stopped';
 
+        // Build online users lookup
+        const onlineMap = {};
+        data.users.forEach(u => { onlineMap[u.username.toLowerCase()] = u; });
+
         const tbody = document.getElementById('onlineTable');
-        if (data.users.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state"><div class="icon">&#128225;</div><p>No devices connected yet.</p><span class="action" onclick="switchTab(\'users\')">Set up your first device in the Users tab</span></div></td></tr>';
+        if (allUsers.length === 0 && data.users.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><div class="icon">&#128225;</div><p>No devices yet.</p><span class="action" onclick="switchTab(\'users\')">Set up your first device in the Users tab</span></div></td></tr>';
         } else {
-            tbody.innerHTML = data.users.map(u => '<tr>' +
-                '<td>' + esc(u.username) + '</td>' +
-                '<td>' + esc(u.channel_name || ('Channel ' + u.channel_id)) + '</td>' +
-                '<td>' + formatDuration(u.online_secs) + '</td>' +
-                '<td><span class="badge online">Online</span></td>' +
-                '</tr>').join('');
+            // Merge: show all registered users, enriched with online + GPS data
+            const rows = [];
+
+            // Online users first
+            data.users.forEach(u => {
+                const loc = (u.latitude && u.longitude)
+                    ? '<a href="https://www.google.com/maps?q=' + u.latitude + ',' + u.longitude + '" target="_blank" style="color:var(--color-accent);text-decoration:none">' + u.latitude.toFixed(4) + ', ' + u.longitude.toFixed(4) + '</a>'
+                    : '<span style="color:var(--color-text-secondary)">No GPS</span>';
+                const bat = u.battery != null
+                    ? '<span style="color:' + (u.battery < 20 ? 'var(--color-danger)' : 'var(--color-text)') + '">' + Math.round(u.battery) + '%</span>'
+                    : '\u2014';
+                const muteIcon = u.is_muted ? ' <span title="Muted" style="color:var(--color-danger)">&#128263;</span>' : '';
+                rows.push('<tr>' +
+                    '<td><strong>' + esc(u.username) + '</strong>' + muteIcon + '</td>' +
+                    '<td>' + esc(u.channel_name || 'Root') + '</td>' +
+                    '<td>' + loc + '</td>' +
+                    '<td>' + bat + '</td>' +
+                    '<td>Now</td>' +
+                    '<td><span class="badge online">Online</span></td>' +
+                    '</tr>');
+            });
+
+            // Offline users (registered but not connected)
+            allUsers.forEach(u => {
+                if (onlineMap[u.username.toLowerCase()]) return; // already shown
+                const lastSeen = u.last_seen
+                    ? timeAgo(new Date(u.last_seen))
+                    : 'Never';
+                rows.push('<tr style="opacity:0.6">' +
+                    '<td>' + esc(u.username) + '</td>' +
+                    '<td>\u2014</td>' +
+                    '<td>\u2014</td>' +
+                    '<td>\u2014</td>' +
+                    '<td>' + lastSeen + '</td>' +
+                    '<td><span class="badge offline">Offline</span></td>' +
+                    '</tr>');
+            });
+
+            tbody.innerHTML = rows.join('');
         }
     }
 
@@ -727,6 +764,14 @@
         });
         showToast('Dispatched ' + username, 'success');
         document.getElementById('dispatchPanel').style.display = 'none';
+    }
+
+    function timeAgo(date) {
+        const secs = Math.floor((Date.now() - date.getTime()) / 1000);
+        if (secs < 60) return secs + 's ago';
+        if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
+        if (secs < 86400) return Math.floor(secs / 3600) + 'h ago';
+        return Math.floor(secs / 86400) + 'd ago';
     }
 
     function formatDistance(m) {

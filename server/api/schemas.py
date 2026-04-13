@@ -32,6 +32,12 @@ class UserOnline(BaseModel):
     is_deaf: bool
     online_secs: int
     address: str
+    # GPS data from Traccar (if available)
+    latitude: float | None = None
+    longitude: float | None = None
+    gps_timestamp: str | None = None
+    battery: float | None = None
+    speed: float | None = None
 
 
 class ChannelCreate(BaseModel):
