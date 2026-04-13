@@ -276,12 +276,6 @@
             </div>
         </div>
 
-            <div class="card" id="loneWorkerCard">
-                <h2>Lone Worker Check-In</h2>
-                <div id="loneWorkerStatus">
-                    <div class="empty-state"><p>Loading check-in status...</p></div>
-                </div>
-            </div>
         </div>
 
         <!-- Users Tab -->
@@ -308,6 +302,12 @@
                             <tr><td colspan="4"><div class="skeleton skeleton-line" style="width:80%"></div></td></tr>
                         </tbody>
                     </table>
+                </div>
+            </div>
+            <div class="card" id="loneWorkerCard">
+                <h2>Lone Worker Check-In Status</h2>
+                <div id="loneWorkerStatus">
+                    <div class="empty-state"><p>Lone worker monitoring is disabled. Enable it in the Admin tab.</p></div>
                 </div>
             </div>
         </div>
@@ -627,7 +627,7 @@
         });
         document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
         document.getElementById('tab-' + name).style.display = 'block';
-        if (name === 'users') refreshUsers();
+        if (name === 'users') { refreshUsers(); refreshLoneWorker(); }
         if (name === 'channels') refreshChannels();
         if (name === 'map') { setTimeout(function() { initMap(); if (map) map.invalidateSize(); }, 100); }
         if (name === 'dispatch') { /* dispatch loads on search */ }
@@ -639,7 +639,6 @@
         refreshStatus();
         refreshUsers();
         refreshChannels();
-        refreshLoneWorker();
     }
 
     async function refreshStatus() {
