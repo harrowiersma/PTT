@@ -118,6 +118,14 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("Weather bot failed to start: %s", e)
 
+    # Start lone worker overdue checker (voice reminders for overdue workers)
+    if connected and client.has_mumble:
+        try:
+            from server.api.loneworker import start_overdue_checker
+            start_overdue_checker(client)
+        except Exception as e:
+            logger.warning("Lone worker checker failed to start: %s", e)
+
     if connected:
         logger.info("Connected to Murmur via pymumble")
     else:

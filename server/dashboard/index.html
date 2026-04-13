@@ -349,6 +349,24 @@
         <!-- Admin Tab -->
         <div class="content tab-content" id="tab-admin" style="display:none" role="tabpanel" aria-label="Admin">
             <div class="card">
+                <h2>Lone Worker Safety</h2>
+                <p style="font-size:0.8125rem;color:var(--color-text-secondary);margin-bottom:var(--space-md)">When enabled, workers must check in periodically. Overdue workers show red on the Overview. Optionally auto-triggers SOS.</p>
+                <div id="loneWorkerAdminConfig" style="display:flex;flex-wrap:wrap;gap:var(--space-md);align-items:center">
+                    <label style="display:flex;align-items:center;gap:var(--space-xs);font-size:0.8125rem;cursor:pointer">
+                        <input type="checkbox" id="lwEnabled" onchange="saveLoneWorkerConfig()"> Enable Lone Worker Monitoring
+                    </label>
+                    <label style="display:flex;align-items:center;gap:var(--space-xs);font-size:0.8125rem;cursor:pointer">
+                        <input type="checkbox" id="lwAutoSos" onchange="saveLoneWorkerConfig()"> Auto-SOS on overdue
+                    </label>
+                    <div style="display:flex;align-items:center;gap:var(--space-xs);font-size:0.8125rem">
+                        <label for="lwInterval">Check-in every</label>
+                        <input type="number" id="lwInterval" value="30" min="5" max="480" style="width:60px;padding:var(--space-xs);border:1px solid var(--color-border);border-radius:var(--radius-sm);background:var(--color-bg);color:var(--color-text);font-family:inherit;text-align:center" onchange="saveLoneWorkerConfig()">
+                        <span>minutes</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
                 <h2>Bulk Device Enrollment</h2>
                 <p style="font-size:0.875rem;color:var(--color-text-secondary);margin-bottom:var(--space-md)">Upload a CSV file to create multiple users at once. Returns a ZIP with QR codes for each device.</p>
                 <div style="display:flex;gap:var(--space-sm);flex-wrap:wrap;align-items:center">
@@ -613,7 +631,7 @@
         if (name === 'channels') refreshChannels();
         if (name === 'map') { setTimeout(function() { initMap(); if (map) map.invalidateSize(); }, 100); }
         if (name === 'dispatch') { /* dispatch loads on search */ }
-        if (name === 'admin') refreshAdmins();
+        if (name === 'admin') { refreshAdmins(); loadLoneWorkerConfig(); }
         if (name === 'audit') refreshAudit();
     }
 
@@ -866,8 +884,35 @@
     async function enableLoneWorker() {
         await api('/api/loneworker/config', {
             method: 'POST',
-            body: JSON.stringify({ check_in_interval_minutes: 30, warning_after_minutes: 25, enabled: true }),
+            body: JSON.stringify({ check_in_interval_minutes: 30, warning_after_minutes: 25, enabled: true, auto_sos_on_overdue: false }),
         });
+        refreshLoneWorker();
+    }
+
+    async function loadLoneWorkerConfig() {
+        const data = await api('/api/loneworker/config');
+        if (!data) return;
+        document.getElementById('lwEnabled').checked = data.enabled;
+        document.getElementById('lwAutoSos').checked = data.auto_sos_on_overdue;
+        document.getElementById('lwInterval').value = data.check_in_interval_minutes;
+    }
+
+    async function saveLoneWorkerConfig() {
+        const enabled = document.getElementById('lwEnabled').checked;
+        const autoSos = document.getElementById('lwAutoSos').checked;
+        const interval = parseInt(document.getElementById('lwInterval').value) || 30;
+        const warning = Math.max(interval - 5, Math.floor(interval * 0.8));
+
+        await api('/api/loneworker/config', {
+            method: 'POST',
+            body: JSON.stringify({
+                enabled: enabled,
+                auto_sos_on_overdue: autoSos,
+                check_in_interval_minutes: interval,
+                warning_after_minutes: warning,
+            }),
+        });
+        showToast('Lone worker settings saved', 'success');
         refreshLoneWorker();
     }
 
