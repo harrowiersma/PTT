@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from passlib.hash import bcrypt
+import bcrypt as _bcrypt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -57,7 +57,7 @@ async def login(
     )
     admin = result.scalar_one_or_none()
 
-    if admin and bcrypt.verify(request.password, admin.password_hash):
+    if admin and _bcrypt.checkpw(request.password.encode(), admin.password_hash.encode()):
         # Update last login
         admin.last_login = datetime.now(timezone.utc)
         await db.commit()

@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from passlib.hash import bcrypt
+import bcrypt as _bcrypt
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -92,7 +92,7 @@ async def create_admin(
 
     new_admin = AdminUser(
         username=data.username,
-        password_hash=bcrypt.hash(data.password),
+        password_hash=_bcrypt.hashpw(data.password.encode(), _bcrypt.gensalt()).decode(),
         role=data.role,
     )
     db.add(new_admin)

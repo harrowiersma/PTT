@@ -4,7 +4,8 @@ sqlalchemy==2.0.36
 asyncpg==0.30.0
 psycopg2-binary==2.9.10
 python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
+# passlib removed: incompatible with bcrypt 5.0. Using bcrypt directly.
+bcrypt>=4.0.0
 python-multipart==0.0.18
 pydantic==2.10.3
 pydantic-settings==2.7.1
