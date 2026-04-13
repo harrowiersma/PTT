@@ -223,11 +223,9 @@ class WeatherBot:
         import pymumble_py3.constants as const
         mm.callbacks.set_callback(const.PYMUMBLE_CLBK_SOUNDRECEIVED, self._on_sound)
 
-        # Register text message callback for "status {location}" commands
-        # Note: the SOS handler in murmur/client.py may also have a text callback.
-        # pymumble only supports one callback per event type, so we chain them.
-        self._existing_text_callback = mm.callbacks.get_callback(const.PYMUMBLE_CLBK_TEXTMESSAGERECEIVED)
-        mm.callbacks.set_callback(const.PYMUMBLE_CLBK_TEXTMESSAGERECEIVED, self._on_text_message)
+        # Register text message handler via murmur client's multi-handler system
+        # This avoids overwriting the SOS text handler
+        self.murmur.add_text_handler(self._on_text_message)
 
         self._running = True
         logger.info("Weather bot started. Channel ID: %d. Text command: 'status <location>'", self._weather_channel_id)
@@ -312,13 +310,6 @@ class WeatherBot:
         try:
             import re
             message = re.sub(r'<[^>]+>', '', text.message).strip()
-
-            # Chain to existing text callback (SOS handler) first
-            if self._existing_text_callback:
-                try:
-                    self._existing_text_callback(text)
-                except Exception:
-                    pass
 
             # Check for "status {location}" pattern
             lower = message.lower()

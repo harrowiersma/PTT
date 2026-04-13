@@ -57,6 +57,7 @@ class MurmurClient:
         self._connected = False
         self._thread = None
         self._on_sos_acknowledge = None  # Callback: fn(username) called when admin types OK in Emergency
+        self._text_handlers = []  # List of fn(text) callbacks for text messages
 
     def connect(self) -> bool:
         """Connect to Murmur as a bot user via pymumble."""
@@ -240,8 +241,20 @@ class MurmurClient:
         callback(username: str) is called when recognized."""
         self._on_sos_acknowledge = callback
 
+    def add_text_handler(self, handler):
+        """Register an additional text message handler."""
+        self._text_handlers.append(handler)
+
     def _on_text_message(self, text):
-        """Handle incoming text messages. Check for SOS acknowledgement keywords."""
+        """Handle incoming text messages. Dispatches to SOS handler + any registered handlers."""
+        # Dispatch to all registered text handlers first
+        for handler in self._text_handlers:
+            try:
+                handler(text)
+            except Exception as e:
+                logger.error("Text handler error: %s", e)
+
+        # Then handle SOS acknowledgement
         try:
             message = text.message.strip().lower()
             # Strip HTML tags that Mumble might wrap around the message
