@@ -102,6 +102,21 @@ class DispatchEvent(Base):
     )
 
 
+class DispatchLocation(Base):
+    """Pre-configured dispatch locations for quick selection."""
+    __tablename__ = "dispatch_locations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    latitude: Mapped[float] = mapped_column(Float, nullable=False)
+    longitude: Mapped[float] = mapped_column(Float, nullable=False)
+    description: Mapped[str] = mapped_column(String(256), nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class DeviceHealth(Base):
     __tablename__ = "device_health"
 

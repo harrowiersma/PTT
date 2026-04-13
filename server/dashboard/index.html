@@ -413,9 +413,13 @@
         <div class="content tab-content" id="tab-dispatch" style="display:none" role="tabpanel" aria-label="Dispatch">
             <div class="card">
                 <h2>Dispatch Worker</h2>
-                <p style="font-size:0.8125rem;color:var(--color-text-secondary);margin-bottom:var(--space-md)">Enter a location to find the nearest available workers. Workers need Traccar Client running on their device for GPS positioning.</p>
+                <p style="font-size:0.8125rem;color:var(--color-text-secondary);margin-bottom:var(--space-md)">Select a saved location or enter a custom one to find the nearest available workers.</p>
+                <div id="savedLocationsBar" style="display:none;margin-bottom:var(--space-md)">
+                    <div style="font-size:0.75rem;color:var(--color-text-secondary);margin-bottom:var(--space-xs);text-transform:uppercase;letter-spacing:0.05em">Quick dispatch</div>
+                    <div id="savedLocationButtons" style="display:flex;flex-wrap:wrap;gap:var(--space-xs)"></div>
+                </div>
                 <div class="form-row">
-                    <input type="text" id="dispatchLocation" placeholder="Enter location (e.g., Amsterdam, Warehouse A, 52.37 4.89)" aria-label="Dispatch location" style="flex:3">
+                    <input type="text" id="dispatchLocation" placeholder="Or type a location (e.g., Amsterdam, Warehouse A, 52.37 4.89)" aria-label="Dispatch location" style="flex:3">
                     <button class="btn primary" onclick="searchDispatchLocation()">Find Nearest</button>
                 </div>
             </div>
@@ -436,6 +440,23 @@
                         <thead><tr><th>Time</th><th>Worker</th><th>Message</th><th>Location</th></tr></thead>
                         <tbody id="recentDispatchTable">
                             <tr><td colspan="4"><div class="empty-state"><p>No dispatches yet.</p></div></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="card">
+                <h2>Saved Locations</h2>
+                <p style="font-size:0.8125rem;color:var(--color-text-secondary);margin-bottom:var(--space-md)">Pre-configure common dispatch locations for one-click access.</p>
+                <div class="form-row" style="margin-bottom:var(--space-md)">
+                    <input type="text" id="newLocName" placeholder="Location name" style="flex:2">
+                    <input type="text" id="newLocCoords" placeholder="Lat, Lng (e.g., 52.37, 4.89)" style="flex:2">
+                    <button class="btn primary" onclick="addSavedLocation()">Add Location</button>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Name</th><th>Coordinates</th><th>Description</th><th>Actions</th></tr></thead>
+                        <tbody id="savedLocationsTable">
+                            <tr><td colspan="4"><div class="empty-state"><p>No saved locations yet.</p></div></td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -645,7 +666,7 @@
         if (name === 'users') { refreshUsers(); refreshLoneWorker(); }
         if (name === 'channels') refreshChannels();
         if (name === 'map') { setTimeout(function() { initMap(); if (map) map.invalidateSize(); }, 100); }
-        if (name === 'dispatch') { /* dispatch loads on search */ }
+        if (name === 'dispatch') { refreshSavedLocations(); }
         if (name === 'admin') { refreshAdmins(); loadLoneWorkerConfig(); }
         if (name === 'audit') refreshAudit();
     }
@@ -1106,7 +1127,103 @@
 
     // === AUDIT LOG ===
     // === DISPATCH TAB ===
-    async function searchDispatchLocation() {
+    let _savedLocations = [];
+
+    async function refreshSavedLocations() {
+        const data = await api('/api/dispatch/locations');
+        if (!data) return;
+        _savedLocations = data;
+
+        // Render quick-pick buttons
+        const bar = document.getElementById('savedLocationsBar');
+        const btns = document.getElementById('savedLocationButtons');
+        if (data.length === 0) {
+            bar.style.display = 'none';
+        } else {
+            bar.style.display = 'block';
+            btns.innerHTML = data.map(loc =>
+                '<button class="btn" onclick="dispatchToSavedLocation(' + loc.id + ')" ' +
+                'title="' + esc(loc.latitude.toFixed(4) + ', ' + loc.longitude.toFixed(4) + (loc.description ? ' — ' + loc.description : '')) + '" ' +
+                'style="font-size:0.8125rem;padding:var(--space-xs) var(--space-sm)">' +
+                esc(loc.name) + '</button>'
+            ).join('');
+        }
+
+        // Render management table
+        const tbody = document.getElementById('savedLocationsTable');
+        if (data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state"><p>No saved locations yet.</p></div></td></tr>';
+        } else {
+            tbody.innerHTML = data.map(loc =>
+                '<tr>' +
+                '<td><strong>' + esc(loc.name) + '</strong></td>' +
+                '<td style="font-family:monospace;font-size:0.8rem">' + loc.latitude.toFixed(5) + ', ' + loc.longitude.toFixed(5) + '</td>' +
+                '<td style="color:var(--color-text-secondary)">' + esc(loc.description || '\u2014') + '</td>' +
+                '<td><button class="btn" onclick="deleteSavedLocation(' + loc.id + ',\'' + esc(loc.name) + '\')" style="font-size:0.75rem;color:var(--color-danger)">Delete</button></td>' +
+                '</tr>'
+            ).join('');
+        }
+    }
+
+    function dispatchToSavedLocation(id) {
+        const loc = _savedLocations.find(l => l.id === id);
+        if (!loc) return;
+        // Fill in the search box and trigger search
+        document.getElementById('dispatchLocation').value = loc.latitude.toFixed(5) + ', ' + loc.longitude.toFixed(5);
+        searchDispatchLocation(loc.name);
+    }
+
+    async function addSavedLocation() {
+        const name = document.getElementById('newLocName').value.trim();
+        const coordsRaw = document.getElementById('newLocCoords').value.trim();
+        if (!name) { showToast('Enter a location name', 'error'); return; }
+
+        let lat, lng;
+        const coordMatch = coordsRaw.match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/);
+        if (coordMatch) {
+            lat = parseFloat(coordMatch[1]);
+            lng = parseFloat(coordMatch[2]);
+        } else if (coordsRaw) {
+            // Try geocoding
+            try {
+                showToast('Looking up coordinates...', 'success');
+                const geoResp = await fetch('https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(coordsRaw) + '&count=1&language=en');
+                const geoData = await geoResp.json();
+                if (!geoData.results || geoData.results.length === 0) {
+                    showToast('Could not find coordinates for: ' + coordsRaw, 'error');
+                    return;
+                }
+                lat = geoData.results[0].latitude;
+                lng = geoData.results[0].longitude;
+            } catch (e) {
+                showToast('Geocoding failed', 'error');
+                return;
+            }
+        } else {
+            showToast('Enter coordinates or a place name to geocode', 'error');
+            return;
+        }
+
+        const result = await api('/api/dispatch/locations', {
+            method: 'POST',
+            body: JSON.stringify({ name: name, latitude: lat, longitude: lng }),
+        });
+        if (result) {
+            showToast('Saved location: ' + name, 'success');
+            document.getElementById('newLocName').value = '';
+            document.getElementById('newLocCoords').value = '';
+            refreshSavedLocations();
+        }
+    }
+
+    async function deleteSavedLocation(id, name) {
+        if (!confirm('Delete saved location "' + name + '"?')) return;
+        await api('/api/dispatch/locations/' + id, { method: 'DELETE' });
+        showToast('Deleted: ' + name, 'success');
+        refreshSavedLocations();
+    }
+
+    async function searchDispatchLocation(overrideName) {
         const input = document.getElementById('dispatchLocation').value.trim();
         if (!input) { showToast('Enter a location', 'error'); return; }
 
@@ -1117,7 +1234,7 @@
         if (coordMatch) {
             lat = parseFloat(coordMatch[1]);
             lng = parseFloat(coordMatch[2]);
-            locationName = lat.toFixed(4) + ', ' + lng.toFixed(4);
+            locationName = overrideName || (lat.toFixed(4) + ', ' + lng.toFixed(4));
         } else {
             // Geocode the location name using our weather API's geocoding
             showToast('Looking up location...', 'success');
