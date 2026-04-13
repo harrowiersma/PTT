@@ -205,6 +205,8 @@
             <div class="tab" data-tab="users" role="tab" tabindex="0" aria-selected="false" onclick="switchTab('users')" onkeydown="if(event.key==='Enter')switchTab('users')">Users</div>
             <div class="tab" data-tab="channels" role="tab" tabindex="0" aria-selected="false" onclick="switchTab('channels')" onkeydown="if(event.key==='Enter')switchTab('channels')">Channels</div>
             <div class="tab" data-tab="map" role="tab" tabindex="0" aria-selected="false" onclick="switchTab('map')" onkeydown="if(event.key==='Enter')switchTab('map')">Map</div>
+            <div class="tab" data-tab="admin" role="tab" tabindex="0" aria-selected="false" onclick="switchTab('admin')" onkeydown="if(event.key==='Enter')switchTab('admin')">Admin</div>
+            <div class="tab" data-tab="audit" role="tab" tabindex="0" aria-selected="false" onclick="switchTab('audit')" onkeydown="if(event.key==='Enter')switchTab('audit')">Audit Log</div>
         </nav>
 
         <!-- SOS Alert Banner -->
@@ -292,6 +294,69 @@
                 <h2>Dispatch Worker</h2>
                 <p style="font-size:0.875rem;color:var(--color-text-secondary);margin-bottom:var(--space-md)" id="dispatchLocation"></p>
                 <div id="nearestList"></div>
+            </div>
+        </div>
+
+        <!-- Admin Tab -->
+        <div class="content tab-content" id="tab-admin" style="display:none" role="tabpanel" aria-label="Admin">
+            <div class="card">
+                <h2>Bulk Device Enrollment</h2>
+                <p style="font-size:0.875rem;color:var(--color-text-secondary);margin-bottom:var(--space-md)">Upload a CSV file to create multiple users at once. Returns a ZIP with QR codes for each device.</p>
+                <div style="display:flex;gap:var(--space-sm);flex-wrap:wrap;align-items:center">
+                    <button class="btn" onclick="downloadTemplate()">Download CSV Template</button>
+                    <input type="file" id="bulkCsvFile" accept=".csv" style="font-size:0.8125rem">
+                    <button class="btn primary" onclick="bulkEnroll()">Upload &amp; Enroll</button>
+                </div>
+                <div id="bulkResult" style="margin-top:var(--space-md);font-size:0.875rem;display:none"></div>
+            </div>
+
+            <div class="card">
+                <h2>Admin Accounts</h2>
+                <div class="form-row">
+                    <input type="text" id="newAdminUser" placeholder="Username" aria-label="Admin username">
+                    <input type="password" id="newAdminPass" placeholder="Password (min 8 chars)" aria-label="Admin password">
+                    <select id="newAdminRole" style="padding:var(--space-sm);border:1px solid var(--color-border);border-radius:var(--radius-sm);min-height:var(--min-touch)">
+                        <option value="admin">Admin</option>
+                        <option value="viewer">Viewer</option>
+                    </select>
+                    <button class="btn primary" onclick="createAdmin()">Add Admin</button>
+                </div>
+                <div class="table-wrap" style="margin-top:var(--space-md)">
+                    <table aria-label="Admin accounts">
+                        <thead><tr><th>Username</th><th>Role</th><th>Last Login</th><th>Created</th><th>Actions</th></tr></thead>
+                        <tbody id="adminTable">
+                            <tr><td colspan="5"><div class="skeleton skeleton-line"></div></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Audit Log Tab -->
+        <div class="content tab-content" id="tab-audit" style="display:none" role="tabpanel" aria-label="Audit Log">
+            <div class="card">
+                <h2>Audit Trail</h2>
+                <div style="display:flex;gap:var(--space-sm);margin-bottom:var(--space-md);flex-wrap:wrap">
+                    <select id="auditFilter" style="padding:var(--space-sm);border:1px solid var(--color-border);border-radius:var(--radius-sm);min-height:var(--min-touch)" onchange="refreshAudit()">
+                        <option value="">All Actions</option>
+                        <option value="create_admin">Create Admin</option>
+                        <option value="delete_admin">Delete Admin</option>
+                        <option value="create_user">Create User</option>
+                        <option value="delete_user">Delete User</option>
+                        <option value="create_channel">Create Channel</option>
+                        <option value="trigger_sos">SOS Trigger</option>
+                        <option value="acknowledge_sos">SOS Acknowledge</option>
+                    </select>
+                    <button class="btn" onclick="refreshAudit()">Refresh</button>
+                </div>
+                <div class="table-wrap">
+                    <table aria-label="Audit log">
+                        <thead><tr><th>Time</th><th>Admin</th><th>Action</th><th>Target</th><th>Details</th></tr></thead>
+                        <tbody id="auditTable">
+                            <tr><td colspan="5"><div class="skeleton skeleton-line"></div></td></tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
@@ -426,6 +491,8 @@
         if (name === 'users') refreshUsers();
         if (name === 'channels') refreshChannels();
         if (name === 'map') { setTimeout(function() { initMap(); if (map) map.invalidateSize(); }, 100); }
+        if (name === 'admin') refreshAdmins();
+        if (name === 'audit') refreshAudit();
     }
 
     async function refreshAll() {
@@ -635,6 +702,129 @@
     let mapMarkers = {};
     let sosMarkers = {};
     let mapInitialized = false;
+
+    // === ADMIN MANAGEMENT ===
+    async function refreshAdmins() {
+        const data = await api('/api/admin/users');
+        if (!data) return;
+        const tbody = document.getElementById('adminTable');
+        if (data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><p>No admin accounts in database. Using .env credentials.</p></div></td></tr>';
+        } else {
+            tbody.innerHTML = data.map(a => '<tr>' +
+                '<td><strong>' + esc(a.username) + '</strong></td>' +
+                '<td><span class="badge ' + (a.role === 'admin' ? 'online' : 'offline') + '">' + esc(a.role) + '</span></td>' +
+                '<td>' + (a.last_login ? timeAgo(new Date(a.last_login)) : 'Never') + '</td>' +
+                '<td>' + new Date(a.created_at).toLocaleDateString() + '</td>' +
+                '<td class="actions">' +
+                '<button class="btn danger" onclick="deleteAdmin(' + a.id + ',\'' + esc(a.username) + '\')">Delete</button>' +
+                '</td></tr>').join('');
+        }
+    }
+
+    async function createAdmin() {
+        const username = document.getElementById('newAdminUser').value.trim();
+        const password = document.getElementById('newAdminPass').value.trim();
+        const role = document.getElementById('newAdminRole').value;
+        if (!username || !password) { showToast('Username and password required', 'error'); return; }
+        if (password.length < 8) { showToast('Password must be at least 8 characters', 'error'); return; }
+        const result = await api('/api/admin/users', {
+            method: 'POST',
+            body: JSON.stringify({ username: username, password: password, role: role })
+        });
+        if (result) {
+            document.getElementById('newAdminUser').value = '';
+            document.getElementById('newAdminPass').value = '';
+            showToast('Admin "' + username + '" created', 'success');
+            refreshAdmins();
+        }
+    }
+
+    async function deleteAdmin(id, name) {
+        if (!confirm('Delete admin "' + name + '"?')) return;
+        const result = await api('/api/admin/users/' + id, { method: 'DELETE' });
+        if (result !== null) {
+            showToast('Admin deleted', 'success');
+            refreshAdmins();
+        }
+    }
+
+    async function downloadTemplate() {
+        const resp = await fetch('/api/bulk/template', { headers: { 'Authorization': 'Bearer ' + token } });
+        if (resp.ok) {
+            const blob = await resp.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = 'enrollment_template.csv'; a.click();
+            URL.revokeObjectURL(url);
+        }
+    }
+
+    // === BULK ENROLLMENT ===
+    async function bulkEnroll() {
+        const fileInput = document.getElementById('bulkCsvFile');
+        if (!fileInput.files.length) { showToast('Select a CSV file first', 'error'); return; }
+
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+
+        try {
+            const resp = await fetch('/api/bulk/enroll', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + token },
+                body: formData,
+            });
+
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({ detail: 'Upload failed' }));
+                showToast(err.detail || 'Upload failed', 'error');
+                return;
+            }
+
+            const created = resp.headers.get('X-Created') || '?';
+            const errors = resp.headers.get('X-Errors') || '0';
+
+            // Download the ZIP
+            const blob = await resp.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'enrollment.zip';
+            a.click();
+            URL.revokeObjectURL(url);
+
+            const resultDiv = document.getElementById('bulkResult');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '<span class="badge online">' + created + ' users created</span>' +
+                (parseInt(errors) > 0 ? ' <span class="badge offline">' + errors + ' errors (see errors.txt in ZIP)</span>' : '') +
+                ' — QR codes downloaded as enrollment.zip';
+
+            fileInput.value = '';
+            refreshUsers();
+        } catch (e) {
+            showToast('Upload failed: ' + e.message, 'error');
+        }
+    }
+
+    // === AUDIT LOG ===
+    async function refreshAudit() {
+        const filter = document.getElementById('auditFilter').value;
+        const url = '/api/admin/audit?limit=100' + (filter ? '&action=' + filter : '');
+        const data = await api(url);
+        if (!data) return;
+        const tbody = document.getElementById('auditTable');
+        if (data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><p>No audit entries yet.</p></div></td></tr>';
+        } else {
+            tbody.innerHTML = data.map(e => '<tr>' +
+                '<td style="white-space:nowrap">' + new Date(e.timestamp).toLocaleString() + '</td>' +
+                '<td>' + esc(e.admin_username) + '</td>' +
+                '<td><span class="badge ' + (e.action.includes('delete') ? 'offline' : 'online') + '">' + esc(e.action) + '</span></td>' +
+                '<td>' + esc((e.target_type || '') + (e.target_id ? ':' + e.target_id : '')) + '</td>' +
+                '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">' + esc(e.details || '\u2014') + '</td>' +
+                '</tr>').join('');
+        }
+    }
 
     function initMap() {
         if (mapInitialized) return;
