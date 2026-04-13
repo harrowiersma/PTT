@@ -246,6 +246,7 @@
             <div class="tab" data-tab="channels" role="tab" tabindex="0" aria-selected="false" onclick="switchTab('channels')" onkeydown="if(event.key==='Enter')switchTab('channels')">Channels</div>
             <div class="tab" data-tab="map" role="tab" tabindex="0" aria-selected="false" onclick="switchTab('map')" onkeydown="if(event.key==='Enter')switchTab('map')">Map</div>
             <div class="tab" data-tab="admin" role="tab" tabindex="0" aria-selected="false" onclick="switchTab('admin')" onkeydown="if(event.key==='Enter')switchTab('admin')">Admin</div>
+            <div class="tab" data-tab="dispatch" role="tab" tabindex="0" aria-selected="false" onclick="switchTab('dispatch')" onkeydown="if(event.key==='Enter')switchTab('dispatch')">Dispatch</div>
             <div class="tab" data-tab="audit" role="tab" tabindex="0" aria-selected="false" onclick="switchTab('audit')" onkeydown="if(event.key==='Enter')switchTab('audit')">Audit Log</div>
         </nav>
 
@@ -373,6 +374,39 @@
         </div>
 
         <!-- Audit Log Tab -->
+        <!-- Dispatch Tab -->
+        <div class="content tab-content" id="tab-dispatch" style="display:none" role="tabpanel" aria-label="Dispatch">
+            <div class="card">
+                <h2>Dispatch Worker</h2>
+                <p style="font-size:0.8125rem;color:var(--color-text-secondary);margin-bottom:var(--space-md)">Enter a location to find the nearest available workers. Workers need Traccar Client running on their device for GPS positioning.</p>
+                <div class="form-row">
+                    <input type="text" id="dispatchLocation" placeholder="Enter location (e.g., Amsterdam, Warehouse A, 52.37 4.89)" aria-label="Dispatch location" style="flex:3">
+                    <button class="btn primary" onclick="searchDispatchLocation()">Find Nearest</button>
+                </div>
+            </div>
+            <div class="card" id="dispatchResults" style="display:none">
+                <h2>Nearest Workers</h2>
+                <p style="font-size:0.8125rem;color:var(--color-text-secondary);margin-bottom:var(--space-md)" id="dispatchResultLocation"></p>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Worker</th><th>Distance</th><th>Last GPS</th><th>Action</th></tr></thead>
+                        <tbody id="dispatchResultsTable"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="card">
+                <h2>Recent Dispatches</h2>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Time</th><th>Worker</th><th>Message</th><th>Location</th></tr></thead>
+                        <tbody id="recentDispatchTable">
+                            <tr><td colspan="4"><div class="empty-state"><p>No dispatches yet.</p></div></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <div class="content tab-content" id="tab-audit" style="display:none" role="tabpanel" aria-label="Audit Log">
             <div class="card">
                 <h2>Audit Trail</h2>
@@ -570,6 +604,7 @@
         if (name === 'users') refreshUsers();
         if (name === 'channels') refreshChannels();
         if (name === 'map') { setTimeout(function() { initMap(); if (map) map.invalidateSize(); }, 100); }
+        if (name === 'dispatch') { /* dispatch loads on search */ }
         if (name === 'admin') refreshAdmins();
         if (name === 'audit') refreshAudit();
     }
@@ -954,6 +989,78 @@
     }
 
     // === AUDIT LOG ===
+    // === DISPATCH TAB ===
+    async function searchDispatchLocation() {
+        const input = document.getElementById('dispatchLocation').value.trim();
+        if (!input) { showToast('Enter a location', 'error'); return; }
+
+        // Check if input is lat,lng coordinates
+        const coordMatch = input.match(/^(-?\d+\.?\d*)\s*,?\s*(-?\d+\.?\d*)$/);
+        let lat, lng, locationName;
+
+        if (coordMatch) {
+            lat = parseFloat(coordMatch[1]);
+            lng = parseFloat(coordMatch[2]);
+            locationName = lat.toFixed(4) + ', ' + lng.toFixed(4);
+        } else {
+            // Geocode the location name using our weather API's geocoding
+            showToast('Looking up location...', 'success');
+            try {
+                const geoResp = await fetch('https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(input) + '&count=1&language=en');
+                const geoData = await geoResp.json();
+                if (!geoData.results || geoData.results.length === 0) {
+                    showToast('Location not found: ' + input, 'error');
+                    return;
+                }
+                lat = geoData.results[0].latitude;
+                lng = geoData.results[0].longitude;
+                locationName = geoData.results[0].name + (geoData.results[0].country ? ', ' + geoData.results[0].country : '');
+            } catch (e) {
+                showToast('Geocoding failed', 'error');
+                return;
+            }
+        }
+
+        // Find nearest workers
+        const data = await api('/api/dispatch/nearest?lat=' + lat + '&lng=' + lng);
+        const resultsDiv = document.getElementById('dispatchResults');
+        document.getElementById('dispatchResultLocation').textContent = 'Searching near: ' + locationName + ' (' + lat.toFixed(4) + ', ' + lng.toFixed(4) + ')';
+
+        if (!data || data.length === 0) {
+            resultsDiv.style.display = 'block';
+            document.getElementById('dispatchResultsTable').innerHTML = '<tr><td colspan="4"><div class="empty-state"><p>No workers with GPS data found. Ensure Traccar Client is running on devices.</p></div></td></tr>';
+            return;
+        }
+
+        resultsDiv.style.display = 'block';
+        document.getElementById('dispatchResultsTable').innerHTML = data.map(w =>
+            '<tr>' +
+            '<td><strong>' + esc(w.username) + '</strong></td>' +
+            '<td>' + formatDistance(w.distance_m) + '</td>' +
+            '<td>' + (w.timestamp ? timeAgo(new Date(w.timestamp)) : 'Unknown') + '</td>' +
+            '<td><button class="btn primary" onclick="sendDispatch(\'' + esc(w.username) + '\',' + lat + ',' + lng + ')">Dispatch</button></td>' +
+            '</tr>'
+        ).join('');
+    }
+
+    async function sendDispatch(username, lat, lng) {
+        const message = prompt('Dispatch message for ' + username + ':');
+        if (!message) return;
+
+        const result = await api('/api/dispatch', {
+            method: 'POST',
+            body: JSON.stringify({
+                target_username: username,
+                message: message,
+                latitude: lat,
+                longitude: lng,
+            }),
+        });
+        if (result) {
+            showToast('Dispatched ' + username + ': ' + message, 'success');
+        }
+    }
+
     async function refreshAudit() {
         const filter = document.getElementById('auditFilter').value;
         const url = '/api/admin/audit?limit=100' + (filter ? '&action=' + filter : '');
