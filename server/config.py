@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     traccar_admin_email: str = "admin@ptt.local"
     traccar_admin_password: str = "admin"
 
+    # SOS authentication (token for triggering SOS from Traccar/external)
+    sos_token: str = ""  # If empty, SOS trigger requires admin JWT auth
+
     # SOS notifications
     sos_webhook_url: str = ""
     sos_smtp_host: str = ""

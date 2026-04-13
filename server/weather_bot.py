@@ -131,12 +131,23 @@ def format_weather_report(username: str, weather_data: dict, location_name: str 
     return " ".join(lines)
 
 
+_tts_instance = None
+
+
+def _get_tts():
+    """Get or create the TinyTTS singleton."""
+    global _tts_instance
+    if _tts_instance is None:
+        from tinytts import TinyTTS
+        _tts_instance = TinyTTS()
+        logger.info("TinyTTS model loaded")
+    return _tts_instance
+
+
 def text_to_audio_pcm(text: str) -> bytes | None:
     """Convert text to 48kHz 16-bit mono PCM audio using TinyTTS."""
     try:
-        from tinytts import TinyTTS
-
-        tts = TinyTTS()
+        tts = _get_tts()
         # TinyTTS returns audio at 44100 Hz
         audio_np = tts.synthesize(text, speed=0.9)
 
@@ -320,8 +331,8 @@ class WeatherBot:
 
     def _fetch_and_speak(self, username: str):
         """Fetch weather and play audio. Runs in a separate thread."""
+        loop = asyncio.new_event_loop()
         try:
-            loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
             # Get GPS from Traccar
@@ -343,7 +354,6 @@ class WeatherBot:
             weather = loop.run_until_complete(
                 fetch_weather(user_pos.latitude, user_pos.longitude)
             )
-            loop.close()
 
             if not weather:
                 self._speak("Weather service temporarily unavailable. Please try again.")
@@ -364,6 +374,8 @@ class WeatherBot:
 
         except Exception as e:
             logger.error("Weather fetch-and-speak error: %s", e)
+        finally:
+            loop.close()
 
     def _speak(self, text: str):
         """Send a text message to the Weather channel (fallback when audio fails)."""

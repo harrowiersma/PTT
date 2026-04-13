@@ -4,7 +4,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.auth import get_current_admin
 from server.database import get_db
+from server.dependencies import get_murmur_client
 from server.models import DispatchEvent
+from server.murmur.client import MurmurClient
 from server.traccar_client import TraccarClient
 
 router = APIRouter(prefix="/api/dispatch", tags=["dispatch"])
@@ -34,6 +36,7 @@ async def dispatch_worker(
     req: DispatchRequest,
     db: AsyncSession = Depends(get_db),
     _admin: dict = Depends(get_current_admin),
+    murmur: MurmurClient | None = Depends(get_murmur_client),
 ):
     """Dispatch a worker: log the event and send them a message."""
     event = DispatchEvent(
@@ -46,19 +49,9 @@ async def dispatch_worker(
     await db.commit()
     await db.refresh(event)
 
-    # Send text message via Mumble to the user's channel
-    from server.dependencies import get_murmur_client
-    murmur = getattr(req.app if hasattr(req, 'app') else None, 'state', None)
-    # Use the murmur client from app state if available
-    import fastapi
-    try:
-        from server.main import app as _app
-        mc = getattr(_app.state, 'murmur_client', None)
-        if mc and mc.has_mumble:
-            # Send to root channel (0) as broadcast
-            mc.send_message(0, f"DISPATCH: {req.target_username}, {req.message}")
-    except Exception:
-        pass
+    # Send text message via Mumble
+    if murmur and murmur.has_mumble:
+        murmur.send_message(0, f"DISPATCH: {req.target_username}, {req.message}")
 
     return {
         "status": "dispatched",

@@ -119,12 +119,35 @@ def _restore_channels(murmur):
     logger.info("SOS acknowledged: restored %d users to original channels", restored)
 
 
+def _verify_sos_auth(request: Request) -> None:
+    """Verify SOS trigger authentication. Accepts either admin JWT or SOS token."""
+    # Check for SOS token header first (for Traccar webhooks)
+    sos_token = request.headers.get("X-SOS-Token", "")
+    if settings.sos_token and sos_token == settings.sos_token:
+        return  # Valid SOS token
+
+    # Fall back to JWT auth
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        from server.auth import verify_token
+        verify_token(auth[7:])
+        return
+
+    from fastapi import HTTPException, status
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="SOS trigger requires authentication (JWT or X-SOS-Token header)",
+    )
+
+
 @router.post("")
 async def trigger_sos(
     sos: SOSRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """Trigger an SOS alert. Moves all users to Emergency channel."""
+    """Trigger an SOS alert. Requires admin JWT or SOS token. Moves all users to Emergency channel."""
+    _verify_sos_auth(request)
     event = SOSEvent(
         username=sos.username,
         latitude=sos.latitude,

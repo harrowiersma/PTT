@@ -247,8 +247,8 @@ class MurmurClient:
 
     def _on_text_message(self, text):
         """Handle incoming text messages. Dispatches to SOS handler + any registered handlers."""
-        logger.info("Text message received: actor=%s message='%s' handlers=%d",
-                     getattr(text, 'actor', '?'), getattr(text, 'message', '?')[:50], len(self._text_handlers))
+        logger.debug("Text message received: actor=%s handlers=%d",
+                     getattr(text, 'actor', '?'), len(self._text_handlers))
 
         # Dispatch to all registered text handlers first
         for handler in self._text_handlers:
