@@ -7,6 +7,8 @@ from fastapi.staticfiles import StaticFiles
 
 from server.api.admin import router as admin_router
 from server.api.auth import router as auth_router
+from server.api.bulk import router as bulk_router
+from server.api.metrics import router as metrics_router
 from server.api.channels import router as channels_router
 from server.api.dispatch import router as dispatch_router
 from server.api.gps import router as gps_router
@@ -149,6 +151,8 @@ app.include_router(gps_router)
 app.include_router(sos_router)
 app.include_router(dispatch_router)
 app.include_router(weather_router)
+app.include_router(bulk_router)
+app.include_router(metrics_router)
 
 # Serve dashboard static files
 dashboard_dir = Path(__file__).parent / "dashboard"

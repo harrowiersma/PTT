@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system dependencies
+        run: sudo apt-get install -y libopus0
+
+      - name: Install Python dependencies
+        run: |
+          pip install -r server/requirements.txt
+          pip install pytest pytest-asyncio httpx aiosqlite
+
+      - name: Run tests
+        env:
+          PTT_DATABASE_URL: "sqlite+aiosqlite:///test.db"
+          PTT_DATABASE_URL_SYNC: "sqlite:///test.db"
+          PTT_SECRET_KEY: "ci-test-secret"
+          PTT_ADMIN_USERNAME: "testadmin"
+          PTT_ADMIN_PASSWORD: "testpass123"
+        run: pytest tests/ -v --tb=short
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t ptt-admin:test server/
+
+      - name: Verify image starts
+        run: |
+          docker run -d --name ptt-test \
+            -e PTT_SECRET_KEY=test \
+            -e PTT_ADMIN_PASSWORD=test123 \
+            -e PTT_DATABASE_URL=sqlite+aiosqlite:///test.db \
+            ptt-admin:test
+          sleep 3
+          docker logs ptt-test
+          docker stop ptt-test
