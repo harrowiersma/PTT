@@ -102,6 +102,17 @@ async def lifespan(app: FastAPI):
         client.set_sos_acknowledge_callback(on_sos_acknowledge)
         logger.info("SOS text acknowledgement enabled (admin types OK in Emergency channel)")
 
+    # Start Weather ATIS bot
+    if connected and client.has_mumble:
+        try:
+            from server.weather_bot import WeatherBot
+            from server.traccar_client import TraccarClient
+            weather_bot = WeatherBot(client, TraccarClient)
+            weather_bot.start()
+            logger.info("Weather ATIS bot started")
+        except Exception as e:
+            logger.warning("Weather bot failed to start: %s", e)
+
     if connected:
         logger.info("Connected to Murmur via pymumble")
     else:
