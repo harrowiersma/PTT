@@ -165,6 +165,8 @@
         .form-row { display: flex; gap: var(--space-sm); margin-bottom: 0.75rem; flex-wrap: wrap; }
         .form-row input { flex: 1; min-width: 120px; padding: 0.375rem var(--space-sm); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 0.8125rem; min-height: var(--min-touch); background: var(--color-bg); color: var(--color-text); font-family: inherit; transition: border-color 0.2s; }
         .form-row input:focus { outline: none; border-color: var(--color-accent); box-shadow: 0 0 0 3px var(--color-accent-glow); }
+        input[type="checkbox"] { width: 14px; height: 14px; margin: 0; accent-color: var(--color-accent); cursor: pointer; flex-shrink: 0; }
+        label:has(input[type="checkbox"]) { gap: 4px !important; }
 
         .search-bar { margin-bottom: var(--space-md); }
         .search-bar input { width: 100%; padding: var(--space-sm) var(--space-md); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 0.8125rem; min-height: var(--min-touch); background: var(--color-bg); color: var(--color-text); font-family: inherit; transition: border-color 0.2s; }
