@@ -276,6 +276,14 @@
             </div>
         </div>
 
+            <div class="card" id="loneWorkerCard">
+                <h2>Lone Worker Check-In</h2>
+                <div id="loneWorkerStatus">
+                    <div class="empty-state"><p>Loading check-in status...</p></div>
+                </div>
+            </div>
+        </div>
+
         <!-- Users Tab -->
         <div class="content tab-content" id="tab-users" style="display:none" role="tabpanel" aria-label="Users">
             <div class="card">
@@ -613,6 +621,7 @@
         refreshStatus();
         refreshUsers();
         refreshChannels();
+        refreshLoneWorker();
     }
 
     async function refreshStatus() {
@@ -817,6 +826,50 @@
     let mapMarkers = {};
     let sosMarkers = {};
     let mapInitialized = false;
+
+    // === LONE WORKER CHECK-IN ===
+    async function refreshLoneWorker() {
+        const data = await api('/api/loneworker/status');
+        if (!data) return;
+        const div = document.getElementById('loneWorkerStatus');
+
+        if (!data.enabled) {
+            div.innerHTML = '<p style="font-size:0.8125rem;color:var(--color-text-secondary)">Lone worker monitoring is disabled. <button class="btn" onclick="enableLoneWorker()">Enable</button></p>';
+            return;
+        }
+
+        if (data.users.length === 0) {
+            div.innerHTML = '<div class="empty-state"><p>No users to monitor.</p></div>';
+            return;
+        }
+
+        const statusColors = { ok: 'var(--color-success)', warning: '#fbbf24', overdue: 'var(--color-danger)', unknown: 'var(--color-text-secondary)' };
+        const statusLabels = { ok: 'OK', warning: 'Due soon', overdue: 'OVERDUE', unknown: 'No check-in' };
+
+        div.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:var(--space-sm)">' +
+            data.users.map(u => {
+                const color = statusColors[u.status];
+                const label = statusLabels[u.status];
+                const time = u.minutes_ago !== null ? Math.round(u.minutes_ago) + 'm ago' : 'Never';
+                return '<div style="padding:var(--space-sm) var(--space-md);border:1px solid var(--color-border);border-radius:var(--radius-sm);border-left:3px solid ' + color + '">' +
+                    '<div style="display:flex;justify-content:space-between;align-items:center">' +
+                    '<strong style="font-size:0.8125rem">' + esc(u.username) + '</strong>' +
+                    '<span class="badge" style="background:' + color + '20;color:' + color + '">' + label + '</span>' +
+                    '</div>' +
+                    '<div style="font-size:0.6875rem;color:var(--color-text-secondary);margin-top:2px">' + time + '</div>' +
+                    '</div>';
+            }).join('') +
+            '</div>' +
+            '<div style="margin-top:var(--space-sm);font-size:0.6875rem;color:var(--color-text-secondary)">Interval: ' + data.config.check_in_interval_minutes + ' min</div>';
+    }
+
+    async function enableLoneWorker() {
+        await api('/api/loneworker/config', {
+            method: 'POST',
+            body: JSON.stringify({ check_in_interval_minutes: 30, warning_after_minutes: 25, enabled: true }),
+        });
+        refreshLoneWorker();
+    }
 
     // === ADMIN MANAGEMENT ===
     async function refreshAdmins() {
