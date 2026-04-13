@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from server.api.schemas import QRResponse, UserCreate, UserResponse
+from server.api.schemas import QRResponse, UserCreate, UserResponse, UserUpdate
 from server.auth import get_current_admin
 from server.config import settings
 from server.database import get_db
@@ -70,6 +70,30 @@ async def get_user(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+@router.patch("/{user_id}", response_model=UserResponse)
+async def update_user(
+    user_id: int,
+    user_data: UserUpdate,
+    db: AsyncSession = Depends(get_db),
+    _admin: dict = Depends(get_current_admin),
+):
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user_data.display_name is not None:
+        user.display_name = user_data.display_name
+    if user_data.password is not None:
+        user.mumble_password = user_data.password
+    if user_data.is_admin is not None:
+        user.is_admin = user_data.is_admin
+
+    await db.commit()
+    await db.refresh(user)
     return user
 
 

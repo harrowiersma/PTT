@@ -393,6 +393,26 @@
         </div>
     </div>
 
+    <!-- Edit User Modal -->
+    <div class="modal-overlay" id="editUserModal" style="display:none" onclick="if(event.target===this)closeModal('editUserModal')" role="dialog" aria-label="Edit user">
+        <div class="modal-content" style="text-align:left;max-width:380px">
+            <h2 style="font-size:1rem;margin-bottom:var(--space-md)">Edit User: <span id="editUserName"></span></h2>
+            <input type="hidden" id="editUserId">
+            <input type="hidden" id="editUserType">
+            <label style="font-size:0.8125rem;display:block;margin-bottom:var(--space-xs)">Display Name</label>
+            <input type="text" id="editDisplayName" style="width:100%;padding:var(--space-sm);border:1px solid var(--color-border);border-radius:var(--radius-sm);margin-bottom:var(--space-md)">
+            <label style="font-size:0.8125rem;display:block;margin-bottom:var(--space-xs)">New Password (leave blank to keep current)</label>
+            <input type="password" id="editPassword" placeholder="Leave blank to keep" style="width:100%;padding:var(--space-sm);border:1px solid var(--color-border);border-radius:var(--radius-sm);margin-bottom:var(--space-md)">
+            <div id="editRoleRow" style="margin-bottom:var(--space-md)">
+                <label style="font-size:0.8125rem;display:flex;align-items:center;gap:var(--space-xs)"><input type="checkbox" id="editIsAdmin"> Admin role</label>
+            </div>
+            <div style="display:flex;gap:var(--space-sm);justify-content:flex-end">
+                <button class="btn" onclick="closeModal('editUserModal')">Cancel</button>
+                <button class="btn primary" onclick="saveUserEdit()">Save</button>
+            </div>
+        </div>
+    </div>
+
     <script>
     let token = localStorage.getItem('ptt_token');
     let allUsers = [];
@@ -596,6 +616,7 @@
                 '<td>' + new Date(u.created_at).toLocaleDateString() + '</td>' +
                 '<td class="actions">' +
                 '<button class="btn" onclick="showQR(' + u.id + ')">QR</button>' +
+                '<button class="btn" onclick="openEditUser(' + u.id + ',\'' + esc(u.username) + '\',\'' + esc(u.display_name || '') + '\',' + u.is_admin + ')">Edit</button>' +
                 '<button class="btn danger" onclick="confirmDelete(\'user\',' + u.id + ',\'' + esc(u.username) + '\')">Delete</button>' +
                 '</td></tr>').join('');
         }
@@ -717,9 +738,76 @@
                 '<td>' + (a.last_login ? timeAgo(new Date(a.last_login)) : 'Never') + '</td>' +
                 '<td>' + new Date(a.created_at).toLocaleDateString() + '</td>' +
                 '<td class="actions">' +
+                '<button class="btn" onclick="openEditAdmin(' + a.id + ',\'' + esc(a.username) + '\',\'' + esc(a.role) + '\')">Edit</button>' +
                 '<button class="btn danger" onclick="deleteAdmin(' + a.id + ',\'' + esc(a.username) + '\')">Delete</button>' +
                 '</td></tr>').join('');
         }
+    }
+
+    // === EDIT USER/ADMIN ===
+    function openEditUser(id, username, displayName, isAdmin) {
+        document.getElementById('editUserId').value = id;
+        document.getElementById('editUserType').value = 'user';
+        document.getElementById('editUserName').textContent = username;
+        document.getElementById('editDisplayName').value = displayName || '';
+        document.getElementById('editPassword').value = '';
+        document.getElementById('editIsAdmin').checked = isAdmin;
+        document.getElementById('editRoleRow').style.display = 'block';
+        document.getElementById('editUserModal').style.display = 'flex';
+    }
+
+    function openEditAdmin(id, username, role) {
+        document.getElementById('editUserId').value = id;
+        document.getElementById('editUserType').value = 'admin';
+        document.getElementById('editUserName').textContent = username;
+        document.getElementById('editDisplayName').value = '';
+        document.getElementById('editPassword').value = '';
+        document.getElementById('editIsAdmin').checked = role === 'admin';
+        document.getElementById('editRoleRow').style.display = 'block';
+        // Hide display name for admin users
+        document.getElementById('editDisplayName').parentElement.previousElementSibling.style.display = 'none';
+        document.getElementById('editDisplayName').style.display = 'none';
+        document.getElementById('editUserModal').style.display = 'flex';
+    }
+
+    async function saveUserEdit() {
+        const id = document.getElementById('editUserId').value;
+        const type = document.getElementById('editUserType').value;
+        const password = document.getElementById('editPassword').value.trim();
+
+        if (type === 'user') {
+            const body = {};
+            const displayName = document.getElementById('editDisplayName').value.trim();
+            if (displayName !== '') body.display_name = displayName;
+            if (password) body.password = password;
+            body.is_admin = document.getElementById('editIsAdmin').checked;
+
+            const result = await api('/api/users/' + id, {
+                method: 'PATCH',
+                body: JSON.stringify(body),
+            });
+            if (result) {
+                showToast('User updated', 'success');
+                refreshUsers();
+            }
+        } else {
+            const body = {};
+            if (password) body.password = password;
+            body.role = document.getElementById('editIsAdmin').checked ? 'admin' : 'viewer';
+
+            const result = await api('/api/admin/users/' + id, {
+                method: 'PATCH',
+                body: JSON.stringify(body),
+            });
+            if (result) {
+                showToast('Admin updated', 'success');
+                refreshAdmins();
+            }
+        }
+        closeModal('editUserModal');
+        // Reset hidden fields
+        document.getElementById('editDisplayName').style.display = '';
+        document.getElementById('editDisplayName').parentElement.previousElementSibling.style.display = '';
     }
 
     async function createAdmin() {

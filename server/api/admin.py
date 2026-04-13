@@ -37,6 +37,11 @@ class AdminResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AdminUpdate(BaseModel):
+    password: str | None = Field(default=None, min_length=8, max_length=128)
+    role: str | None = None
+
+
 class AuditLogResponse(BaseModel):
     id: int
     timestamp: datetime
@@ -104,6 +109,34 @@ async def create_admin(
     await db.commit()
     await db.refresh(new_admin)
     return new_admin
+
+
+@router.patch("/users/{admin_id}", response_model=AdminResponse)
+async def update_admin(
+    admin_id: int,
+    data: AdminUpdate,
+    req: Request,
+    db: AsyncSession = Depends(get_db),
+    admin: dict = Depends(get_current_admin),
+):
+    result = await db.execute(select(AdminUser).where(AdminUser.id == admin_id))
+    target = result.scalar_one_or_none()
+    if not target:
+        raise HTTPException(status_code=404, detail="Admin not found")
+
+    if data.password is not None:
+        target.password_hash = _bcrypt.hashpw(data.password.encode(), _bcrypt.gensalt()).decode()
+    if data.role is not None:
+        target.role = data.role
+
+    await log_audit(
+        db, admin["sub"], "update_admin",
+        target_type="admin", target_id=target.username,
+        ip_address=req.client.host if req.client else None,
+    )
+    await db.commit()
+    await db.refresh(target)
+    return target
 
 
 @router.delete("/users/{admin_id}", status_code=status.HTTP_204_NO_CONTENT)
