@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none">
+  <!-- Background circle -->
+  <rect width="120" height="120" rx="24" fill="#131926"/>
+
+  <!-- Antenna/tower -->
+  <path d="M60 82V48" stroke="#3b82f6" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="60" cy="44" r="4" fill="#3b82f6"/>
+
+  <!-- Signal waves - left -->
+  <path d="M42 56a22 22 0 0 1 0-24" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.9"/>
+  <path d="M34 60a32 32 0 0 1 0-32" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.6"/>
+  <path d="M26 64a42 42 0 0 1 0-40" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.3"/>
+
+  <!-- Signal waves - right -->
+  <path d="M78 56a22 22 0 0 0 0-24" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.9"/>
+  <path d="M86 60a32 32 0 0 0 0-32" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.6"/>
+  <path d="M94 64a42 42 0 0 0 0-40" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.3"/>
+
+  <!-- Base platform -->
+  <path d="M44 82h32" stroke="#3b82f6" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- TRX text -->
+  <text x="60" y="102" text-anchor="middle" fill="#e8edf5" font-family="DM Sans, system-ui, sans-serif" font-size="14" font-weight="700" letter-spacing="2">TRX</text>
+</svg>
