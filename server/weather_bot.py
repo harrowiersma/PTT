@@ -1,10 +1,11 @@
 """Weather ATIS channel bot.
 
-Listens in the "Weather" channel for double-PTT (two talk bursts within 10 seconds).
-When triggered, looks up the user's GPS from Traccar, fetches weather from Open-Meteo,
-generates a spoken ATIS-style weather report via TinyTTS, and plays it into the channel.
+Two trigger modes:
+1. Double-PTT in "Weather" channel: looks up GPS from Traccar, fetches weather, speaks it.
+2. Text message "status {location}": geocodes the location via Open-Meteo, fetches weather,
+   speaks it. Works in any channel. Example: "status Paris, France"
 
-Like airport ATIS, but personalized to your GPS location.
+Like airport ATIS, but personalized to your location.
 """
 
 import asyncio
@@ -70,7 +71,29 @@ async def fetch_weather(lat: float, lon: float) -> dict | None:
         return None
 
 
-def format_weather_report(username: str, weather_data: dict) -> str:
+async def geocode_location(query: str) -> tuple[float, float, str] | None:
+    """Geocode a location name to (lat, lon, display_name) via Open-Meteo Geocoding API."""
+    try:
+        url = f"https://geocoding-api.open-meteo.com/v1/search?name={query}&count=1&language=en"
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(url)
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            results = data.get("results", [])
+            if not results:
+                return None
+            r = results[0]
+            name = r.get("name", query)
+            country = r.get("country", "")
+            display = f"{name}, {country}" if country else name
+            return (r["latitude"], r["longitude"], display)
+    except Exception as e:
+        logger.error("Geocoding failed for '%s': %s", query, e)
+        return None
+
+
+def format_weather_report(username: str, weather_data: dict, location_name: str | None = None) -> str:
     """Format weather data into ATIS-style spoken text."""
     current = weather_data.get("current", {})
     temp = current.get("temperature_2m", "unknown")
@@ -86,8 +109,13 @@ def format_weather_report(username: str, weather_data: dict) -> str:
     compass = degrees_to_compass(wind_dir)
     condition = WMO_CODES.get(code, "Unknown conditions")
 
+    if location_name:
+        header = f"Weather report for {location_name}."
+    else:
+        header = f"Weather report for {username}."
+
     lines = [
-        f"Weather report for {username}.",
+        header,
         f"Time {time_str}.",
         f"Temperature {int(round(temp))} degrees celsius.",
         f"Wind from {compass} at {int(round(wind_speed))} kilometers per hour.",
@@ -142,7 +170,10 @@ def text_to_audio_pcm(text: str) -> bytes | None:
 
 
 class WeatherBot:
-    """Monitors the Weather channel for double-PTT and responds with weather."""
+    """Weather bot with two trigger modes:
+    1. Double-PTT in Weather channel -> GPS-based weather report
+    2. Text message "status {location}" in any channel -> location-based weather report
+    """
 
     def __init__(self, murmur_client, traccar_client_class):
         self.murmur = murmur_client
@@ -180,12 +211,50 @@ class WeatherBot:
             logger.error("Weather bot: could not create Weather channel")
             return
 
+        # Also ensure it exists in the database (for dashboard visibility)
+        self._ensure_db_channel("Weather", "ATIS-style weather reports. Double-PTT or type 'status <location>'.", self._weather_channel_id)
+        # Also ensure Emergency channel exists for SOS
+        for chan_id, chan in mm.channels.items():
+            if chan["name"] == "Emergency":
+                self._ensure_db_channel("Emergency", "Emergency SOS channel. All users moved here during SOS.", chan_id)
+                break
+
         # Register audio callback to detect PTT bursts
         import pymumble_py3.constants as const
         mm.callbacks.set_callback(const.PYMUMBLE_CLBK_SOUNDRECEIVED, self._on_sound)
 
+        # Register text message callback for "status {location}" commands
+        # Note: the SOS handler in murmur/client.py may also have a text callback.
+        # pymumble only supports one callback per event type, so we chain them.
+        self._existing_text_callback = mm.callbacks.get_callback(const.PYMUMBLE_CLBK_TEXTMESSAGERECEIVED)
+        mm.callbacks.set_callback(const.PYMUMBLE_CLBK_TEXTMESSAGERECEIVED, self._on_text_message)
+
         self._running = True
-        logger.info("Weather bot started. Channel ID: %d", self._weather_channel_id)
+        logger.info("Weather bot started. Channel ID: %d. Text command: 'status <location>'", self._weather_channel_id)
+
+    def _ensure_db_channel(self, name: str, description: str, mumble_id: int):
+        """Ensure a channel exists in PostgreSQL for dashboard visibility."""
+        try:
+            import asyncio
+            from sqlalchemy import select
+            from server.database import async_session
+            from server.models import Channel
+
+            async def _create():
+                async with async_session() as db:
+                    result = await db.execute(select(Channel).where(Channel.name == name))
+                    if result.scalar_one_or_none():
+                        return  # Already exists
+                    ch = Channel(name=name, description=description, mumble_id=mumble_id)
+                    db.add(ch)
+                    await db.commit()
+                    logger.info("Created '%s' channel in database (mumble_id=%d)", name, mumble_id)
+
+            loop = asyncio.new_event_loop()
+            loop.run_until_complete(_create())
+            loop.close()
+        except Exception as e:
+            logger.debug("Could not ensure DB channel '%s': %s", name, e)
 
     def _on_sound(self, user, sound_chunk):
         """Called when audio is received. Track PTT bursts per user."""
@@ -237,6 +306,128 @@ class WeatherBot:
 
         except Exception as e:
             logger.error("Weather bot audio callback error: %s", e)
+
+    def _on_text_message(self, text):
+        """Handle text messages. Check for 'status {location}' command."""
+        try:
+            import re
+            message = re.sub(r'<[^>]+>', '', text.message).strip()
+
+            # Chain to existing text callback (SOS handler) first
+            if self._existing_text_callback:
+                try:
+                    self._existing_text_callback(text)
+                except Exception:
+                    pass
+
+            # Check for "status {location}" pattern
+            lower = message.lower()
+            if not lower.startswith("status "):
+                return
+
+            location_query = message[7:].strip()  # Everything after "status "
+            if not location_query:
+                return
+
+            actor = text.actor
+            mm = self.murmur._mumble
+            if actor not in mm.users:
+                return
+            username = mm.users[actor]["name"]
+            if username == "PTTAdmin":
+                return
+
+            # Rate limit
+            now = time.time()
+            key = f"{username}:text"
+            last = self._rate_limit.get(key, 0)
+            if now - last < 30:
+                return
+            self._rate_limit[key] = now
+
+            logger.info("Weather text request from %s for '%s'", username, location_query)
+
+            # Determine which channel the user is in (to play audio there)
+            user_channel = mm.users[actor].get("channel_id", 0)
+
+            import threading
+            thread = threading.Thread(
+                target=self._fetch_and_speak_location,
+                args=(username, location_query, user_channel),
+                daemon=True,
+            )
+            thread.start()
+
+        except Exception as e:
+            logger.error("Weather text message handler error: %s", e)
+
+    def _fetch_and_speak_location(self, username: str, location_query: str, channel_id: int):
+        """Geocode a location, fetch weather, and speak it. Runs in a thread."""
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            # Geocode the location
+            result = loop.run_until_complete(geocode_location(location_query))
+            if not result:
+                self._speak_in_channel(channel_id, f"Could not find location: {location_query}")
+                loop.close()
+                return
+
+            lat, lon, display_name = result
+
+            # Fetch weather
+            weather = loop.run_until_complete(fetch_weather(lat, lon))
+            loop.close()
+
+            if not weather:
+                self._speak_in_channel(channel_id, "Weather service temporarily unavailable.")
+                return
+
+            # Format and speak
+            report_text = format_weather_report(username, weather, location_name=display_name)
+            logger.info("Weather report (text cmd): %s", report_text)
+
+            pcm = text_to_audio_pcm(report_text)
+            if pcm:
+                self._play_audio_in_channel(pcm, channel_id)
+            else:
+                # Fallback: send as text message
+                self._speak_in_channel(channel_id, report_text)
+
+        except Exception as e:
+            logger.error("Weather location fetch error: %s", e)
+
+    def _speak_in_channel(self, channel_id: int, text: str):
+        """Send a text message to a specific channel."""
+        if self.murmur and self.murmur.has_mumble:
+            self.murmur.send_message(channel_id, text)
+
+    def _play_audio_in_channel(self, pcm_data: bytes, channel_id: int):
+        """Play PCM audio in a specific channel."""
+        if not self.murmur or not self.murmur.has_mumble:
+            return
+
+        mm = self.murmur._mumble
+
+        # Move bot to the target channel
+        mm.users.myself.move_in(channel_id)
+        time.sleep(0.1)
+
+        CHUNK_SIZE = 48000 * 2 * 20 // 1000
+        for i in range(0, len(pcm_data), CHUNK_SIZE):
+            chunk = pcm_data[i:i + CHUNK_SIZE]
+            if len(chunk) < CHUNK_SIZE:
+                chunk += b'\x00' * (CHUNK_SIZE - len(chunk))
+            mm.sound_output.add_sound(chunk)
+            time.sleep(0.018)
+
+        # Move bot back to Weather channel
+        if self._weather_channel_id is not None:
+            time.sleep(0.5)
+            mm.users.myself.move_in(self._weather_channel_id)
+
+        logger.info("Weather audio playback complete (text command, channel %d)", channel_id)
 
     def _handle_weather_request(self, username: str):
         """Process a weather request for the given user."""
