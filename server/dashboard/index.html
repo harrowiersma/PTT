@@ -9,7 +9,7 @@
     <script src="leaflet.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
     <style>
-        :root {
+        :root, [data-theme="dark"] {
             --color-bg: #0a0e17;
             --color-surface: #131926;
             --color-surface-hover: #1a2235;
@@ -29,6 +29,7 @@
             --color-border: #1e2a3a;
             --color-border-light: #182030;
             --color-topbar: #0d1220;
+            --login-bg-glow: rgba(59,130,246,0.08);
             --radius-sm: 6px;
             --radius-md: 10px;
             --radius-full: 9999px;
@@ -39,11 +40,38 @@
             --space-xl: 2rem;
             --min-touch: 44px;
         }
+        [data-theme="light"] {
+            --color-bg: #f0f2f5;
+            --color-surface: #ffffff;
+            --color-surface-hover: #f7f8fa;
+            --color-text: #111827;
+            --color-text-secondary: #6b7280;
+            --color-accent: #2563eb;
+            --color-accent-hover: #1d4ed8;
+            --color-accent-glow: rgba(37, 99, 235, 0.12);
+            --color-success: #16a34a;
+            --color-success-bg: rgba(22, 163, 74, 0.08);
+            --color-success-text: #16a34a;
+            --color-danger: #dc2626;
+            --color-danger-bg: rgba(220, 38, 38, 0.06);
+            --color-danger-text: #dc2626;
+            --color-warning-bg: rgba(202, 138, 4, 0.08);
+            --color-warning-text: #a16207;
+            --color-border: #e2e5ea;
+            --color-border-light: #f0f1f3;
+            --color-topbar: #ffffff;
+            --login-bg-glow: rgba(37,99,235,0.05);
+        }
+        [data-theme="light"] .topbar { box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+        [data-theme="light"] .login-box { box-shadow: 0 8px 32px rgba(0,0,0,0.08); }
+        [data-theme="light"] .card { box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+        [data-theme="light"] .modal-overlay { background: rgba(0,0,0,0.3); }
+        [data-theme="light"] .modal-content { box-shadow: 0 16px 48px rgba(0,0,0,0.12); }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: var(--color-bg); color: var(--color-text); font-weight: 400; letter-spacing: -0.01em; }
 
         /* Login */
-        .login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: var(--space-lg); background: radial-gradient(ellipse at 50% 0%, rgba(59,130,246,0.08) 0%, transparent 60%), var(--color-bg); }
+        .login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: var(--space-lg); background: radial-gradient(ellipse at 50% 0%, var(--login-bg-glow) 0%, transparent 60%), var(--color-bg); }
         .login-box { background: var(--color-surface); padding: 2.5rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); width: 100%; max-width: 360px; box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
         .login-box h1 { font-size: 1.25rem; font-weight: 600; margin-bottom: var(--space-lg); display: flex; align-items: center; gap: var(--space-sm); color: var(--color-text); letter-spacing: -0.02em; }
         .login-box h1 img { height: 32px; width: 32px; object-fit: contain; border-radius: 6px; }
@@ -63,8 +91,8 @@
         .topbar h1 img { height: 26px; width: 26px; object-fit: contain; border-radius: 5px; }
         .topbar .status { font-size: 0.75rem; display: flex; align-items: center; gap: var(--space-sm); color: var(--color-text-secondary); }
         .topbar .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-        .dot.green { background: var(--color-success); box-shadow: 0 0 6px rgba(52,211,153,0.5); }
-        .dot.red { background: var(--color-danger); box-shadow: 0 0 6px rgba(248,113,113,0.5); }
+        .dot.green { background: var(--color-success); box-shadow: 0 0 6px var(--color-success-bg); }
+        .dot.red { background: var(--color-danger); box-shadow: 0 0 6px var(--color-danger-bg); }
         .topbar button { background: transparent; border: 1px solid var(--color-border); color: var(--color-text-secondary); padding: var(--space-xs) 0.75rem; border-radius: var(--radius-sm); cursor: pointer; font-size: 0.75rem; min-height: var(--min-touch); font-family: inherit; transition: all 0.15s; }
         .topbar button:hover { border-color: var(--color-text-secondary); color: var(--color-text); }
 
@@ -204,6 +232,7 @@
             <div class="status">
                 <span class="dot" id="murmurDot" aria-hidden="true"></span>
                 <span id="murmurStatus" role="status">Checking...</span>
+                <button onclick="toggleTheme()" id="themeBtn" title="Toggle dark/light mode" style="font-size:1rem;padding:var(--space-xs) var(--space-sm)">&#9790;</button>
                 <button onclick="doLogout()">Logout</button>
             </div>
         </div>
@@ -425,6 +454,25 @@
     </div>
 
     <script>
+    // Theme toggle
+    function initTheme() {
+        const saved = localStorage.getItem('ptt_theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', saved);
+        updateThemeIcon(saved);
+    }
+    function toggleTheme() {
+        const current = document.documentElement.getAttribute('data-theme') || 'dark';
+        const next = current === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', next);
+        localStorage.setItem('ptt_theme', next);
+        updateThemeIcon(next);
+    }
+    function updateThemeIcon(theme) {
+        const btn = document.getElementById('themeBtn');
+        if (btn) btn.textContent = theme === 'dark' ? '\u263E' : '\u2600';
+    }
+    initTheme();
+
     let token = localStorage.getItem('ptt_token');
     let allUsers = [];
     let refreshTimer;
