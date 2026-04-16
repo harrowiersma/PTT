@@ -38,15 +38,26 @@ async def get_server_status(
     # Build channel ID -> name map
     channel_names = {ch.id: ch.name for ch in status.channels}
 
-    # Get GPS positions from Traccar
-    gps_data = {}
+    # Get GPS positions from Traccar (keyed by device ID)
+    gps_by_device_id = {}
+    gps_by_name = {}  # fallback for unlinked devices
     try:
         traccar = TraccarClient()
         positions = await traccar.get_positions()
         for p in positions:
-            gps_data[p.device_name.lower()] = p
+            gps_by_device_id[p.device_id] = p
+            gps_by_name[p.device_name.lower()] = p
     except Exception as e:
         logger.debug("Traccar positions unavailable: %s", e)
+
+    # Build username -> traccar_device_id map from DB
+    user_device_map = {}
+    try:
+        result = await db.execute(select(User).where(User.traccar_device_id.isnot(None)))
+        for db_user in result.scalars().all():
+            user_device_map[db_user.username.lower()] = db_user.traccar_device_id
+    except Exception as e:
+        logger.debug("Could not load user-device map: %s", e)
 
     # Update last_seen for all online users
     online_usernames = [u.name for u in status.users]
@@ -64,7 +75,9 @@ async def get_server_status(
 
     users = []
     for u in status.users:
-        gps = gps_data.get(u.name.lower())
+        # Try explicit device link first, fall back to name matching
+        device_id = user_device_map.get(u.name.lower())
+        gps = gps_by_device_id.get(device_id) if device_id else gps_by_name.get(u.name.lower())
         users.append(
             UserOnline(
                 username=u.name,

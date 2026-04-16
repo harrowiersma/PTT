@@ -50,6 +50,7 @@ async def create_user(
         channel_id=user_data.channel_id,
         is_admin=user_data.is_admin,
         is_lone_worker=user_data.is_lone_worker,
+        traccar_device_id=user_data.traccar_device_id,
     )
     db.add(user)
     await db.commit()
@@ -94,6 +95,9 @@ async def update_user(
         user.is_admin = user_data.is_admin
     if user_data.is_lone_worker is not None:
         user.is_lone_worker = user_data.is_lone_worker
+    if user_data.traccar_device_id is not None:
+        # Allow setting to 0/null to unlink
+        user.traccar_device_id = user_data.traccar_device_id if user_data.traccar_device_id != 0 else None
 
     await db.commit()
     await db.refresh(user)

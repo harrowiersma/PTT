@@ -91,10 +91,19 @@ class TraccarClient:
             return []
 
     async def _get_devices(self, headers: dict) -> list[dict]:
-        """Get all registered devices."""
+        """Get all registered devices (internal, with pre-fetched headers)."""
         async with httpx.AsyncClient() as client:
             resp = await client.get(f"{self.base_url}/api/devices", headers=headers)
             return resp.json() if resp.status_code == 200 else []
+
+    async def get_devices(self) -> list[dict]:
+        """Get all registered devices (public API)."""
+        try:
+            headers = await self._get_session()
+            return await self._get_devices(headers)
+        except Exception as e:
+            logger.error("Error fetching Traccar devices: %s", e)
+            return []
 
     async def create_device(self, name: str, unique_id: str) -> int | None:
         """Create a device in Traccar. Returns device ID."""

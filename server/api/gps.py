@@ -24,3 +24,11 @@ async def get_positions(_admin: dict = Depends(get_current_admin)):
         }
         for p in positions
     ]
+
+
+@router.get("/devices")
+async def get_devices(_admin: dict = Depends(get_current_admin)):
+    """Get all registered Traccar devices for linking to users."""
+    client = TraccarClient()
+    devices = await client.get_devices()
+    return devices

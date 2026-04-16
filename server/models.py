@@ -49,6 +49,7 @@ class User(Base):
     channel_id: Mapped[int] = mapped_column(Integer, nullable=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     is_lone_worker: Mapped[bool] = mapped_column(Boolean, default=False)
+    traccar_device_id: Mapped[int] = mapped_column(Integer, nullable=True)  # linked Traccar device
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

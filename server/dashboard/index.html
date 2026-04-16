@@ -294,6 +294,7 @@
                     <input type="text" id="newUsername" placeholder="Username" aria-label="New username">
                     <input type="text" id="newDisplayName" placeholder="Display Name" aria-label="Display name">
                     <input type="password" id="newPassword" placeholder="Password" aria-label="Password">
+                    <select id="newTraccarDevice" aria-label="GPS Device" style="min-width:140px"><option value="">No GPS device</option></select>
                     <label style="display:flex;align-items:center;gap:3px;font-size:0.8125rem;white-space:nowrap"><input type="checkbox" id="newIsAdmin"> Admin</label>
                     <label style="display:flex;align-items:center;gap:3px;font-size:0.8125rem;white-space:nowrap"><input type="checkbox" id="newIsLoneWorker"> Lone Worker</label>
                     <button class="btn primary" onclick="createUser()">Add</button>
@@ -306,7 +307,7 @@
                 </div>
                 <div class="table-wrap">
                     <table aria-label="User list">
-                        <thead><tr><th>Username</th><th>Display Name</th><th>Role</th><th>Created</th><th>Actions</th></tr></thead>
+                        <thead><tr><th>Username</th><th>Display Name</th><th>GPS Device</th><th>Role</th><th>Created</th><th>Actions</th></tr></thead>
                         <tbody id="usersTable">
                             <tr><td colspan="4"><div class="skeleton skeleton-line" style="width:80%"></div></td></tr>
                         </tbody>
@@ -533,6 +534,8 @@
             <input type="text" id="editDisplayName" style="width:100%;padding:var(--space-sm);border:1px solid var(--color-border);border-radius:var(--radius-sm);margin-bottom:var(--space-md)">
             <label style="font-size:0.8125rem;display:block;margin-bottom:var(--space-xs)">New Password (leave blank to keep current)</label>
             <input type="password" id="editPassword" placeholder="Leave blank to keep" style="width:100%;padding:var(--space-sm);border:1px solid var(--color-border);border-radius:var(--radius-sm);margin-bottom:var(--space-md)">
+            <label style="font-size:0.8125rem;display:block;margin-bottom:var(--space-xs)">GPS Device</label>
+            <select id="editTraccarDevice" style="width:100%;padding:var(--space-sm);border:1px solid var(--color-border);border-radius:var(--radius-sm);margin-bottom:var(--space-md)"><option value="">No GPS device</option></select>
             <div id="editRoleRow" style="margin-bottom:var(--space-sm)">
                 <label style="font-size:0.8125rem;display:flex;align-items:center;gap:var(--space-xs)"><input type="checkbox" id="editIsAdmin"> Admin role</label>
             </div>
@@ -571,6 +574,27 @@
 
     let token = localStorage.getItem('ptt_token');
     let allUsers = [];
+    let allTraccarDevices = [];
+
+    async function refreshTraccarDevices() {
+        const data = await api('/api/gps/devices');
+        if (!data) return;
+        allTraccarDevices = data;
+        // Populate both dropdowns
+        ['newTraccarDevice', 'editTraccarDevice'].forEach(id => {
+            const sel = document.getElementById(id);
+            const current = sel.value;
+            sel.innerHTML = '<option value="">No GPS device</option>' +
+                data.map(d => '<option value="' + d.id + '">' + esc(d.name) + ' (' + d.uniqueId + ')</option>').join('');
+            sel.value = current;
+        });
+    }
+
+    function getDeviceName(deviceId) {
+        if (!deviceId) return '\u2014';
+        const d = allTraccarDevices.find(d => d.id === deviceId);
+        return d ? d.name : 'Device #' + deviceId;
+    }
     let refreshTimer;
 
     if (token) showApp();
@@ -753,6 +777,7 @@
     }
 
     async function refreshUsers() {
+        await refreshTraccarDevices();
         const data = await api('/api/users');
         if (!data) return;
         allUsers = data;
@@ -763,16 +788,17 @@
     function renderUsers(users) {
         const tbody = document.getElementById('usersTable');
         if (users.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="icon">&#128100;</div><p>No users yet. Add your first user above to get started.</p></div></td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><div class="icon">&#128100;</div><p>No users yet. Add your first user above to get started.</p></div></td></tr>';
         } else {
             tbody.innerHTML = users.map(u => '<tr>' +
                 '<td>' + esc(u.username) + '</td>' +
                 '<td>' + esc(u.display_name || '\u2014') + '</td>' +
+                '<td>' + (u.traccar_device_id ? '<span class="badge online">' + esc(getDeviceName(u.traccar_device_id)) + '</span>' : '<span style="color:var(--color-text-secondary)">Not linked</span>') + '</td>' +
                 '<td>' + (u.is_admin ? '<span class="badge online">Admin</span> ' : '') + (u.is_lone_worker ? '<span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning-text)">Lone Worker</span>' : (!u.is_admin ? 'User' : '')) + '</td>' +
                 '<td>' + new Date(u.created_at).toLocaleDateString() + '</td>' +
                 '<td class="actions">' +
                 '<button class="btn" onclick="showQR(' + u.id + ')">QR</button>' +
-                '<button class="btn" onclick="openEditUser(' + u.id + ',\'' + esc(u.username) + '\',\'' + esc(u.display_name || '') + '\',' + u.is_admin + ',' + (u.is_lone_worker || false) + ')">Edit</button>' +
+                '<button class="btn" onclick="openEditUser(' + u.id + ',\'' + esc(u.username) + '\',\'' + esc(u.display_name || '') + '\',' + u.is_admin + ',' + (u.is_lone_worker || false) + ',' + (u.traccar_device_id || 0) + ')">Edit</button>' +
                 '<button class="btn danger" onclick="confirmDelete(\'user\',' + u.id + ',\'' + esc(u.username) + '\')">Delete</button>' +
                 '</td></tr>').join('');
         }
@@ -810,14 +836,16 @@
         const display = document.getElementById('newDisplayName').value.trim();
         const password = document.getElementById('newPassword').value.trim();
         if (!username || !password) { showToast('Username and password required', 'error'); return; }
+        const deviceId = document.getElementById('newTraccarDevice').value;
         const result = await api('/api/users', {
             method: 'POST',
-            body: JSON.stringify({ username: username, display_name: display || null, password: password, is_admin: document.getElementById('newIsAdmin').checked, is_lone_worker: document.getElementById('newIsLoneWorker').checked })
+            body: JSON.stringify({ username: username, display_name: display || null, password: password, is_admin: document.getElementById('newIsAdmin').checked, is_lone_worker: document.getElementById('newIsLoneWorker').checked, traccar_device_id: deviceId ? parseInt(deviceId) : null })
         });
         if (result) {
             document.getElementById('newUsername').value = '';
             document.getElementById('newDisplayName').value = '';
             document.getElementById('newPassword').value = '';
+            document.getElementById('newTraccarDevice').value = '';
             document.getElementById('newIsAdmin').checked = false;
             document.getElementById('newIsLoneWorker').checked = false;
             showToast('User "' + username + '" created', 'success');
@@ -973,7 +1001,7 @@
     }
 
     // === EDIT USER/ADMIN ===
-    function openEditUser(id, username, displayName, isAdmin, isLoneWorker) {
+    function openEditUser(id, username, displayName, isAdmin, isLoneWorker, traccarDeviceId) {
         document.getElementById('editUserId').value = id;
         document.getElementById('editUserType').value = 'user';
         document.getElementById('editUserName').textContent = username;
@@ -981,6 +1009,9 @@
         document.getElementById('editPassword').value = '';
         document.getElementById('editIsAdmin').checked = isAdmin;
         document.getElementById('editIsLoneWorker').checked = isLoneWorker || false;
+        document.getElementById('editTraccarDevice').value = traccarDeviceId || '';
+        document.getElementById('editTraccarDevice').parentElement.style.display = '';
+        document.getElementById('editTraccarDevice').previousElementSibling.style.display = '';
         document.getElementById('editRoleRow').style.display = 'block';
         document.getElementById('editLoneWorkerRow').style.display = 'block';
         document.getElementById('editUserModal').style.display = 'flex';
@@ -995,6 +1026,8 @@
         document.getElementById('editIsAdmin').checked = role === 'admin';
         document.getElementById('editRoleRow').style.display = 'block';
         document.getElementById('editLoneWorkerRow').style.display = 'none';
+        document.getElementById('editTraccarDevice').parentElement.style.display = 'none';
+        document.getElementById('editTraccarDevice').previousElementSibling.style.display = 'none';
         document.getElementById('editDisplayName').parentElement.previousElementSibling.style.display = 'none';
         document.getElementById('editDisplayName').style.display = 'none';
         document.getElementById('editUserModal').style.display = 'flex';
@@ -1012,6 +1045,8 @@
             if (password) body.password = password;
             body.is_admin = document.getElementById('editIsAdmin').checked;
             body.is_lone_worker = document.getElementById('editIsLoneWorker').checked;
+            const deviceVal = document.getElementById('editTraccarDevice').value;
+            body.traccar_device_id = deviceVal ? parseInt(deviceVal) : 0;
 
             const result = await api('/api/users/' + id, {
                 method: 'PATCH',
@@ -1039,6 +1074,8 @@
         // Reset hidden fields
         document.getElementById('editDisplayName').style.display = '';
         document.getElementById('editDisplayName').parentElement.previousElementSibling.style.display = '';
+        document.getElementById('editTraccarDevice').parentElement.style.display = '';
+        document.getElementById('editTraccarDevice').previousElementSibling.style.display = '';
     }
 
     async function createAdmin() {
