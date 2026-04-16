@@ -93,7 +93,7 @@ class TraccarClient:
     async def _get_devices(self, headers: dict) -> list[dict]:
         """Get all registered devices (internal, with pre-fetched headers)."""
         async with httpx.AsyncClient() as client:
-            resp = await client.get(f"{self.base_url}/api/devices", headers=headers)
+            resp = await client.get(f"{self.base_url}/api/devices?all=true", headers=headers)
             return resp.json() if resp.status_code == 200 else []
 
     async def get_devices(self) -> list[dict]:
