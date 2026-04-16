@@ -72,9 +72,17 @@ async def dispatch_worker(
     await db.commit()
     await db.refresh(event)
 
-    # Send text message via Mumble
+    # Send text message to the user's current channel via Mumble
     if murmur and murmur.has_mumble:
-        murmur.send_message(0, f"DISPATCH: {req.target_username}, {req.message}")
+        # Find which channel the target user is in
+        target_channel = 0  # fallback to Root
+        mm = murmur._mumble
+        if mm:
+            for sid, user in mm.users.items():
+                if user["name"].lower() == req.target_username.lower():
+                    target_channel = user.get("channel_id", 0)
+                    break
+        murmur.send_message(target_channel, f"DISPATCH: {req.target_username}, {req.message}")
 
     return {
         "status": "dispatched",
