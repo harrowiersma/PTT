@@ -65,6 +65,23 @@ This needs to be updated to use the `traccar_device_id` link from the User model
 - The `_ensure_db_channel` coroutine warning in logs (`was never awaited`) suggests the async/sync bridge has issues
 - Double-PTT detection requires audio to be received by the bot — bot must be in the Weather channel or receive audio callbacks globally
 
+## Weather Bot Not Triggering — PTTAdmin Not in Weather Channel
+The `PYMUMBLE_CLBK_SOUNDRECEIVED` callback only fires for audio in the bot's own channel. The PTTAdmin bot sits in Root (channel 0) after connecting, so it never hears audio in the Weather channel.
+
+**Fix:** Move the PTTAdmin bot to the Weather channel during `WeatherBot.start()`, or register a callback that receives audio from ALL channels (pymumble may not support this — needs investigation). Alternative: move the bot to Weather on startup and stay there.
+
+**Code location:** `server/weather_bot.py` line 231-236 — after registering the sound callback, add:
+```python
+mm.users.myself.move_in(self._weather_channel_id)
+```
+
+**BUT** this means the bot can only hear one channel at a time. If we want the bot to respond in Weather while also handling SOS acknowledgements in Emergency, we need the bot to be in multiple channels — which Mumble doesn't support for a single connection. 
+
+**Options:**
+1. Move bot to Weather channel permanently (SOS ack would need a separate mechanism)
+2. Create a second pymumble connection for the weather bot
+3. Switch approach: use a Mumble server plugin or event hook instead of audio detection
+
 ## Related
 - Traccar devices: harro (id=4, uid=372194), yuliia (id=8, uid=245195)
 - Traccar admin: admin@ptt.local / admin
