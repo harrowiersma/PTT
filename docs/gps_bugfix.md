@@ -50,6 +50,21 @@ On admin service startup, query all devices with `?all=true`, check which ones a
 3. Check Dispatch tab — "Find Nearest" should return workers with GPS data
 4. API check: `GET /api/status/server` should include latitude/longitude for online users
 
+## Weather Bot GPS Bug (Same Root Cause)
+The weather bot in `server/weather_bot.py` line 342 also uses name matching:
+```python
+if p.device_name.lower() == username.lower():
+```
+This needs to be updated to use the `traccar_device_id` link from the User model, same as was done for `status.py` and `dispatch.py`. Additionally, the weather bot creates its own `TraccarClient()` instance which had the same empty-positions issue (now fixed by assigning devices to admin user).
+
+### Files to fix:
+- `server/weather_bot.py` line 338-345 — replace name matching with device ID lookup from DB
+
+### Additional weather bot concerns:
+- TinyTTS audio playback via pymumble has never been tested on the live server
+- The `_ensure_db_channel` coroutine warning in logs (`was never awaited`) suggests the async/sync bridge has issues
+- Double-PTT detection requires audio to be received by the bot — bot must be in the Weather channel or receive audio callbacks globally
+
 ## Related
 - Traccar devices: harro (id=4, uid=372194), yuliia (id=8, uid=245195)
 - Traccar admin: admin@ptt.local / admin
