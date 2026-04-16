@@ -82,8 +82,31 @@ mm.users.myself.move_in(self._weather_channel_id)
 2. Create a second pymumble connection for the weather bot
 3. Switch approach: use a Mumble server plugin or event hook instead of audio detection
 
+## Dispatch TTS — Speak to Target User Only
+The dispatch message should be spoken via TTS directly to the target user (not broadcast to the whole channel). pymumble supports this via whisper:
+
+```python
+mm = murmur._mumble
+# Target only the specific user
+mm.sound_output.set_whisper(target_session_id, channel=False)
+# Move bot to user's channel (required by Mumble protocol)
+mm.users.myself.move_in(user_channel_id)
+# Play TTS audio
+mm.sound_output.add_sound(pcm_chunk)
+# After playback, stop whispering
+mm.sound_output.remove_whisper()
+```
+
+**Implementation:** Create a `dispatch_tts()` function in `MurmurClient` or a new `DispatchService` that:
+1. Looks up target user's session ID and channel from pymumble
+2. Generates TTS audio from dispatch message using TinyTTS (reuse `weather_bot.text_to_audio_pcm()`)
+3. Whispers the audio to only that user
+4. Falls back to text message if TTS fails
+
+**Files:** `server/api/dispatch.py`, `server/murmur/client.py` (add whisper + TTS method)
+
 ## Related
-- Traccar devices: harro (id=4, uid=372194), yuliia (id=8, uid=245195)
+- Traccar devices: yuliia (id=4, uid=372194), harro (id=8, uid=245195)
 - Traccar admin: admin@ptt.local / admin
 - User-device links in PostgreSQL: `users.traccar_device_id`
 - The `?all=true` parameter on `/api/devices` is needed for admin to see all devices (already fixed in traccar_client.py)
