@@ -59,7 +59,7 @@ services:
 
   sip-bridge:
     build:
-      context: ./sip-bridge
+      context: ./sip_bridge
       dockerfile: Dockerfile
     # Host networking so pjsua2 binds to the public IP directly and the
     # SDP c= line advertises the real address. Bridged Docker networking

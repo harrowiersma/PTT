@@ -19,7 +19,7 @@
 **Test DID:** +351300500404 (DIDWW Amsterdam, trunk already registered and live)
 **Current state on `main`:** Phase 2b-initial shipped (commit 8c9c6f4 is the design doc on top).
 
-The whole rewrite happens inside `sip-bridge/`; the admin container, `server/api/sip.py`, `docker-compose.yml`, and Mumble stay untouched until the final deploy task.
+The whole rewrite happens inside `sip_bridge/`; the admin container, `server/api/sip.py`, `docker-compose.yml`, and Mumble stay untouched until the final deploy task.
 
 ---
 
@@ -28,7 +28,7 @@ The whole rewrite happens inside `sip-bridge/`; the admin container, `server/api
 The resample + pump math is the one piece of Phase 2b-audio we can fully unit-test without Asterisk or Mumble. Ship it first.
 
 **Files:**
-- Create: `sip-bridge/audio.py`
+- Create: `sip_bridge/audio.py`
 - Create: `tests/sip_bridge/__init__.py` (empty)
 - Test: `tests/sip_bridge/test_audio.py`
 
@@ -142,13 +142,13 @@ class TestRoundTrip:
 
 **Step 2: Verify the tests fail**
 
-Run: `cd /Users/harrowiersma/Documents/CLAUDE/PTT && pip install -e sip-bridge/ 2>/dev/null; PYTHONPATH=. pytest tests/sip_bridge/test_audio.py -v`
+Run: `cd /Users/harrowiersma/Documents/CLAUDE/PTT && pip install -e sip_bridge/ 2>/dev/null; PYTHONPATH=. pytest tests/sip_bridge/test_audio.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'sip_bridge.audio'`
 
 **Step 3: Minimal implementation**
 
 ```python
-# sip-bridge/audio.py
+# sip_bridge/audio.py
 """Audio helpers for the SIP↔Mumble bridge.
 
 Pure functions, no state. Linear-interpolation resample between the two
@@ -193,7 +193,7 @@ def downsample_48_to_16(pcm_48k: bytes) -> bytes:
     return np.clip(tgt, -32768, 32767).astype(np.int16).tobytes()
 ```
 
-Also create `sip-bridge/__init__.py` (empty) so the tests can import `sip_bridge.audio`.
+Also create `sip_bridge/__init__.py` (empty) so the tests can import `sip_bridge.audio`.
 
 **Step 4: Verify the tests pass**
 
@@ -203,7 +203,7 @@ Expected: all 7 tests PASS.
 **Step 5: Commit**
 
 ```bash
-git add sip-bridge/__init__.py sip-bridge/audio.py tests/sip_bridge/__init__.py tests/sip_bridge/test_audio.py
+git add sip_bridge/__init__.py sip_bridge/audio.py tests/sip_bridge/__init__.py tests/sip_bridge/test_audio.py
 git commit -m "sip-bridge: add audio resample helpers (TDD)"
 ```
 
@@ -214,8 +214,8 @@ git commit -m "sip-bridge: add audio resample helpers (TDD)"
 Asterisk gets its PJSIP credentials from the same `/api/sip/internal/config/trunks` endpoint the current bridge uses. A template renderer converts the JSON into `pjsip.conf`. Pure function, easy to test.
 
 **Files:**
-- Create: `sip-bridge/render_config.py`
-- Create: `sip-bridge/templates/pjsip.conf.tmpl`
+- Create: `sip_bridge/render_config.py`
+- Create: `sip_bridge/templates/pjsip.conf.tmpl`
 - Test: `tests/sip_bridge/test_render_config.py`
 
 **Step 1: Write the failing test**
@@ -298,7 +298,7 @@ Expected: FAIL with `ModuleNotFoundError: No module named 'sip_bridge.render_con
 **Step 3: Minimal implementation**
 
 ```python
-# sip-bridge/render_config.py
+# sip_bridge/render_config.py
 """Render Asterisk configs from admin-API trunk data.
 
 The sip-bridge container runs a one-shot renderer at entrypoint time
@@ -332,7 +332,7 @@ def render_pjsip_conf(trunk: dict) -> str:
 ```
 
 ```
-# sip-bridge/templates/pjsip.conf.tmpl
+# sip_bridge/templates/pjsip.conf.tmpl
 [transport-{transport}]
 type=transport
 protocol={transport}
@@ -391,7 +391,7 @@ Expected: all 5 tests PASS.
 **Step 5: Commit**
 
 ```bash
-git add sip-bridge/render_config.py sip-bridge/templates/pjsip.conf.tmpl tests/sip_bridge/test_render_config.py
+git add sip_bridge/render_config.py sip_bridge/templates/pjsip.conf.tmpl tests/sip_bridge/test_render_config.py
 git commit -m "sip-bridge: add pjsip.conf renderer from admin trunk data"
 ```
 
@@ -402,17 +402,17 @@ git commit -m "sip-bridge: add pjsip.conf renderer from admin trunk data"
 No tests — these are static files Asterisk loads. We verify them in Task 5 by booting the container and checking `asterisk -rx`.
 
 **Files:**
-- Create: `sip-bridge/configs/extensions.conf`
-- Create: `sip-bridge/configs/ari.conf.tmpl`
-- Create: `sip-bridge/configs/http.conf`
-- Create: `sip-bridge/configs/modules.conf`
-- Create: `sip-bridge/configs/asterisk.conf`
-- Create: `sip-bridge/configs/logger.conf`
+- Create: `sip_bridge/configs/extensions.conf`
+- Create: `sip_bridge/configs/ari.conf.tmpl`
+- Create: `sip_bridge/configs/http.conf`
+- Create: `sip_bridge/configs/modules.conf`
+- Create: `sip_bridge/configs/asterisk.conf`
+- Create: `sip_bridge/configs/logger.conf`
 
 **Step 1: Write `extensions.conf`**
 
 ```
-; sip-bridge/configs/extensions.conf
+; sip_bridge/configs/extensions.conf
 ; Inbound call dialplan. One concurrent call — second INVITE gets 486 Busy.
 ;
 ; Flow: Answer → Playback(greeting) → Stasis(openptt-bridge) → Hangup
@@ -436,7 +436,7 @@ exten => _X.,1,NoOp(Incoming from ${CALLERID(num)} to ${EXTEN})
 **Step 2: Write `ari.conf.tmpl`**
 
 ```
-; sip-bridge/configs/ari.conf.tmpl
+; sip_bridge/configs/ari.conf.tmpl
 ; Rendered at entrypoint time — the password comes from env var
 ; ARI_PASSWORD (generated if not set).
 
@@ -454,7 +454,7 @@ password = {ari_password}
 **Step 3: Write `http.conf`**
 
 ```
-; sip-bridge/configs/http.conf
+; sip_bridge/configs/http.conf
 ; ARI + external API transport. Loopback only.
 
 [general]
@@ -466,7 +466,7 @@ bindport=8088
 **Step 4: Write `modules.conf`**
 
 ```
-; sip-bridge/configs/modules.conf
+; sip_bridge/configs/modules.conf
 ; Explicit load list — keep Asterisk lean. Anything not listed is noload.
 
 [modules]
@@ -541,7 +541,7 @@ load => res_ari_playbacks.so
 **Step 5: Write `asterisk.conf` and `logger.conf`**
 
 ```
-; sip-bridge/configs/asterisk.conf
+; sip_bridge/configs/asterisk.conf
 ; Minimal — Debian package provides sensible paths.
 
 [directories](!)
@@ -565,7 +565,7 @@ rungroup = root
 ```
 
 ```
-; sip-bridge/configs/logger.conf
+; sip_bridge/configs/logger.conf
 [general]
 
 [logfiles]
@@ -575,7 +575,7 @@ console => notice,warning,error
 **Step 6: Commit**
 
 ```bash
-git add sip-bridge/configs/
+git add sip_bridge/configs/
 git commit -m "sip-bridge: static Asterisk configs (extensions, ari, http, modules, logger)"
 ```
 
@@ -586,14 +586,14 @@ git commit -m "sip-bridge: static Asterisk configs (extensions, ari, http, modul
 Boots Asterisk and the Python bridge in the same container. Supervisor restarts either if it dies.
 
 **Files:**
-- Modify: `sip-bridge/entrypoint.sh` (full rewrite)
-- Create: `sip-bridge/supervisord.conf`
-- Create: `sip-bridge/render_entry.py` (orchestrates config fetch + render)
+- Modify: `sip_bridge/entrypoint.sh` (full rewrite)
+- Create: `sip_bridge/supervisord.conf`
+- Create: `sip_bridge/render_entry.py` (orchestrates config fetch + render)
 
 **Step 1: Write `render_entry.py`**
 
 ```python
-# sip-bridge/render_entry.py
+# sip_bridge/render_entry.py
 """Entrypoint-time orchestrator.
 
 Pulls trunk config from the admin API, renders pjsip.conf and ari.conf,
@@ -630,7 +630,7 @@ GREETING_TEXT = os.environ.get(
 CONFIG_DIR = Path("/etc/asterisk")
 SOUNDS_DIR = Path("/var/lib/asterisk/sounds/en")
 GREETING_PATH = SOUNDS_DIR / "openptt-greeting.wav"
-ARI_PASSWORD_PATH = Path("/run/sip-bridge/ari-password")
+ARI_PASSWORD_PATH = Path("/run/sip_bridge/ari-password")
 
 
 def fetch_trunk() -> dict:
@@ -730,7 +730,7 @@ if __name__ == "__main__":
 **Step 2: Write `supervisord.conf`**
 
 ```
-; sip-bridge/supervisord.conf
+; sip_bridge/supervisord.conf
 [supervisord]
 nodaemon=true
 user=root
@@ -765,7 +765,7 @@ environment=PYTHONUNBUFFERED="1"
 
 ```bash
 #!/bin/bash
-# sip-bridge/entrypoint.sh
+# sip_bridge/entrypoint.sh
 #
 # One-shot config rendering, then hand off to supervisord which runs
 # Asterisk + the Python ARI bridge.
@@ -782,8 +782,8 @@ exec /usr/bin/supervisord -c /app/supervisord.conf
 **Step 4: Commit**
 
 ```bash
-chmod +x sip-bridge/entrypoint.sh
-git add sip-bridge/entrypoint.sh sip-bridge/supervisord.conf sip-bridge/render_entry.py
+chmod +x sip_bridge/entrypoint.sh
+git add sip_bridge/entrypoint.sh sip_bridge/supervisord.conf sip_bridge/render_entry.py
 git commit -m "sip-bridge: entrypoint renders configs, supervisord manages asterisk+python"
 ```
 
@@ -794,13 +794,13 @@ git commit -m "sip-bridge: entrypoint renders configs, supervisord manages aster
 Replace the pjsip-from-source Debian image with an asterisk-apt image. Drop ~200 MB of build chain.
 
 **Files:**
-- Modify: `sip-bridge/Dockerfile` (full rewrite)
-- Modify: `sip-bridge/requirements.txt`
+- Modify: `sip_bridge/Dockerfile` (full rewrite)
+- Modify: `sip_bridge/requirements.txt`
 
 **Step 1: Rewrite `Dockerfile`**
 
 ```dockerfile
-# sip-bridge/Dockerfile
+# sip_bridge/Dockerfile
 #
 # Phase 2b-audio: Asterisk 20 (apt-installed) + Python ARI bridge.
 # network_mode: host + apparmor:unconfined in docker-compose — host
@@ -825,20 +825,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Python deps. Use --break-system-packages because Debian bookworm
 # has PEP 668 enabled; we're inside a container so it's fine.
-COPY sip-bridge/requirements.txt /tmp/requirements.txt
+COPY sip_bridge/requirements.txt /tmp/requirements.txt
 RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/requirements.txt
 
 # Layout: the sip_bridge Python package + configs live in /app.
 WORKDIR /app
-COPY sip-bridge/__init__.py /app/sip_bridge/__init__.py
-COPY sip-bridge/audio.py /app/sip_bridge/audio.py
-COPY sip-bridge/render_config.py /app/sip_bridge/render_config.py
-COPY sip-bridge/render_entry.py /app/sip_bridge/render_entry.py
-COPY sip-bridge/ari_bridge.py /app/sip_bridge/ari_bridge.py
-COPY sip-bridge/templates /app/sip_bridge/templates
-COPY sip-bridge/configs /app/sip_bridge/configs
-COPY sip-bridge/supervisord.conf /app/supervisord.conf
-COPY sip-bridge/entrypoint.sh /app/entrypoint.sh
+COPY sip_bridge/__init__.py /app/sip_bridge/__init__.py
+COPY sip_bridge/audio.py /app/sip_bridge/audio.py
+COPY sip_bridge/render_config.py /app/sip_bridge/render_config.py
+COPY sip_bridge/render_entry.py /app/sip_bridge/render_entry.py
+COPY sip_bridge/ari_bridge.py /app/sip_bridge/ari_bridge.py
+COPY sip_bridge/templates /app/sip_bridge/templates
+COPY sip_bridge/configs /app/sip_bridge/configs
+COPY sip_bridge/supervisord.conf /app/supervisord.conf
+COPY sip_bridge/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 # Ship the static Asterisk configs that do NOT need per-deployment
@@ -859,7 +859,7 @@ EXPOSE 10000-10200/udp
 ENTRYPOINT ["/usr/bin/tini", "--", "/app/entrypoint.sh"]
 ```
 
-Note: the Dockerfile build context in `docker-compose.yml` is `./sip-bridge`, so `COPY sip-bridge/...` above is wrong. We need to change the compose context to `.` OR use paths relative to `sip-bridge/`. Going with the latter — it's less invasive. Adjust all `COPY` lines to drop the `sip-bridge/` prefix:
+Note: the Dockerfile build context in `docker-compose.yml` is `./sip-bridge`, so `COPY sip_bridge/...` above is wrong. We need to change the compose context to `.` OR use paths relative to `sip_bridge/`. Going with the latter — it's less invasive. Adjust all `COPY` lines to drop the `sip_bridge/` prefix:
 
 ```dockerfile
 COPY requirements.txt /tmp/requirements.txt
@@ -872,7 +872,7 @@ COPY audio.py /app/sip_bridge/audio.py
 **Step 2: Update `requirements.txt`**
 
 ```
-# sip-bridge/requirements.txt
+# sip_bridge/requirements.txt
 pymumble==1.6.1
 httpx==0.28.1
 numpy>=1.24.0
@@ -887,7 +887,7 @@ Expected: Build succeeds. Image size `docker images ptt-sip-bridge:dev` should b
 **Step 4: Commit**
 
 ```bash
-git add sip-bridge/Dockerfile sip-bridge/requirements.txt
+git add sip_bridge/Dockerfile sip_bridge/requirements.txt
 git commit -m "sip-bridge: Dockerfile rewrite — Asterisk 20 apt, drop pjsip source build"
 ```
 
@@ -898,7 +898,7 @@ git commit -m "sip-bridge: Dockerfile rewrite — Asterisk 20 apt, drop pjsip so
 This task is scoped to "prove the ARI plumbing works": connect the WebSocket, receive StasisStart/StasisEnd, log them. No audio pumping yet — that's Task 7.
 
 **Files:**
-- Create: `sip-bridge/ari_bridge.py`
+- Create: `sip_bridge/ari_bridge.py`
 - Test: `tests/sip_bridge/test_ari_bridge.py`
 
 **Step 1: Write the failing test**
@@ -952,7 +952,7 @@ Expected: FAIL with `ModuleNotFoundError`.
 **Step 3: Minimal implementation**
 
 ```python
-# sip-bridge/ari_bridge.py
+# sip_bridge/ari_bridge.py
 """ARI bridge — Asterisk external app that handles inbound calls in
 the Stasis(openptt-bridge) context.
 
@@ -984,7 +984,7 @@ ARI_HOST = os.environ.get("ARI_HOST", "127.0.0.1")
 ARI_PORT = int(os.environ.get("ARI_PORT", "8088"))
 ARI_USER = os.environ.get("ARI_USER", "openptt")
 ARI_APP = os.environ.get("ARI_APP", "openptt-bridge")
-ARI_PASSWORD_PATH = Path("/run/sip-bridge/ari-password")
+ARI_PASSWORD_PATH = Path("/run/sip_bridge/ari-password")
 
 
 @dataclass
@@ -1068,7 +1068,7 @@ Expected: 3 tests PASS.
 **Step 5: Deploy to the server and test StasisStart fires on a real call**
 
 ```bash
-git add sip-bridge/ari_bridge.py tests/sip_bridge/test_ari_bridge.py
+git add sip_bridge/ari_bridge.py tests/sip_bridge/test_ari_bridge.py
 git commit -m "sip-bridge: ARI bridge skeleton — WS connect + Stasis event parser (TDD)"
 
 # Push + deploy
@@ -1093,7 +1093,7 @@ If this smoke passes, the plumbing is correct and we're ready to wire audio.
 Add the externalMedia channel spawn and uplink (caller → Mumble) first. Downlink comes in Task 8. Scoping this way lets us test "caller's voice appears in Mumble" before dealing with the reverse path.
 
 **Files:**
-- Modify: `sip-bridge/ari_bridge.py`
+- Modify: `sip_bridge/ari_bridge.py`
 - Test: `tests/sip_bridge/test_audio_pump.py`
 
 **Step 1: Write the failing test**
@@ -1264,7 +1264,7 @@ Use a MagicMock-style no-op pymumble for this deploy (so we can verify externalM
 
 Deploy + live test:
 ```bash
-git add sip-bridge/ari_bridge.py tests/sip_bridge/test_audio_pump.py
+git add sip_bridge/ari_bridge.py tests/sip_bridge/test_audio_pump.py
 git commit -m "sip-bridge: wire externalMedia + uplink audio pump (caller→mock Mumble)"
 git push origin main
 ssh -i ~/.ssh/id_ed25519_ptt root@ptt.harro.ch 'cd /opt/ptt && git pull && docker compose build sip-bridge && docker compose up -d sip-bridge'
@@ -1282,7 +1282,7 @@ On a test call:
 Wire the real `PTTPhone` pymumble connection and the downlink (Mumble → caller) direction.
 
 **Files:**
-- Modify: `sip-bridge/ari_bridge.py`
+- Modify: `sip_bridge/ari_bridge.py`
 
 **Step 1: Add pymumble connection setup**
 
@@ -1412,7 +1412,7 @@ MUMBLE_PORT: "64738"
 **Step 7: Deploy + full bidirectional smoke test**
 
 ```bash
-git add sip-bridge/ari_bridge.py docker-compose.yml
+git add sip_bridge/ari_bridge.py docker-compose.yml
 git commit -m "sip-bridge: wire pymumble + downlink — full bidirectional bridge"
 git push origin main
 ssh -i ~/.ssh/id_ed25519_ptt root@ptt.harro.ch 'cd /opt/ptt && git pull && docker compose up -d --build sip-bridge'
