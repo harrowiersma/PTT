@@ -33,7 +33,11 @@ GREETING_TEXT = os.environ.get(
 )
 
 CONFIG_DIR = Path("/etc/asterisk")
-SOUNDS_DIR = Path("/var/lib/asterisk/sounds/en")
+# Asterisk on Ubuntu 24.04 reports its Data directory as
+# /usr/share/asterisk (the compile-time astdatadir), not the
+# astvarlibdir in asterisk.conf. Playback() searches under the data
+# directory's sounds/<language>/ tree, so the greeting must live there.
+SOUNDS_DIR = Path("/usr/share/asterisk/sounds/en")
 GREETING_PATH = SOUNDS_DIR / "openptt-greeting.wav"
 ARI_PASSWORD_PATH = Path("/run/sip-bridge/ari-password")
 
