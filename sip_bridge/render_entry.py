@@ -169,11 +169,39 @@ def fetch_greeting() -> None:
     LOG.info("fallback tone WAV written (%d frames @ %d Hz)", len(data), sr)
 
 
+def ensure_phone_channel() -> None:
+    """Ask admin to create the Mumble 'Phone' channel if it doesn't exist.
+
+    PTTPhone (the sip-bridge's Mumble identity) is unregistered and cannot
+    create channels itself on Murmur's default ACL — PTTAdmin can, so we
+    delegate creation to the admin container's internal endpoint. Safe to
+    call repeatedly; the endpoint returns the existing id if present.
+    """
+    if not SECRET:
+        LOG.warning("no internal secret; cannot ensure Phone channel")
+        return
+    try:
+        with httpx.Client(timeout=10) as c:
+            r = c.post(
+                f"{ADMIN}/api/sip/internal/ensure-phone-channel",
+                headers={"X-Internal-Auth": SECRET},
+            )
+            if r.status_code == 200:
+                body = r.json()
+                LOG.info("Phone channel ready: id=%s created=%s",
+                         body.get("channel_id"), body.get("created"))
+                return
+            LOG.warning("ensure-phone-channel returned %d: %s", r.status_code, r.text)
+    except Exception as e:
+        LOG.warning("ensure-phone-channel failed (%s); PTTPhone will retry in open_mumble", e)
+
+
 def main() -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     trunk = fetch_trunk()
     render_and_write(trunk)
     fetch_greeting()
+    ensure_phone_channel()
     LOG.info("entrypoint rendering complete")
 
 

@@ -268,20 +268,20 @@ def open_mumble(host: str, port: int) -> "object":
                 return cid
         return None
 
+    # The admin container's render_entry.ensure_phone_channel() creates
+    # Phone before sip-bridge starts up, but on a cold boot it may still
+    # be propagating when we arrive. PTTPhone itself cannot create
+    # channels (unregistered user, no ACL grant), so just wait for it.
     phone_id = _find_phone()
+    for attempt in range(20):
+        if phone_id is not None:
+            break
+        time.sleep(0.3)
+        phone_id = _find_phone()
     if phone_id is None:
-        LOG.info("Phone channel not found; creating under root")
-        mm.channels.new_channel(0, "Phone", temporary=False)
-        for attempt in range(20):
-            time.sleep(0.3)
-            phone_id = _find_phone()
-            if phone_id is not None:
-                LOG.info("Phone channel appeared after %.1fs", (attempt + 1) * 0.3)
-                break
-    if phone_id is None:
-        LOG.error("could not create or find Phone channel after 6s; channels seen: %s",
+        LOG.error("Phone channel never appeared; channels seen: %s",
                   {cid: c.get("name") for cid, c in mm.channels.items()})
-        raise RuntimeError("Phone channel unavailable")
+        raise RuntimeError("Phone channel unavailable — admin must create it")
 
     mm.users.myself.move_in(phone_id)
     time.sleep(0.2)

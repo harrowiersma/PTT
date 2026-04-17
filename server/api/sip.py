@@ -43,6 +43,8 @@ def _require_internal_auth(x_internal_auth: str | None = Header(default=None)) -
 
 logger = logging.getLogger(__name__)
 
+from server.dependencies import get_murmur_client
+
 router = APIRouter(prefix="/api/sip", tags=["sip"])
 
 
@@ -233,6 +235,34 @@ async def internal_list_numbers(
         }
         for n in rows
     ]
+
+
+@router.post("/internal/ensure-phone-channel")
+async def internal_ensure_phone_channel(
+    _auth: None = Depends(_require_internal_auth),
+    murmur=Depends(get_murmur_client),
+):
+    """Ensure a Mumble channel named "Phone" exists; return its id.
+
+    The sip-bridge's PTTPhone user is unregistered (no Mumble account)
+    and cannot create channels on a server where the root ACL doesn't
+    grant create permission to anonymous users. The admin container's
+    PTTAdmin user is implicitly trusted (it's the first registered
+    ICE client, so Murmur grants it create privileges), so channel
+    creation must happen here and PTTPhone just joins afterwards.
+    """
+    if not murmur or not murmur.has_mumble:
+        raise HTTPException(status_code=503, detail="Murmur not available")
+
+    mm = murmur._mumble
+    for cid, chan in mm.channels.items():
+        if chan.get("name") == "Phone":
+            return {"channel_id": cid, "created": False}
+
+    mumble_id = murmur.create_channel("Phone")
+    if mumble_id is None:
+        raise HTTPException(status_code=502, detail="Failed to create Phone channel")
+    return {"channel_id": mumble_id, "created": True}
 
 
 @router.post("/internal/tts")
