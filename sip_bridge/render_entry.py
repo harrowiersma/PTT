@@ -74,6 +74,50 @@ def render_and_write(trunk: dict) -> None:
     LOG.info("wrote ari.conf (password in %s)", ARI_PASSWORD_PATH)
 
 
+def _resample_wav_to_8k(wav_bytes: bytes) -> bytes:
+    """Downsample a WAV of any rate to 8 kHz 16-bit mono WAV.
+
+    Asterisk's format_wav only reliably plays 8 kHz (and 16 kHz via .wav16)
+    via Playback(). The admin's TTS endpoint returns 48 kHz — resample here
+    so Asterisk can read the file without format errors.
+    """
+    import io
+    import wave
+
+    import numpy as np
+
+    with wave.open(io.BytesIO(wav_bytes), "rb") as r:
+        src_rate = r.getframerate()
+        n_channels = r.getnchannels()
+        sampwidth = r.getsampwidth()
+        frames = r.readframes(r.getnframes())
+
+    if n_channels != 1 or sampwidth != 2:
+        LOG.warning("unexpected WAV format (channels=%d sampwidth=%d); using as-is",
+                    n_channels, sampwidth)
+        return wav_bytes
+
+    if src_rate == 8000:
+        return wav_bytes
+
+    src = np.frombuffer(frames, dtype=np.int16).astype(np.float32)
+    tgt_n = int(len(src) * 8000 / src_rate)
+    src_idx = np.arange(len(src), dtype=np.float32)
+    tgt_idx = np.linspace(0, len(src) - 1, tgt_n, dtype=np.float32)
+    tgt = np.interp(tgt_idx, src_idx, src)
+    tgt = np.clip(tgt, -32768, 32767).astype(np.int16)
+
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(8000)
+        w.writeframes(tgt.tobytes())
+    LOG.info("greeting resampled %d Hz -> 8000 Hz (%d -> %d samples)",
+             src_rate, len(src), tgt_n)
+    return buf.getvalue()
+
+
 def fetch_greeting() -> None:
     SOUNDS_DIR.mkdir(parents=True, exist_ok=True)
     if GREETING_PATH.exists():
@@ -87,8 +131,9 @@ def fetch_greeting() -> None:
                 json={"text": GREETING_TEXT},
             )
             if r.status_code == 200 and r.content:
-                GREETING_PATH.write_bytes(r.content)
-                LOG.info("greeting cached (%d bytes)", len(r.content))
+                resampled = _resample_wav_to_8k(r.content)
+                GREETING_PATH.write_bytes(resampled)
+                LOG.info("greeting cached (%d bytes)", len(resampled))
                 return
             LOG.warning("admin TTS returned %d; using fallback tones", r.status_code)
     except Exception as e:
