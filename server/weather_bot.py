@@ -197,7 +197,10 @@ def text_to_audio_pcm(text: str) -> bytes | None:
     """Convert text to 48kHz 16-bit mono PCM audio using Piper.
 
     Piper returns int16 PCM chunks at the voice's native sample rate
-    (22050 Hz for the `-medium` models); we resample to Mumble's 48kHz.
+    (22050 Hz for the `-medium` models); we resample to Mumble's 48kHz
+    via linear interpolation (np.interp) — much clearer than the
+    previous nearest-neighbor lookup, which aliased high frequencies
+    and sounded buzzy on the radio.
     """
     try:
         voice = _get_piper()
@@ -208,13 +211,24 @@ def text_to_audio_pcm(text: str) -> bytes | None:
             logger.error("Piper returned empty audio")
             return None
 
-        audio_np = np.frombuffer(pcm_bytes, dtype=np.int16)
+        audio_np = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32)
 
         target_rate = 48000
         if source_rate != target_rate:
             target_length = int(len(audio_np) * target_rate / source_rate)
-            indices = np.linspace(0, len(audio_np) - 1, target_length).astype(int)
-            audio_np = audio_np[indices]
+            source_indices = np.arange(len(audio_np), dtype=np.float32)
+            target_indices = np.linspace(
+                0, len(audio_np) - 1, target_length, dtype=np.float32,
+            )
+            audio_np = np.interp(target_indices, source_indices, audio_np)
+
+        # Peak-normalize to -2 dB (~0.794 * int16 max). TTS out of the
+        # box sits around -12 dB which is noticeably quieter than radio
+        # speech; normalizing makes it cut through the channel.
+        peak = float(np.max(np.abs(audio_np)))
+        if peak > 0:
+            audio_np = audio_np * (26000.0 / peak)
+        audio_np = np.clip(audio_np, -32768, 32767)
 
         return audio_np.astype(np.int16).tobytes()
 
@@ -224,6 +238,40 @@ def text_to_audio_pcm(text: str) -> bytes | None:
     except Exception as e:
         logger.exception("TTS generation failed: %s", e)
         return None
+
+
+def generate_preamble_pcm(
+    tone_ms: int = 400,
+    silence_ms: int = 100,
+    frequency_hz: int = 800,
+    amplitude: float = 0.15,
+) -> bytes:
+    """Build a short PCM preamble (sine tone + silence) at 48kHz mono int16.
+
+    Prepended before whisper audio so the receiver's Opus decoder and
+    playback chain ramp up during the tone, not during the first word
+    of the actual message. Without this, ~300-500ms of real speech
+    gets clipped by the receiver before audio output starts.
+
+    Defaults are tuned for audibility without being obtrusive: 800Hz
+    at 15% peak is noticeable but not harsh.
+    """
+    sample_rate = 48000
+    tone_samples = int(sample_rate * tone_ms / 1000)
+    silence_samples = int(sample_rate * silence_ms / 1000)
+
+    t = np.arange(tone_samples, dtype=np.float32) / sample_rate
+    tone = np.sin(2 * np.pi * frequency_hz * t) * (32767 * amplitude)
+    # 10ms attack + 10ms decay envelope so the tone doesn't click on/off.
+    attack_n = int(sample_rate * 0.010)
+    env = np.ones(tone_samples, dtype=np.float32)
+    env[:attack_n] = np.linspace(0, 1, attack_n, dtype=np.float32)
+    env[-attack_n:] = np.linspace(1, 0, attack_n, dtype=np.float32)
+    tone *= env
+
+    silence = np.zeros(silence_samples, dtype=np.float32)
+    preamble = np.concatenate([tone, silence]).astype(np.int16)
+    return preamble.tobytes()
 
 
 class WeatherBot:

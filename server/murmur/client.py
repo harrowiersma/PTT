@@ -231,17 +231,30 @@ class MurmurClient:
                 return sid
         return None
 
-    def whisper_audio(self, session_id: int, pcm_data: bytes) -> bool:
+    def whisper_audio(
+        self,
+        session_id: int,
+        pcm_data: bytes,
+        with_preamble: bool = True,
+    ) -> bool:
         """Play 48kHz 16-bit mono PCM audio as a whisper to one Murmur session.
 
         The target user hears the audio regardless of their channel; no one
         else does. Returns False if the connection is unavailable.
+
+        with_preamble prepends a short tone + silence before the payload so
+        the receiver's Opus decoder ramps up during the tone and doesn't
+        clip the first word of real speech. Default on; turn off only for
+        short internal cues where the tone would be noise.
         """
         if not self._mumble or not pcm_data:
             return False
         mm = self._mumble
         try:
             import time as _time
+            if with_preamble:
+                from server.weather_bot import generate_preamble_pcm
+                pcm_data = generate_preamble_pcm() + pcm_data
             mm.sound_output.set_whisper(session_id, channel=False)
             chunk_size = 48000 * 2 * 20 // 1000  # 20ms of 48kHz 16-bit mono
             for i in range(0, len(pcm_data), chunk_size):

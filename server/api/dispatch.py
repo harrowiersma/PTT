@@ -92,7 +92,13 @@ async def dispatch_worker(
         if session_id is not None:
             try:
                 from server.weather_bot import text_to_audio_pcm
-                tts_text = f"Dispatch from control. {req.message}"
+                # The first spoken word gets clipped while the receiver's
+                # Opus decoder wakes up; lead with throwaway words so the
+                # message itself arrives after the path is fully ramped.
+                tts_text = (
+                    f"Attention. Dispatch for {req.target_username}. "
+                    f"{req.message}"
+                )
                 pcm = text_to_audio_pcm(tts_text)
                 if pcm and murmur.whisper_audio(session_id, pcm):
                     delivery = "tts_whisper"
