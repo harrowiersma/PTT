@@ -1,6 +1,7 @@
 """Traccar REST API client for GPS device management and position queries."""
 
 import logging
+import time
 from dataclasses import dataclass
 from math import atan2, cos, radians, sin, sqrt
 
@@ -9,6 +10,9 @@ import httpx
 from server.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Traccar's default session timeout is 30 minutes; refresh 5 minutes early.
+_SESSION_TTL_SECONDS = 25 * 60
 
 
 @dataclass
@@ -25,17 +29,32 @@ class DevicePosition:
 
 
 class TraccarClient:
-    """Client for Traccar REST API."""
+    """Client for Traccar REST API.
+
+    The session cookie is cached at the class level so short-lived instances
+    created per-request (e.g. `TraccarClient()` inside a route handler) don't
+    each re-authenticate. Previous behavior was a POST /api/session on every
+    API call, observed as a flood of session requests in the Traccar logs.
+    """
+
+    # Shared across instances — cookie + absolute expiry (monotonic time).
+    _session_cookie: str | None = None
+    _session_expires: float = 0.0
 
     def __init__(self):
         self.base_url = settings.traccar_api_url
         self.auth = (settings.traccar_admin_email, settings.traccar_admin_password)
-        self._session_cookie = None
+
+    @classmethod
+    def _invalidate_session(cls):
+        cls._session_cookie = None
+        cls._session_expires = 0.0
 
     async def _get_session(self) -> dict[str, str]:
-        """Authenticate and get session cookie."""
-        if self._session_cookie:
-            return {"Cookie": self._session_cookie}
+        """Authenticate and get session cookie, reusing a cached one until TTL."""
+        now = time.monotonic()
+        if TraccarClient._session_cookie and now < TraccarClient._session_expires:
+            return {"Cookie": TraccarClient._session_cookie}
 
         async with httpx.AsyncClient() as client:
             resp = await client.post(
@@ -43,11 +62,11 @@ class TraccarClient:
                 data={"email": self.auth[0], "password": self.auth[1]},
             )
             if resp.status_code == 200:
-                self._session_cookie = resp.headers.get("set-cookie", "")
-                return {"Cookie": self._session_cookie}
-            else:
-                logger.warning("Traccar auth failed: %s", resp.status_code)
-                return {}
+                TraccarClient._session_cookie = resp.headers.get("set-cookie", "")
+                TraccarClient._session_expires = now + _SESSION_TTL_SECONDS
+                return {"Cookie": TraccarClient._session_cookie}
+            logger.warning("Traccar auth failed: %s", resp.status_code)
+            return {}
 
     async def get_positions(self) -> list[DevicePosition]:
         """Get latest position for all devices."""
@@ -59,7 +78,7 @@ class TraccarClient:
                 )
                 if resp.status_code == 401:
                     # Session expired, clear and retry once
-                    self._session_cookie = None
+                    TraccarClient._invalidate_session()
                     headers = await self._get_session()
                     resp = await client.get(
                         f"{self.base_url}/api/positions", headers=headers
