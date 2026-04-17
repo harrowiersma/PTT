@@ -259,20 +259,28 @@ def open_mumble(host: str, port: int) -> "object":
     mm.is_ready()
     time.sleep(1)  # pymumble needs a moment for the channel list to populate
 
-    phone_id = None
-    for cid, chan in mm.channels.items():
-        if chan["name"] == "Phone":
-            phone_id = cid
-            break
-    if phone_id is None:
-        mm.channels.new_channel(0, "Phone", temporary=False)
-        time.sleep(0.5)
+    LOG.info("mumble connected; visible channels: %s",
+             {cid: c.get("name") for cid, c in mm.channels.items()})
+
+    def _find_phone():
         for cid, chan in mm.channels.items():
-            if chan["name"] == "Phone":
-                phone_id = cid
+            if chan.get("name") == "Phone":
+                return cid
+        return None
+
+    phone_id = _find_phone()
+    if phone_id is None:
+        LOG.info("Phone channel not found; creating under root")
+        mm.channels.new_channel(0, "Phone", temporary=False)
+        for attempt in range(20):
+            time.sleep(0.3)
+            phone_id = _find_phone()
+            if phone_id is not None:
+                LOG.info("Phone channel appeared after %.1fs", (attempt + 1) * 0.3)
                 break
     if phone_id is None:
-        LOG.error("could not create or find Phone channel")
+        LOG.error("could not create or find Phone channel after 6s; channels seen: %s",
+                  {cid: c.get("name") for cid, c in mm.channels.items()})
         raise RuntimeError("Phone channel unavailable")
 
     mm.users.myself.move_in(phone_id)
