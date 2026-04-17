@@ -2,8 +2,6 @@
 type=transport
 protocol={transport}
 bind=0.0.0.0:5060
-external_media_address=
-external_signaling_address=
 
 [didww]
 type=endpoint
@@ -31,6 +29,9 @@ type=aor
 contact=sip:{sip_user}@{sip_host}:{sip_port}
 qualify_frequency=60
 
+; NOTE: match= uses a hostname which Asterisk resolves once at startup.
+; DIDWW may send inbound INVITEs from multiple PoPs; if some fail to
+; match, follow up by pinning their documented ingress CIDR list.
 [didww-identify]
 type=identify
 endpoint=didww

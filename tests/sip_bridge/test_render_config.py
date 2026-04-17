@@ -58,9 +58,11 @@ def test_disabled_trunk_returns_empty():
     assert render_pjsip_conf(trunk) == ""
 
 
-def test_allows_only_ulaw_alaw_opus():
-    """Codec list must match what Asterisk externalMedia supports cleanly."""
+def test_allows_exactly_ulaw_and_alaw():
+    """Codec list: ulaw + alaw only. DIDWW supports Opus on some trunks
+    but externalMedia + Mumble are simpler when we stay in G.711 land."""
+    import re
     conf = render_pjsip_conf(TRUNK_WITH_AUTH)
-    assert "allow=ulaw" in conf
-    assert "allow=alaw" in conf
+    allowed = re.findall(r"^allow=(\w+)", conf, re.MULTILINE)
+    assert allowed == ["ulaw", "alaw"], f"Expected ['ulaw', 'alaw'], got {allowed}"
     assert "disallow=all" in conf
