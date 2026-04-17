@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Optional
 
 import aiohttp
+import numpy as np
 
 from sip_bridge.audio import downsample_48_to_16, upsample_16_to_48
 
@@ -76,6 +77,11 @@ class AudioPump:
     SLIN16_FRAME_BYTES = 640  # 20 ms @ 16 kHz mono int16
     RTP_HEADER_BYTES = 12
     RTP_PAYLOAD_TYPE = 118  # dynamic PT used by Asterisk for slin16
+    # VAD: if the caller's 20 ms frame has max |sample| below this,
+    # treat it as silence and skip pushing to Mumble. Stops PTTPhone
+    # from holding the Mumble channel during pauses between words —
+    # without this the half-duplex P50 UX can't transmit back.
+    VAD_THRESHOLD = 500  # out of 32768 (≈ -36 dBFS)
 
     def __init__(self, udp_sock, udp_peer, mumble):
         self._sock = udp_sock
@@ -119,7 +125,13 @@ class AudioPump:
         if len(data) < self.RTP_HEADER_BYTES + self.SLIN16_FRAME_BYTES:
             return  # partial frame (seen at call start/end)
         payload = data[self.RTP_HEADER_BYTES : self.RTP_HEADER_BYTES + self.SLIN16_FRAME_BYTES]
-        pcm48k = upsample_16_to_48(payload)
+        # RTP L16/slin16 is big-endian (RFC 3551). numpy default is
+        # native (little-endian on x86), so we explicitly read as '>i2'.
+        samples = np.frombuffer(payload, dtype=">i2")
+        if int(np.abs(samples).max()) < self.VAD_THRESHOLD:
+            return  # silent frame — don't transmit into Mumble
+        payload_le = samples.astype("<i2").tobytes()
+        pcm48k = upsample_16_to_48(payload_le)
         try:
             self._mumble.sound_output.add_sound(pcm48k)
         except Exception as e:
@@ -159,8 +171,10 @@ class AudioPump:
         if frame_pcm is None:
             return
 
-        slin16 = downsample_48_to_16(frame_pcm)
-        packet = self._build_rtp(slin16)
+        slin16_le = downsample_48_to_16(frame_pcm)
+        # Asterisk expects RTP L16 in big-endian (RFC 3551).
+        slin16_be = np.frombuffer(slin16_le, dtype="<i2").astype(">i2").tobytes()
+        packet = self._build_rtp(slin16_be)
         try:
             self._sock.sendto(packet, self._peer)
         except OSError as e:

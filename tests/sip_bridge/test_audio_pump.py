@@ -37,9 +37,14 @@ def _rtp_frame(payload: bytes) -> bytes:
 
 
 def test_pump_forwards_uplink_frame_to_pymumble():
-    """Asterisk externalMedia sends RTP: 12-byte header + 640-byte slin16 payload."""
+    """Asterisk externalMedia sends RTP: 12-byte header + 640-byte slin16 payload.
+    slin16 is big-endian per RFC 3551 L16 — byte-swapped in the pump before upsample.
+    """
+    import numpy as np
     mumble = MagicMock()
-    rtp = _rtp_frame(b"\x00\x10" * 320)
+    # 320 samples of a loud big-endian sine (well above VAD threshold).
+    samples = (np.sin(np.linspace(0, 20 * np.pi, 320)) * 10000).astype(">i2")
+    rtp = _rtp_frame(samples.tobytes())
     assert len(rtp) == 652
     sock = FakeSock([rtp])
 
@@ -49,6 +54,19 @@ def test_pump_forwards_uplink_frame_to_pymumble():
     mumble.sound_output.add_sound.assert_called_once()
     pushed = mumble.sound_output.add_sound.call_args.args[0]
     assert len(pushed) == 1920  # upsampled to 48 kHz
+
+
+def test_pump_drops_silent_frame_below_vad_threshold():
+    """Silence should not be transmitted into Mumble (prevents PTTPhone
+    from hogging the channel during pauses)."""
+    mumble = MagicMock()
+    rtp = _rtp_frame(b"\x00\x00" * 320)  # all-zero slin16 → max amp 0
+    sock = FakeSock([rtp])
+
+    pump = AudioPump(udp_sock=sock, udp_peer=("127.0.0.1", 12345), mumble=mumble)
+    pump.step_uplink()
+
+    mumble.sound_output.add_sound.assert_not_called()
 
 
 def test_pump_idle_no_mumble_writes():
