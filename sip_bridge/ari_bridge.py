@@ -92,6 +92,20 @@ class AudioPump:
         self._seq = 0
         self._ts = 0
         self._ssrc = int.from_bytes(os.urandom(4), "big")
+        # Downlink callback queue: pymumble calls enqueue_mumble_frame
+        # from its own thread whenever a user in our channel speaks;
+        # step_downlink drains one chunk per 20 ms tick. Avoids the
+        # user.sound.is_sound() polling path which never sees audio
+        # even though the SOUNDRECEIVED callback fires (confirmed on
+        # first deploy of Task 8 downlink).
+        from collections import deque
+        self._rx_queue: deque = deque(maxlen=50)  # ~1 s of 20 ms chunks
+
+    def enqueue_mumble_frame(self, user_name: str, pcm48k: bytes) -> None:
+        """Called from pymumble's callback thread. Queues a 48 kHz PCM
+        frame for step_downlink to consume on its tick."""
+        if pcm48k and len(pcm48k) >= 1920:
+            self._rx_queue.append((user_name, pcm48k[:1920]))
 
     def _build_rtp(self, payload: bytes) -> bytes:
         """Wrap a slin16 payload in a minimal RTP header."""
@@ -152,25 +166,9 @@ class AudioPump:
         if self._peer == ("127.0.0.1", 0):
             return
 
-        frame_pcm = None
-        speaker_name = None
         try:
-            for user in self._mumble.users.values():
-                # Skip ourselves (PTTPhone)
-                if user.get("session") == self._mumble.users.myself["session"]:
-                    continue
-                sound = user.sound
-                if sound.is_sound():
-                    chunk = sound.get_sound(0.02)  # 20 ms
-                    if chunk is not None and len(chunk.pcm) >= 1920:
-                        frame_pcm = chunk.pcm[:1920]
-                        speaker_name = user.get("name", "?")
-                        break
-        except Exception as e:
-            LOG.debug("downlink drain error: %s", e)
-            return
-
-        if frame_pcm is None:
+            speaker_name, frame_pcm = self._rx_queue.popleft()
+        except IndexError:
             return
 
         # Throttled log: once per second of downlink activity
@@ -265,6 +263,9 @@ async def spawn_externalmedia(sess: aiohttp.ClientSession, channel_id: str, mumb
     LOG.info("bridge %s wired: SIP=%s externalMedia=%s", bridge_id, channel_id, external_channel_id)
 
     pump = AudioPump(udp_sock=udp, udp_peer=("127.0.0.1", 0), mumble=mumble)
+    # Wire pymumble's SOUNDRECEIVED callback to this pump's rx_queue.
+    # The callback in open_mumble reads mm.current_pump on every frame.
+    mumble.current_pump = pump
 
     def _pump_loop():
         frame_count = 0
@@ -314,20 +315,26 @@ def open_mumble(host: str, port: int) -> "object":
     mm.set_application_string("openPTT SIP Bridge")
     mm.set_receive_sound(True)
 
-    # Diagnostic: callback fires on every inbound audio frame so we can
-    # confirm whether the PTTPhone bot is actually receiving Mumble audio.
-    # Polling via user.sound.is_sound() has been silent in practice, which
-    # could either mean no audio arriving OR the SoundQueue pump isn't
-    # being driven. This callback tells us which.
-    _rx_state = {"count": 0, "last_log": time.monotonic(), "last_speaker": None}
+    # Downlink feed: pymumble fires SOUNDRECEIVED from its own thread for
+    # every decoded user audio chunk. Poll-based drain via user.sound.is_sound
+    # never saw audio (confirmed empirically), so we push to the active
+    # AudioPump's rx_queue directly. spawn_externalmedia attaches the pump
+    # as mm.current_pump; if no call is active, frames are dropped on the
+    # floor (no consumer, no accumulation).
+    mm.current_pump = None
+    _rx_state = {"count": 0, "last_log": time.monotonic(), "speaker": None}
     def _on_sound(user, sound_chunk):
         _rx_state["count"] += 1
-        _rx_state["last_speaker"] = user.get("name", "?")
+        _rx_state["speaker"] = user.get("name", "?")
+        pump = getattr(mm, "current_pump", None)
+        if pump is not None:
+            pump.enqueue_mumble_frame(user.get("name", "?"), sound_chunk.pcm)
         now = time.monotonic()
         if now - _rx_state["last_log"] > 1.0:
-            LOG.info("mumble rx: %d frames from %s in last %.1fs",
-                     _rx_state["count"], _rx_state["last_speaker"],
-                     now - _rx_state["last_log"])
+            LOG.info("mumble rx: %d frames from %s in last %.1fs (pump=%s)",
+                     _rx_state["count"], _rx_state["speaker"],
+                     now - _rx_state["last_log"],
+                     "active" if pump else "idle")
             _rx_state["count"] = 0
             _rx_state["last_log"] = now
     mm.callbacks.set_callback(const.PYMUMBLE_CLBK_SOUNDRECEIVED, _on_sound)
