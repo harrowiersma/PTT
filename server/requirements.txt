@@ -12,7 +12,7 @@ pydantic-settings==2.7.1
 qrcode[pil]==8.0
 httpx==0.28.1
 pymumble==1.6.1
-tiny-tts>=0.1.0
+piper-tts==1.2.0
 numpy>=1.24.0
 alembic==1.14.1
 # zeroc-ice==3.7.10.1

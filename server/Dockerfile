@@ -2,24 +2,28 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install libopus (pymumble) and libsndfile1 (soundfile, used by tiny_tts)
+# libopus for pymumble; libsndfile1 for soundfile (not required by Piper,
+# kept so any future WAV I/O works without another apt layer).
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends libopus0 libsndfile1 && \
+    apt-get install -y --no-install-recommends libopus0 libsndfile1 curl && \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# tiny_tts -> g2p-en -> nltk needs averaged_perceptron_tagger + cmudict
-# installed at a shared path. Doing this at build time avoids a runtime
-# download (and its writable-home-directory requirement).
-ENV NLTK_DATA=/opt/nltk_data
-RUN python3 -c "import nltk; nltk.download('averaged_perceptron_tagger', download_dir='/opt/nltk_data'); nltk.download('averaged_perceptron_tagger_eng', download_dir='/opt/nltk_data'); nltk.download('cmudict', download_dir='/opt/nltk_data')"
+# Bake the Piper voice model into the image so first-request latency is
+# just ONNX graph warmup, not a network download. en_US-lessac-medium is
+# ~63MB; clear American English, widely used default.
+ENV PIPER_VOICE_DIR=/opt/piper
+ENV PIPER_VOICE=en_US-lessac-medium
+RUN mkdir -p "$PIPER_VOICE_DIR" && \
+    curl -fsSL "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx" \
+        -o "$PIPER_VOICE_DIR/en_US-lessac-medium.onnx" && \
+    curl -fsSL "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json" \
+        -o "$PIPER_VOICE_DIR/en_US-lessac-medium.onnx.json"
 
 COPY . /app/server/
 
-# Create non-root user with a writable HOME so huggingface_hub, torch, and
-# any other library that caches under $HOME can work at runtime.
 RUN useradd -r -m -d /home/pttadmin -s /bin/false pttadmin && \
     chown -R pttadmin:pttadmin /home/pttadmin
 USER pttadmin

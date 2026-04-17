@@ -47,13 +47,16 @@ def degrees_to_compass(degrees: float) -> str:
 
 
 async def fetch_weather(lat: float, lon: float) -> dict | None:
-    """Fetch current weather from Open-Meteo API."""
+    """Fetch current weather + next-6h hourly forecast from Open-Meteo API."""
     try:
         url = (
             f"https://api.open-meteo.com/v1/forecast"
             f"?latitude={lat}&longitude={lon}"
             f"&current=temperature_2m,precipitation,wind_speed_10m,"
             f"wind_direction_10m,cloud_cover,weather_code"
+            f"&hourly=precipitation,precipitation_probability,wind_gusts_10m"
+            f"&forecast_hours=6"
+            f"&timezone=UTC"
         )
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(url)
@@ -91,6 +94,46 @@ async def geocode_location(query: str) -> tuple[float, float, str] | None:
         return None
 
 
+def _summarize_next_hours(hourly: dict) -> list[str]:
+    """Build forecast sentences for precipitation + wind gusts over the next hours.
+
+    Only mentions rain if total >= 0.5 mm in the window, or if any hour has
+    probability >= 50%. Only mentions gusts if any hour >= 40 km/h.
+    """
+    out: list[str] = []
+    if not hourly:
+        return out
+    precips = hourly.get("precipitation", []) or []
+    probs = hourly.get("precipitation_probability", []) or []
+    gusts = hourly.get("wind_gusts_10m", []) or []
+
+    horizon = min(6, len(precips), len(gusts) or 6)
+    if horizon <= 0:
+        return out
+
+    total_precip = round(sum(precips[:horizon]), 1) if precips else 0
+    max_prob = max(probs[:horizon]) if probs else 0
+    max_gust = max(gusts[:horizon]) if gusts else 0
+
+    if total_precip >= 0.5 or max_prob >= 50:
+        if total_precip >= 0.5:
+            out.append(
+                f"Next {horizon} hours: {total_precip} millimeters of rain expected"
+                + (f", up to {int(round(max_prob))} percent chance." if max_prob else ".")
+            )
+        else:
+            out.append(
+                f"Next {horizon} hours: up to {int(round(max_prob))} percent chance of rain."
+            )
+    else:
+        out.append(f"No significant rain expected in the next {horizon} hours.")
+
+    if max_gust >= 40:
+        out.append(f"Wind gusts up to {int(round(max_gust))} kilometers per hour expected.")
+
+    return out
+
+
 def format_weather_report(username: str, weather_data: dict, location_name: str | None = None) -> str:
     """Format weather data into ATIS-style spoken text."""
     current = weather_data.get("current", {})
@@ -124,77 +167,64 @@ def format_weather_report(username: str, weather_data: dict, location_name: str 
         lines.append(f"Precipitation {precip} millimeters per hour.")
 
     lines.append(f"Conditions: {condition}.")
+
+    # Forecast: rain + gusts outlook for the next several hours.
+    lines.extend(_summarize_next_hours(weather_data.get("hourly", {})))
+
     lines.append("Report ends.")
 
     return " ".join(lines)
 
 
-_tts_instance = None
+_piper_voice = None
 
 
-def _get_tts():
-    """Get or create the TinyTTS singleton."""
-    global _tts_instance
-    if _tts_instance is None:
-        from tiny_tts import TinyTTS
-        _tts_instance = TinyTTS()
-        logger.info("TinyTTS model loaded")
-    return _tts_instance
+def _get_piper():
+    """Get or create the Piper voice singleton."""
+    global _piper_voice
+    if _piper_voice is None:
+        import os
+        from piper.voice import PiperVoice
+
+        voice_dir = os.environ.get("PIPER_VOICE_DIR", "/opt/piper")
+        voice_name = os.environ.get("PIPER_VOICE", "en_US-lessac-medium")
+        model_path = os.path.join(voice_dir, f"{voice_name}.onnx")
+        config_path = os.path.join(voice_dir, f"{voice_name}.onnx.json")
+        _piper_voice = PiperVoice.load(model_path, config_path=config_path)
+        logger.info(
+            "Piper voice '%s' loaded (sample_rate=%d)",
+            voice_name, _piper_voice.config.sample_rate,
+        )
+    return _piper_voice
 
 
 def text_to_audio_pcm(text: str) -> bytes | None:
-    """Convert text to 48kHz 16-bit mono PCM audio using TinyTTS.
+    """Convert text to 48kHz 16-bit mono PCM audio using Piper.
 
-    tiny_tts 0.3.x exposes `speak(text, output_path=...)` instead of
-    returning a numpy array, so we synthesize to a temporary WAV and
-    read it back with soundfile (already a transitive dependency).
+    Piper returns int16 PCM chunks at the voice's native sample rate
+    (22050 Hz for the `-medium` models); we resample to Mumble's 48kHz.
     """
     try:
-        import os
-        import tempfile
-        import soundfile as sf
+        voice = _get_piper()
+        source_rate = voice.config.sample_rate
+        pcm_bytes = b"".join(voice.synthesize_stream_raw(text))
 
-        tts = _get_tts()
-
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            wav_path = tmp.name
-        try:
-            tts.speak(text, output_path=wav_path, speed=0.9)
-            audio_np, source_rate = sf.read(wav_path)
-        finally:
-            try:
-                os.unlink(wav_path)
-            except OSError:
-                pass
-
-        if audio_np is None or len(audio_np) == 0:
-            logger.error("TinyTTS returned empty audio")
+        if not pcm_bytes:
+            logger.error("Piper returned empty audio")
             return None
 
-        # soundfile returns float64 mono for this model. If it ever
-        # returns stereo (shape (N, 2)), collapse to mono by averaging.
-        if audio_np.ndim > 1:
-            audio_np = audio_np.mean(axis=1)
+        audio_np = np.frombuffer(pcm_bytes, dtype=np.int16)
 
-        # Resample to 48000 Hz (Mumble's sample rate) via nearest-sample
-        # index lookup — same approach as before, just source-rate aware.
         target_rate = 48000
         if source_rate != target_rate:
             target_length = int(len(audio_np) * target_rate / source_rate)
             indices = np.linspace(0, len(audio_np) - 1, target_length).astype(int)
             audio_np = audio_np[indices]
 
-        # Normalize to 16-bit PCM
-        if audio_np.dtype in (np.float32, np.float64):
-            audio_np = np.clip(audio_np, -1.0, 1.0)
-            pcm = (audio_np * 32767).astype(np.int16)
-        else:
-            pcm = audio_np.astype(np.int16)
-
-        return pcm.tobytes()
+        return audio_np.astype(np.int16).tobytes()
 
     except ImportError as e:
-        logger.error("tiny_tts import failed: %s", e)
+        logger.error("piper import failed: %s", e)
         return None
     except Exception as e:
         logger.exception("TTS generation failed: %s", e)
