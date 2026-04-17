@@ -308,11 +308,30 @@ def open_mumble(host: str, port: int) -> "object":
         _ssl.wrap_socket = _compat_wrap_socket
 
     import pymumble_py3 as pymumble
-    import pymumble_py3.constants as const  # noqa: F401  # reserved for Task 8+ callbacks
+    import pymumble_py3.constants as const
 
     mm = pymumble.Mumble(host, "PTTPhone", port=port, reconnect=True)
     mm.set_application_string("openPTT SIP Bridge")
     mm.set_receive_sound(True)
+
+    # Diagnostic: callback fires on every inbound audio frame so we can
+    # confirm whether the PTTPhone bot is actually receiving Mumble audio.
+    # Polling via user.sound.is_sound() has been silent in practice, which
+    # could either mean no audio arriving OR the SoundQueue pump isn't
+    # being driven. This callback tells us which.
+    _rx_state = {"count": 0, "last_log": time.monotonic(), "last_speaker": None}
+    def _on_sound(user, sound_chunk):
+        _rx_state["count"] += 1
+        _rx_state["last_speaker"] = user.get("name", "?")
+        now = time.monotonic()
+        if now - _rx_state["last_log"] > 1.0:
+            LOG.info("mumble rx: %d frames from %s in last %.1fs",
+                     _rx_state["count"], _rx_state["last_speaker"],
+                     now - _rx_state["last_log"])
+            _rx_state["count"] = 0
+            _rx_state["last_log"] = now
+    mm.callbacks.set_callback(const.PYMUMBLE_CLBK_SOUNDRECEIVED, _on_sound)
+
     mm.start()
     mm.is_ready()
     time.sleep(1)  # pymumble needs a moment for the channel list to populate
