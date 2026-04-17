@@ -140,6 +140,51 @@ class TraccarClient:
             logger.error("Error deleting Traccar device: %s", e)
             return False
 
+    async def update_device_unique_id(self, device_id: int, new_unique_id: str) -> bool:
+        """Update a device's uniqueId (the value clients send in OsmAnd GET).
+
+        Traccar's PUT /api/devices/{id} requires the full device object, so we
+        GET the existing device first, patch the uniqueId, and PUT it back.
+        This preserves GPS history linked to the device row.
+        """
+        try:
+            headers = await self._get_session()
+            headers["Content-Type"] = "application/json"
+            async with httpx.AsyncClient() as client:
+                # Fetch current device
+                get_resp = await client.get(
+                    f"{self.base_url}/api/devices/{device_id}", headers=headers
+                )
+                if get_resp.status_code != 200:
+                    logger.warning(
+                        "Traccar get device %s failed: %s",
+                        device_id, get_resp.status_code,
+                    )
+                    return False
+                device = get_resp.json()
+                device["uniqueId"] = new_unique_id
+
+                # PUT the updated object back
+                put_resp = await client.put(
+                    f"{self.base_url}/api/devices/{device_id}",
+                    headers=headers,
+                    json=device,
+                )
+                if put_resp.status_code == 200:
+                    logger.info(
+                        "Updated Traccar device id=%d uniqueId='%s'",
+                        device_id, new_unique_id,
+                    )
+                    return True
+                logger.warning(
+                    "Traccar update device failed: %s %s",
+                    put_resp.status_code, put_resp.text,
+                )
+                return False
+        except Exception as e:
+            logger.error("Error updating Traccar device: %s", e)
+            return False
+
     @staticmethod
     def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         """Calculate distance between two GPS points in meters."""
