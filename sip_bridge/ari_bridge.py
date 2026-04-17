@@ -61,25 +61,52 @@ def parse_stasis_event(event: dict) -> Optional[StasisEvent]:
 class AudioPump:
     """Bidirectional audio bridge between Asterisk externalMedia UDP and pymumble.
 
-    Uplink (caller → Mumble): recv UDP slin16 → upsample → pymumble.sound_output.add_sound
-    Downlink (Mumble → caller): wired in Task 8 (step_downlink will land then).
+    Asterisk's externalMedia transport=udp wraps each audio frame in an RTP
+    packet: 12-byte RTP header + slin16 payload. On uplink we strip the
+    header; on downlink we prepend one so Asterisk accepts the frame.
 
-    This class holds no asyncio — it's called on a 20 ms tick loop from
-    a thread. pymumble's API is blocking so we don't fight it.
+    Uplink (caller → Mumble): recv RTP → strip header → slin16 → upsample
+    → pymumble.sound_output.add_sound.
+    Downlink (Mumble → caller): pymumble received sound → downsample →
+    prepend RTP header → sendto UDP.
+
+    Called on a 20 ms tick loop from a thread. pymumble's API is blocking
+    so we don't fight it; no asyncio here.
     """
     SLIN16_FRAME_BYTES = 640  # 20 ms @ 16 kHz mono int16
+    RTP_HEADER_BYTES = 12
+    RTP_PAYLOAD_TYPE = 118  # dynamic PT used by Asterisk for slin16
 
     def __init__(self, udp_sock, udp_peer, mumble):
         self._sock = udp_sock
         self._peer = udp_peer
         self._mumble = mumble
         self._sock.setblocking(False)
+        # RTP send state (downlink)
+        self._seq = 0
+        self._ts = 0
+        self._ssrc = int.from_bytes(os.urandom(4), "big")
+
+    def _build_rtp(self, payload: bytes) -> bytes:
+        """Wrap a slin16 payload in a minimal RTP header."""
+        import struct
+        header = struct.pack(
+            "!BBHII",
+            0x80,                       # V=2, P=0, X=0, CC=0
+            self.RTP_PAYLOAD_TYPE,      # M=0, PT=118
+            self._seq & 0xFFFF,
+            self._ts & 0xFFFFFFFF,
+            self._ssrc,
+        )
+        self._seq = (self._seq + 1) & 0xFFFF
+        self._ts = (self._ts + 320) & 0xFFFFFFFF  # 320 samples per 20 ms @ 16 kHz
+        return header + payload
 
     def step_uplink(self) -> None:
-        """Pull one frame from Asterisk if available, push to Mumble.
+        """Pull one RTP frame from Asterisk if available, push slin16 → Mumble.
 
-        Latches the UDP peer address on the first received frame so a
-        future step_downlink (Task 8) knows where to send back.
+        Latches the UDP peer address on the first received frame so
+        step_downlink knows where to send back.
         """
         try:
             data, addr = self._sock.recvfrom(4096)
@@ -88,9 +115,11 @@ class AudioPump:
         if self._peer == ("127.0.0.1", 0):
             self._peer = addr
             LOG.info("latched UDP peer to %s", addr)
-        if len(data) != self.SLIN16_FRAME_BYTES:
-            return  # skip malformed / partial frames (common at call start/end)
-        pcm48k = upsample_16_to_48(data)
+        # Expect 12B RTP header + 640B slin16 payload = 652B.
+        if len(data) < self.RTP_HEADER_BYTES + self.SLIN16_FRAME_BYTES:
+            return  # partial frame (seen at call start/end)
+        payload = data[self.RTP_HEADER_BYTES : self.RTP_HEADER_BYTES + self.SLIN16_FRAME_BYTES]
+        pcm48k = upsample_16_to_48(payload)
         try:
             self._mumble.sound_output.add_sound(pcm48k)
         except Exception as e:
@@ -131,8 +160,9 @@ class AudioPump:
             return
 
         slin16 = downsample_48_to_16(frame_pcm)
+        packet = self._build_rtp(slin16)
         try:
-            self._sock.sendto(slin16, self._peer)
+            self._sock.sendto(packet, self._peer)
         except OSError as e:
             LOG.warning("UDP send failed: %s", e)
 

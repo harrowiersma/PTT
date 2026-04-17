@@ -29,9 +29,19 @@ class FakeSock:
         pass
 
 
+def _rtp_frame(payload: bytes) -> bytes:
+    """Build a valid RTP packet for testing (12-byte header + payload)."""
+    import struct
+    header = struct.pack("!BBHII", 0x80, 118, 1, 320, 0xdeadbeef)
+    return header + payload
+
+
 def test_pump_forwards_uplink_frame_to_pymumble():
+    """Asterisk externalMedia sends RTP: 12-byte header + 640-byte slin16 payload."""
     mumble = MagicMock()
-    sock = FakeSock([b"\x00\x10" * 320])  # 640-byte 16 kHz slin16 frame
+    rtp = _rtp_frame(b"\x00\x10" * 320)
+    assert len(rtp) == 652
+    sock = FakeSock([rtp])
 
     pump = AudioPump(udp_sock=sock, udp_peer=("127.0.0.1", 12345), mumble=mumble)
     pump.step_uplink()
@@ -51,10 +61,10 @@ def test_pump_idle_no_mumble_writes():
     mumble.sound_output.add_sound.assert_not_called()
 
 
-def test_pump_skips_wrong_size_frame():
-    """Defensive: externalMedia occasionally sends short frames on call setup/teardown."""
+def test_pump_skips_short_frame_below_rtp_payload():
+    """Defensive: externalMedia occasionally sends tiny frames at call setup/teardown."""
     mumble = MagicMock()
-    sock = FakeSock([b"\x00" * 100])
+    sock = FakeSock([b"\x00" * 100])  # well under 12+640
 
     pump = AudioPump(udp_sock=sock, udp_peer=("127.0.0.1", 12345), mumble=mumble)
     pump.step_uplink()
