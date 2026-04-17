@@ -1,56 +1,63 @@
-FROM python:3.11-slim
+# sip_bridge/Dockerfile
+#
+# Phase 2b-audio: Asterisk 20 (apt-installed) + Python ARI bridge.
+# network_mode: host + apparmor:unconfined in docker-compose — host
+# networking is required for SIP/RTP to reach DIDWW with correct SDP
+# addresses; AppArmor default profile blocks UDP sendto in host mode.
+#
+# Base image note: Debian bookworm no longer ships `asterisk` in apt
+# (package was removed mid-cycle). Ubuntu 24.04 "noble" ships Asterisk
+# 20.6.0 in the `universe` component, which is enabled by default.
+# This is the nearest apt-installed Asterisk 20 available today.
 
-# Build-time deps for PJSIP + pjsua2 Python SWIG binding, plus runtime
-# libs that pjsua2 links against. Keep runtime footprint modest — we
-# strip the build chain out at the end of the Dockerfile.
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential swig git pkg-config \
-        libssl-dev libasound2-dev \
-        libopus0 libopus-dev \
-        libspeex-dev libspeexdsp-dev \
-        libsrtp2-dev \
-        python3-dev \
-        ca-certificates curl \
+        asterisk \
+        asterisk-modules \
+        asterisk-core-sounds-en-wav \
+        python3 \
+        python3-pip \
+        python3-venv \
+        supervisor \
+        ca-certificates \
+        tini \
     && rm -rf /var/lib/apt/lists/*
 
-# Build PJSIP 2.14. We disable video + v4l2 (not needed for a phone
-# bridge) and the built-in sound devices (Docker containers usually have
-# no ALSA hardware; we use pjsua2's memory-based AudioMedia instead).
-ENV PJ_VERSION=2.14
-RUN git clone --depth 1 --branch ${PJ_VERSION} https://github.com/pjsip/pjproject /tmp/pjproject && \
-    cd /tmp/pjproject && \
-    ./configure --enable-shared \
-                --disable-video --disable-v4l2 \
-                --disable-sound \
-                --disable-ext-sound \
-                CFLAGS="-O2 -fPIC" && \
-    make dep && make -j"$(nproc)" && make install && \
-    ldconfig
+# Python deps. Use --break-system-packages because Ubuntu 24.04 has
+# PEP 668 enabled on its system pip; we're inside a container, so
+# using the system site-packages is fine.
+COPY requirements.txt /tmp/requirements.txt
+RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/requirements.txt
 
-# Build the Python SWIG wrapper (pjsua2).
-RUN cd /tmp/pjproject/pjsip-apps/src/swig && \
-    make python && \
-    cd python && python3 setup.py install && \
-    rm -rf /tmp/pjproject
-
-# Runtime Python deps.
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Shrink image — drop build tooling we don't need at runtime.
-RUN apt-get purge -y --auto-remove \
-        build-essential swig git pkg-config python3-dev \
-        libssl-dev libasound2-dev libopus-dev libspeex-dev libspeexdsp-dev \
-        libsrtp2-dev \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-
+# Layout: the sip_bridge Python package + configs live in /app.
 WORKDIR /app
-COPY bridge.py entrypoint.sh ./
-RUN chmod +x entrypoint.sh
+COPY __init__.py /app/sip_bridge/__init__.py
+COPY audio.py /app/sip_bridge/audio.py
+COPY render_config.py /app/sip_bridge/render_config.py
+COPY render_entry.py /app/sip_bridge/render_entry.py
+COPY ari_bridge.py /app/sip_bridge/ari_bridge.py
+COPY templates /app/sip_bridge/templates
+COPY configs /app/sip_bridge/configs
+COPY supervisord.conf /app/supervisord.conf
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
-# The SIP port and RTP range we advertise to DIDWW. Must match what's
-# published in docker-compose.yml and opened on the host firewall.
+# Ship the static Asterisk configs that do NOT need per-deployment
+# interpolation — extensions.conf, http.conf, modules.conf,
+# asterisk.conf, logger.conf. pjsip.conf + ari.conf are written by the
+# entrypoint renderer.
+RUN cp /app/sip_bridge/configs/extensions.conf /etc/asterisk/extensions.conf && \
+    cp /app/sip_bridge/configs/http.conf       /etc/asterisk/http.conf && \
+    cp /app/sip_bridge/configs/modules.conf    /etc/asterisk/modules.conf && \
+    cp /app/sip_bridge/configs/asterisk.conf   /etc/asterisk/asterisk.conf && \
+    cp /app/sip_bridge/configs/logger.conf     /etc/asterisk/logger.conf
+
+ENV PYTHONPATH=/app
+
 EXPOSE 5060/udp
 EXPOSE 10000-10200/udp
 
-ENTRYPOINT ["/app/entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/app/entrypoint.sh"]
