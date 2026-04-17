@@ -52,6 +52,26 @@ services:
       - murmur
     restart: unless-stopped
 
+  sip-bridge:
+    build:
+      context: ./sip-bridge
+      dockerfile: Dockerfile
+    ports:
+      - "5060:5060/udp"
+      - "10000-10200:10000-10200/udp"
+    environment:
+      ADMIN_INTERNAL_URL: "http://admin:8000"
+      PTT_INTERNAL_API_SECRET: "${PTT_INTERNAL_API_SECRET}"
+      LOCAL_SIP_PORT: "5060"
+      # Advertise the server's public IP to DIDWW in SDP / Via headers.
+      # Without this pjsua2 advertises the container's internal IP and
+      # DIDWW sends RTP into a black hole.
+      PUBLIC_ADDR: "${PUBLIC_ADDR:-}"
+      LOG_LEVEL: "${SIP_LOG_LEVEL:-INFO}"
+    depends_on:
+      - admin
+    restart: unless-stopped
+
   nginx:
     image: nginx:latest
     ports:

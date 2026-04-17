@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     traccar_admin_email: str = "admin@ptt.local"
     traccar_admin_password: str = "admin"
 
+    # Shared secret for internal service-to-service calls (e.g. sip-bridge).
+    # Required on /api/*/internal/* endpoints. Empty disables those endpoints
+    # entirely so they can't be reached by accident.
+    internal_api_secret: str = ""
+
     # SOS authentication (token for triggering SOS from Traccar/external)
     sos_token: str = ""  # If empty, SOS trigger requires admin JWT auth
 
