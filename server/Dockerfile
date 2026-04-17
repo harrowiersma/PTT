@@ -23,6 +23,7 @@ RUN mkdir -p "$PIPER_VOICE_DIR" && \
         -o "$PIPER_VOICE_DIR/en_US-lessac-medium.onnx.json"
 
 COPY . /app/server/
+RUN chmod +x /app/server/entrypoint.sh
 
 RUN useradd -r -m -d /home/pttadmin -s /bin/false pttadmin && \
     chown -R pttadmin:pttadmin /home/pttadmin
@@ -31,4 +32,4 @@ ENV HOME=/home/pttadmin
 
 EXPOSE 8000
 
-CMD ["uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["/app/server/entrypoint.sh"]

@@ -5,8 +5,9 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-# Add server directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+# Add the project root (two levels above this env.py: /app/server/alembic/env.py
+# -> /app) so `import server.config` resolves correctly.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from server.config import settings
 from server.database import Base

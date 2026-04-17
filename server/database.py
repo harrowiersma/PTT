@@ -17,5 +17,7 @@ async def get_db():
 
 
 async def init_db():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Schema creation and migrations are handled by Alembic in the container
+    # entrypoint (server/entrypoint.sh) before uvicorn starts. This remains
+    # a no-op hook so existing callers (main.lifespan) keep working.
+    return None
