@@ -8,6 +8,9 @@ set -e
 #   3. Already-migrated DB:        `upgrade head` is a no-op or runs new migrations.
 
 cd /app/server
+# Ensure `from server.config import ...` resolves both in the probe below
+# and in Alembic's env.py (which also lives under /app/server/alembic).
+export PYTHONPATH="/app:${PYTHONPATH}"
 
 python3 - <<'PY'
 import sys
