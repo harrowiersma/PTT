@@ -77,6 +77,8 @@ services:
       PTT_INTERNAL_API_SECRET: "${PTT_INTERNAL_API_SECRET}"
       LOCAL_SIP_PORT: "5060"
       LOG_LEVEL: "${SIP_LOG_LEVEL:-INFO}"
+      MUMBLE_HOST: "127.0.0.1"
+      MUMBLE_PORT: "64738"
     depends_on:
       - admin
     restart: unless-stopped

@@ -22,7 +22,7 @@ from typing import Optional
 
 import aiohttp
 
-from sip_bridge.audio import upsample_16_to_48
+from sip_bridge.audio import downsample_48_to_16, upsample_16_to_48
 
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
@@ -96,6 +96,46 @@ class AudioPump:
         except Exception as e:
             LOG.warning("mumble add_sound failed: %s", e)
 
+    def step_downlink(self) -> None:
+        """Drain one 20 ms chunk of received Mumble audio, send to Asterisk.
+
+        Phase 2b-audio scope: one caller, one shared Phone channel. If
+        multiple Mumble users speak at once we take the first user's frame
+        — naive "last chunk wins" is acceptable for v1 (Phase 2c revisits
+        mixing + mute).
+
+        Requires self._peer to be latched (step_uplink sets it on first
+        received frame). If the peer hasn't been discovered yet, we skip —
+        Asterisk isn't sending to us, so we have nothing to reply to.
+        """
+        if self._peer == ("127.0.0.1", 0):
+            return
+
+        frame_pcm = None
+        try:
+            for user in self._mumble.users.values():
+                # Skip ourselves (PTTPhone)
+                if user.get("session") == self._mumble.users.myself["session"]:
+                    continue
+                sound = user.sound
+                if sound.is_sound():
+                    chunk = sound.get_sound(0.02)  # 20 ms
+                    if chunk is not None and len(chunk.pcm) == 1920:
+                        frame_pcm = chunk.pcm
+                        break
+        except Exception as e:
+            LOG.debug("downlink drain error: %s", e)
+            return
+
+        if frame_pcm is None:
+            return
+
+        slin16 = downsample_48_to_16(frame_pcm)
+        try:
+            self._sock.sendto(slin16, self._peer)
+        except OSError as e:
+            LOG.warning("UDP send failed: %s", e)
+
 
 def _load_ari_password() -> str:
     pw = os.environ.get("ARI_PASSWORD")
@@ -107,12 +147,11 @@ def _load_ari_password() -> str:
     sys.exit(1)
 
 
-async def spawn_externalmedia(sess: aiohttp.ClientSession, channel_id: str) -> Optional[AudioPump]:
+async def spawn_externalmedia(sess: aiohttp.ClientSession, channel_id: str, mumble) -> Optional[AudioPump]:
     """On StasisStart, bind a UDP socket and ask Asterisk to send call
     audio to it as slin16. Returns an AudioPump bound to that socket,
-    plus a background thread driving step_uplink on a 20 ms tick.
-
-    Phase 2b-audio scope: uplink only, pymumble is mocked.
+    plus a background thread driving step_uplink + step_downlink on a
+    20 ms tick.
     """
     udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     udp.bind(("127.0.0.1", 0))
@@ -167,24 +206,18 @@ async def spawn_externalmedia(sess: aiohttp.ClientSession, channel_id: str) -> O
             return None
     LOG.info("bridge %s wired: SIP=%s externalMedia=%s", bridge_id, channel_id, external_channel_id)
 
-    # Stub pymumble — a mock object that just logs. Real pymumble in Task 8.
-    class _MockMumble:
-        class _SoundOutput:
-            def add_sound(self, pcm: bytes) -> None:
-                LOG.debug("mock mumble: would forward %d bytes (48 kHz)", len(pcm))
-        sound_output = _SoundOutput()
-
-    pump = AudioPump(udp_sock=udp, udp_peer=("127.0.0.1", 0), mumble=_MockMumble())
+    pump = AudioPump(udp_sock=udp, udp_peer=("127.0.0.1", 0), mumble=mumble)
 
     def _pump_loop():
         frame_count = 0
         last_log = time.monotonic()
         while True:
             pump.step_uplink()
+            pump.step_downlink()
             frame_count += 1
             now = time.monotonic()
             if now - last_log > 1.0:
-                LOG.info("uplink pump: %d ticks in last %.1fs", frame_count, now - last_log)
+                LOG.info("pump: %d ticks in last %.1fs", frame_count, now - last_log)
                 frame_count = 0
                 last_log = now
             time.sleep(0.02)
@@ -193,10 +226,58 @@ async def spawn_externalmedia(sess: aiohttp.ClientSession, channel_id: str) -> O
     return pump
 
 
+def open_mumble(host: str, port: int) -> "object":
+    """Open a pymumble connection as 'PTTPhone', ensure Phone channel
+    exists, and move into it. Returns the live Mumble client.
+
+    Imported lazily so local pytest runs (where pymumble isn't installed)
+    still work — pymumble only runs inside the sip-bridge container.
+    """
+    import pymumble_py3 as pymumble
+    import pymumble_py3.constants as const
+
+    mm = pymumble.Mumble(host, "PTTPhone", port=port, reconnect=True)
+    mm.set_application_string("openPTT SIP Bridge")
+    mm.set_receive_sound(True)
+    mm.start()
+    mm.is_ready()
+    time.sleep(1)  # pymumble needs a moment for the channel list to populate
+
+    phone_id = None
+    for cid, chan in mm.channels.items():
+        if chan["name"] == "Phone":
+            phone_id = cid
+            break
+    if phone_id is None:
+        mm.channels.new_channel(0, "Phone", temporary=False)
+        time.sleep(0.5)
+        for cid, chan in mm.channels.items():
+            if chan["name"] == "Phone":
+                phone_id = cid
+                break
+    if phone_id is None:
+        LOG.error("could not create or find Phone channel")
+        raise RuntimeError("Phone channel unavailable")
+
+    mm.users.myself.move_in(phone_id)
+    time.sleep(0.2)
+    LOG.info("PTTPhone joined Phone channel (id=%d)", phone_id)
+    return mm
+
+
 async def run() -> None:
     password = _load_ari_password()
     ws_url = f"ws://{ARI_HOST}:{ARI_PORT}/ari/events?app={ARI_APP}&api_key={ARI_USER}:{password}"
     LOG.info("connecting to ARI: ws://%s:%d (app=%s)", ARI_HOST, ARI_PORT, ARI_APP)
+
+    # Open pymumble PTTPhone connection. This stays up across calls.
+    mumble_host = os.environ.get("MUMBLE_HOST", "127.0.0.1")
+    mumble_port = int(os.environ.get("MUMBLE_PORT", "64738"))
+    LOG.info("connecting to Mumble at %s:%d as PTTPhone", mumble_host, mumble_port)
+    # open_mumble is blocking (pymumble.start + is_ready + move_in) — run it
+    # in a thread so the asyncio event loop isn't blocked. We won't touch it
+    # from async code directly; the pump thread is the only other consumer.
+    mumble = await asyncio.to_thread(open_mumble, mumble_host, mumble_port)
 
     async with aiohttp.ClientSession() as sess:
         # Retry until Asterisk's HTTP server is up (it starts a few seconds after supervisord).
@@ -228,7 +309,7 @@ async def run() -> None:
                     if not parsed.channel_name.startswith("PJSIP/"):
                         LOG.debug("ignoring non-PJSIP StasisStart: %s", parsed.channel_name)
                         continue
-                    pump = await spawn_externalmedia(sess, parsed.channel_id)
+                    pump = await spawn_externalmedia(sess, parsed.channel_id, mumble)
                     if pump is None:
                         LOG.error("externalMedia spawn failed for %s; channel will hear silence", parsed.channel_id)
             elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
