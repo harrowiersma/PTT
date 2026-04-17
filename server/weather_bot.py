@@ -136,7 +136,7 @@ def _get_tts():
     """Get or create the TinyTTS singleton."""
     global _tts_instance
     if _tts_instance is None:
-        from tinytts import TinyTTS
+        from tiny_tts import TinyTTS
         _tts_instance = TinyTTS()
         logger.info("TinyTTS model loaded")
     return _tts_instance
@@ -170,11 +170,11 @@ def text_to_audio_pcm(text: str) -> bytes | None:
 
         return pcm.tobytes()
 
-    except ImportError:
-        logger.error("TinyTTS not installed. Run: pip install tiny-tts")
+    except ImportError as e:
+        logger.error("tiny_tts import failed: %s", e)
         return None
     except Exception as e:
-        logger.error("TTS generation failed: %s", e)
+        logger.exception("TTS generation failed: %s", e)
         return None
 
 
