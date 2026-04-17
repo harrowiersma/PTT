@@ -36,6 +36,11 @@ INTERNAL_SECRET = os.environ.get("PTT_INTERNAL_API_SECRET", "").strip()
 LOCAL_SIP_PORT = int(os.environ.get("LOCAL_SIP_PORT", "5060"))
 PUBLIC_ADDR = os.environ.get("PUBLIC_ADDR", "").strip() or None
 GREETING_WAV = os.environ.get("GREETING_WAV", "/app/greeting.wav")
+GREETING_TEXT = os.environ.get(
+    "GREETING_TEXT",
+    "You are now being connected to the openPTT radio trunk system. "
+    "Please note that there may be small delays between transmissions.",
+)
 
 
 def fetch_config() -> tuple[list[dict], list[dict]]:
@@ -66,20 +71,44 @@ def fetch_config() -> tuple[list[dict], list[dict]]:
 
 
 def ensure_greeting_wav(path: str) -> None:
-    """Write a short three-tone greeting WAV if not already present.
+    """Fetch a TTS greeting WAV from the admin, or fall back to tones.
 
-    Three descending tones (800/600/400 Hz) separated by silence. Enough
-    for the caller to confirm "the SIP bridge answered" without needing
-    a real TTS engine in this container. Phase 2b-audio replaces this
-    with live Mumble audio.
+    First tries admin's /api/sip/internal/tts with GREETING_TEXT.
+    On any failure (admin unreachable, Piper not loaded yet, etc.)
+    falls back to a three-tone pattern so the caller still hears
+    something and knows the bridge answered.
     """
     if os.path.exists(path):
         return
+
+    # Attempt TTS via admin first.
+    if INTERNAL_SECRET:
+        try:
+            with httpx.Client(timeout=60) as client:
+                resp = client.post(
+                    f"{ADMIN_BASE_URL}/api/sip/internal/tts",
+                    headers={"X-Internal-Auth": INTERNAL_SECRET},
+                    json={"text": GREETING_TEXT},
+                )
+                if resp.status_code == 200 and resp.content:
+                    with open(path, "wb") as f:
+                        f.write(resp.content)
+                    logger.info(
+                        "Greeting TTS cached at %s (%d bytes, text=%r)",
+                        path, len(resp.content),
+                        GREETING_TEXT[:60] + ("..." if len(GREETING_TEXT) > 60 else ""),
+                    )
+                    return
+                logger.warning("admin TTS returned %d; falling back to tones", resp.status_code)
+        except Exception as e:
+            logger.warning("admin TTS unreachable (%s); falling back to tones", e)
+
+    # Fallback: synthesize a three-tone pattern with numpy+wave.
     try:
         import numpy as np
         import wave
 
-        sr = 8000  # G.711-friendly; pjsua2 resamples internally for RTP
+        sr = 8000
         def tone(freq_hz: float, ms: int, amp: float = 0.25) -> np.ndarray:
             n = int(sr * ms / 1000)
             t = np.arange(n, dtype=np.float32) / sr
@@ -97,9 +126,9 @@ def ensure_greeting_wav(path: str) -> None:
             w.setsampwidth(2)
             w.setframerate(sr)
             w.writeframes(data.tobytes())
-        logger.info("Greeting WAV written to %s (%d frames @ %dHz)", path, len(data), sr)
+        logger.info("Fallback tone WAV written to %s (%d frames @ %dHz)", path, len(data), sr)
     except Exception as e:
-        logger.warning("Could not synthesize greeting: %s", e)
+        logger.warning("Could not synthesize fallback greeting: %s", e)
 
 
 def run_bridge(trunks: list[dict], numbers: list[dict]) -> None:
@@ -234,11 +263,13 @@ def run_bridge(trunks: list[dict], numbers: list[dict]) -> None:
                         self._player.createPlayer(GREETING_WAV, pj.PJMEDIA_FILE_NO_LOOP)
                         self._player.startTransmit(call_audio)
                         logger.info("Playing greeting to caller")
-                        # Schedule hangup in 8 seconds.
+                        # Schedule hangup once the greeting has had time
+                        # to finish. TTS for the full welcome line is
+                        # ~10s on Piper lessac-medium plus a 2s pad.
                         import threading
                         def _hangup():
                             try:
-                                time.sleep(8)
+                                time.sleep(12)
                                 cop = pj.CallOpParam()
                                 cop.statusCode = pj.PJSIP_SC_OK
                                 self.hangup(cop)

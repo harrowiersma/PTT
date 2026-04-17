@@ -233,3 +233,36 @@ async def internal_list_numbers(
         }
         for n in rows
     ]
+
+
+@router.post("/internal/tts")
+async def internal_tts(
+    payload: dict,
+    _auth: None = Depends(_require_internal_auth),
+):
+    """Return a 48kHz 16-bit mono WAV of the given text, synthesized by Piper.
+
+    The sip-bridge calls this at startup to cache a greeting played to
+    inbound callers. Keeping Piper in the admin container means the
+    bridge image stays slim and the operator can change the greeting
+    text by editing one env var on the bridge, no rebuild needed.
+    """
+    import io
+    import wave
+    from server.weather_bot import text_to_audio_pcm
+
+    text = (payload or {}).get("text", "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+    pcm = text_to_audio_pcm(text)
+    if not pcm:
+        raise HTTPException(status_code=502, detail="TTS synthesis failed")
+
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(48000)
+        w.writeframes(pcm)
+    from fastapi.responses import Response
+    return Response(content=buf.getvalue(), media_type="audio/wav")
