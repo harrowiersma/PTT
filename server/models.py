@@ -49,6 +49,12 @@ class User(Base):
     channel_id: Mapped[int] = mapped_column(Integer, nullable=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     is_lone_worker: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Per-user shift length for the lone-worker system. Nullable; falls back to
+    # LoneWorkerConfig.default_shift_hours when NULL.
+    shift_duration_hours: Mapped[int] = mapped_column(Integer, nullable=True)
+    # ACL for entering Phone channels (SIP gateway). Default false; dashboard
+    # toggles per user.
+    can_answer_calls: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     traccar_device_id: Mapped[int] = mapped_column(Integer, nullable=True)  # linked Traccar device
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
@@ -57,6 +63,30 @@ class User(Base):
     last_seen: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+class LoneWorkerShift(Base):
+    """A bounded work session for the lone-worker system.
+
+    When a shift is active, the overdue-check loop considers the user. When
+    no active shift exists, the loop skips them — no 24/7 pings. Shifts are
+    created from a long-press on the device side, and auto-end on expiry.
+    """
+    __tablename__ = "lone_worker_shifts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    started_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    planned_end_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    ended_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # user_ended | auto_expired | admin_ended
+    end_reason: Mapped[str] = mapped_column(String(32), nullable=True)
 
 
 class Channel(Base):

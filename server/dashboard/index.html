@@ -541,6 +541,12 @@
             </div>
             <div id="editLoneWorkerRow" style="margin-bottom:var(--space-md)">
                 <label style="font-size:0.8125rem;display:flex;align-items:center;gap:var(--space-xs)"><input type="checkbox" id="editIsLoneWorker"> Lone Worker (requires periodic check-in)</label>
+                <label style="font-size:0.8125rem;display:block;margin-top:var(--space-xs)">Shift duration (hours) — blank uses the global default
+                    <input type="number" id="editShiftDurationHours" min="1" max="24" style="width:80px;margin-left:var(--space-xs)">
+                </label>
+            </div>
+            <div id="editCanAnswerCallsRow" style="margin-bottom:var(--space-md)">
+                <label style="font-size:0.8125rem;display:flex;align-items:center;gap:var(--space-xs)"><input type="checkbox" id="editCanAnswerCalls"> Can answer SIP calls (Phone channel access)</label>
             </div>
             <div style="display:flex;gap:var(--space-sm);justify-content:flex-end">
                 <button class="btn" onclick="closeModal('editUserModal')">Cancel</button>
@@ -798,7 +804,7 @@
                 '<td>' + new Date(u.created_at).toLocaleDateString() + '</td>' +
                 '<td class="actions">' +
                 '<button class="btn" onclick="showQR(' + u.id + ')">QR</button>' +
-                '<button class="btn" onclick="openEditUser(' + u.id + ',\'' + esc(u.username) + '\',\'' + esc(u.display_name || '') + '\',' + u.is_admin + ',' + (u.is_lone_worker || false) + ',' + (u.traccar_device_id || 0) + ')">Edit</button>' +
+                '<button class="btn" onclick="openEditUser(' + u.id + ',\'' + esc(u.username) + '\',\'' + esc(u.display_name || '') + '\',' + u.is_admin + ',' + (u.is_lone_worker || false) + ',' + (u.traccar_device_id || 0) + ',' + (u.shift_duration_hours || 'null') + ',' + (u.can_answer_calls || false) + ')">Edit</button>' +
                 '<button class="btn danger" onclick="confirmDelete(\'user\',' + u.id + ',\'' + esc(u.username) + '\')">Delete</button>' +
                 '</td></tr>').join('');
         }
@@ -1001,19 +1007,22 @@
     }
 
     // === EDIT USER/ADMIN ===
-    function openEditUser(id, username, displayName, isAdmin, isLoneWorker, traccarDeviceId) {
+    function openEditUser(id, username, displayName, isAdmin, isLoneWorker, traccarDeviceId, shiftDurationHours, canAnswerCalls) {
         document.getElementById('editUserId').value = id;
         document.getElementById('editUserType').value = 'user';
         document.getElementById('editUserName').textContent = username;
         document.getElementById('editDisplayName').value = displayName || '';
         document.getElementById('editPassword').value = '';
         document.getElementById('editIsAdmin').checked = isAdmin;
+        document.getElementById('editShiftDurationHours').value = shiftDurationHours || '';
+        document.getElementById('editCanAnswerCalls').checked = !!canAnswerCalls;
         document.getElementById('editIsLoneWorker').checked = isLoneWorker || false;
         document.getElementById('editTraccarDevice').value = traccarDeviceId || '';
         document.getElementById('editTraccarDevice').parentElement.style.display = '';
         document.getElementById('editTraccarDevice').previousElementSibling.style.display = '';
         document.getElementById('editRoleRow').style.display = 'block';
         document.getElementById('editLoneWorkerRow').style.display = 'block';
+        document.getElementById('editCanAnswerCallsRow').style.display = 'block';
         document.getElementById('editUserModal').style.display = 'flex';
     }
 
@@ -1026,6 +1035,7 @@
         document.getElementById('editIsAdmin').checked = role === 'admin';
         document.getElementById('editRoleRow').style.display = 'block';
         document.getElementById('editLoneWorkerRow').style.display = 'none';
+        document.getElementById('editCanAnswerCallsRow').style.display = 'none';
         document.getElementById('editTraccarDevice').parentElement.style.display = 'none';
         document.getElementById('editTraccarDevice').previousElementSibling.style.display = 'none';
         document.getElementById('editDisplayName').parentElement.previousElementSibling.style.display = 'none';
@@ -1045,6 +1055,9 @@
             if (password) body.password = password;
             body.is_admin = document.getElementById('editIsAdmin').checked;
             body.is_lone_worker = document.getElementById('editIsLoneWorker').checked;
+            const shiftDur = document.getElementById('editShiftDurationHours').value.trim();
+            body.shift_duration_hours = shiftDur === '' ? null : parseInt(shiftDur);
+            body.can_answer_calls = document.getElementById('editCanAnswerCalls').checked;
             const deviceVal = document.getElementById('editTraccarDevice').value;
             body.traccar_device_id = deviceVal ? parseInt(deviceVal) : 0;
 

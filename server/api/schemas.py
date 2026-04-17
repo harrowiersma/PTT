@@ -10,6 +10,8 @@ class UserCreate(BaseModel):
     channel_id: int | None = None
     is_admin: bool = False
     is_lone_worker: bool = False
+    shift_duration_hours: int | None = Field(default=None, ge=1, le=24)
+    can_answer_calls: bool = False
     traccar_device_id: int | None = None
 
 
@@ -18,6 +20,8 @@ class UserUpdate(BaseModel):
     password: str | None = Field(default=None, min_length=4, max_length=128)
     is_admin: bool | None = None
     is_lone_worker: bool | None = None
+    shift_duration_hours: int | None = Field(default=None, ge=1, le=24)
+    can_answer_calls: bool | None = None
     traccar_device_id: int | None = None
 
 
@@ -28,6 +32,8 @@ class UserResponse(BaseModel):
     channel_id: int | None
     is_admin: bool
     is_lone_worker: bool
+    shift_duration_hours: int | None = None
+    can_answer_calls: bool = False
     traccar_device_id: int | None
     is_active: bool
     created_at: datetime
