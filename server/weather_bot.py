@@ -11,7 +11,6 @@ Like airport ATIS, but personalized to your location.
 import asyncio
 import logging
 import time
-from datetime import datetime, timezone
 
 import httpx
 import numpy as np
@@ -144,9 +143,6 @@ def format_weather_report(username: str, weather_data: dict, location_name: str 
     precip = current.get("precipitation", 0)
     code = current.get("weather_code", 0)
 
-    now = datetime.now(timezone.utc)
-    time_str = now.strftime("%H %M UTC")
-
     compass = degrees_to_compass(wind_dir)
     condition = WMO_CODES.get(code, "Unknown conditions")
 
@@ -157,7 +153,6 @@ def format_weather_report(username: str, weather_data: dict, location_name: str 
 
     lines = [
         header,
-        f"Time {time_str}.",
         f"Temperature {int(round(temp))} degrees celsius.",
         f"Wind from {compass} at {int(round(wind_speed))} kilometers per hour.",
         f"Cloud cover {int(round(cloud))} percent.",
