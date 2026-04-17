@@ -154,6 +154,18 @@ class AudioPump:
             if len(data) >= 2:
                 self._pt = data[1] & 0x7F
             LOG.info("latched UDP peer to %s, learned PT=%d", addr, self._pt)
+
+        # Diagnostic: ECHO_MODE echoes the incoming RTP bytes right back
+        # to Asterisk, unmodified. If the caller hears their own voice,
+        # the RTP send path is valid and the bug is in our own packet
+        # construction. If still silent, the bug is deeper (direction,
+        # SSRC rejection, bridge routing).
+        if os.environ.get("SIP_ECHO_MODE"):
+            try:
+                self._sock.sendto(data, self._peer)
+            except OSError as e:
+                LOG.warning("echo-mode send failed: %s", e)
+            return  # skip Mumble push so we don't confuse the test
         # Expect 12B RTP header + 640B slin16 payload = 652B.
         if len(data) < self.RTP_HEADER_BYTES + self.SLIN16_FRAME_BYTES:
             return  # partial frame (seen at call start/end)

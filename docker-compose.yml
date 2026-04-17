@@ -79,6 +79,10 @@ services:
       LOG_LEVEL: "${SIP_LOG_LEVEL:-INFO}"
       MUMBLE_HOST: "127.0.0.1"
       MUMBLE_PORT: "64738"
+      # Diagnostic: when set, uplink echoes inbound RTP back to Asterisk
+      # unchanged (no Mumble forwarding). Used to isolate whether the
+      # downlink-silence bug is in our RTP construction vs session routing.
+      SIP_ECHO_MODE: "${SIP_ECHO_MODE:-}"
     depends_on:
       - admin
     restart: unless-stopped
