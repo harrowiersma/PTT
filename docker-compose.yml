@@ -45,6 +45,11 @@ services:
       dockerfile: Dockerfile
     expose:
       - "8000"
+    # Also publish admin on the host loopback so sip-bridge (which runs
+    # in host network mode for correct SIP/RTP) can reach it. Nothing
+    # external — 127.0.0.1 binding only.
+    ports:
+      - "127.0.0.1:8000:8000"
     env_file:
       - .env
     depends_on:
@@ -56,17 +61,15 @@ services:
     build:
       context: ./sip-bridge
       dockerfile: Dockerfile
-    ports:
-      - "5060:5060/udp"
-      - "10000-10200:10000-10200/udp"
+    # Host networking so pjsua2 binds to the public IP directly and the
+    # SDP c= line advertises the real address. Bridged Docker networking
+    # breaks SIP/RTP because the SDP reports the container IP and DIDWW
+    # sends media to an unreachable destination.
+    network_mode: host
     environment:
-      ADMIN_INTERNAL_URL: "http://admin:8000"
+      ADMIN_INTERNAL_URL: "http://127.0.0.1:8000"
       PTT_INTERNAL_API_SECRET: "${PTT_INTERNAL_API_SECRET}"
       LOCAL_SIP_PORT: "5060"
-      # Advertise the server's public IP to DIDWW in SDP / Via headers.
-      # Without this pjsua2 advertises the container's internal IP and
-      # DIDWW sends RTP into a black hole.
-      PUBLIC_ADDR: "${PUBLIC_ADDR:-}"
       LOG_LEVEL: "${SIP_LOG_LEVEL:-INFO}"
     depends_on:
       - admin
