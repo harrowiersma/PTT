@@ -104,11 +104,21 @@ class AudioPump:
         from collections import deque
         self._rx_queue: deque = deque(maxlen=50)  # ~1 s of 20 ms chunks
 
+    MUMBLE_CHUNK_BYTES = 1920  # 20 ms @ 48 kHz mono int16
+
     def enqueue_mumble_frame(self, user_name: str, pcm48k: bytes) -> None:
-        """Called from pymumble's callback thread. Queues a 48 kHz PCM
-        frame for step_downlink to consume on its tick."""
-        if pcm48k and len(pcm48k) >= 1920:
-            self._rx_queue.append((user_name, pcm48k[:1920]))
+        """Called from pymumble's callback thread. Splits the incoming
+        PCM into 20 ms sub-chunks so step_downlink can send exactly one
+        20 ms RTP packet per tick. Mumble commonly hands us 40 ms frames
+        (3840 bytes); sending those as one packet would give a 25 fps
+        downlink while the RTP timestamp math pretends 50 fps, which the
+        far-end jitter buffer discards as malformed.
+        """
+        if not pcm48k:
+            return
+        for i in range(0, len(pcm48k) - self.MUMBLE_CHUNK_BYTES + 1,
+                       self.MUMBLE_CHUNK_BYTES):
+            self._rx_queue.append((user_name, pcm48k[i : i + self.MUMBLE_CHUNK_BYTES]))
 
     def _build_rtp(self, payload: bytes) -> bytes:
         """Wrap a slin16 payload in a minimal RTP header."""
