@@ -12,22 +12,12 @@ cd /app/server
 # and in Alembic's env.py (which also lives under /app/server/alembic).
 export PYTHONPATH="/app:${PYTHONPATH}"
 
-python3 - <<'PY'
-import sys
+STATE=$(python3 - <<'PY'
 import psycopg2
 from server.config import settings
 
 dsn = settings.database_url_sync.replace("postgresql+psycopg2://", "postgresql://", 1)
-
-try:
-    conn = psycopg2.connect(dsn)
-except psycopg2.OperationalError as e:
-    # Database not ready yet. The admin container depends_on postgres but that
-    # only waits for the container to start, not for postgres to accept queries.
-    # Fail loudly; Docker will restart us.
-    print(f"entrypoint: cannot reach database: {e}", file=sys.stderr)
-    sys.exit(1)
-
+conn = psycopg2.connect(dsn)
 cur = conn.cursor()
 cur.execute("SELECT to_regclass('public.alembic_version')")
 alembic_version_exists = cur.fetchone()[0] is not None
@@ -37,20 +27,30 @@ cur.close()
 conn.close()
 
 if users_exists and not alembic_version_exists:
-    print("entrypoint: pre-Alembic database detected; stamping to head")
-    sys.exit(2)
+    print("pre_alembic")
 elif not users_exists and not alembic_version_exists:
-    print("entrypoint: fresh database; will run all migrations")
-    sys.exit(0)
+    print("fresh")
 else:
-    print("entrypoint: database already under Alembic control")
-    sys.exit(0)
+    print("migrated")
 PY
-RC=$?
+)
 
-if [ "$RC" = "2" ]; then
-    alembic stamp head
-fi
+case "$STATE" in
+    pre_alembic)
+        echo "entrypoint: pre-Alembic database detected; stamping to head"
+        alembic stamp head
+        ;;
+    fresh)
+        echo "entrypoint: fresh database; running all migrations"
+        ;;
+    migrated)
+        echo "entrypoint: database already under Alembic control"
+        ;;
+    *)
+        echo "entrypoint: could not determine database state ($STATE); aborting" >&2
+        exit 1
+        ;;
+esac
 
 alembic upgrade head
 
