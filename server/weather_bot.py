@@ -143,30 +143,53 @@ def _get_tts():
 
 
 def text_to_audio_pcm(text: str) -> bytes | None:
-    """Convert text to 48kHz 16-bit mono PCM audio using TinyTTS."""
+    """Convert text to 48kHz 16-bit mono PCM audio using TinyTTS.
+
+    tiny_tts 0.3.x exposes `speak(text, output_path=...)` instead of
+    returning a numpy array, so we synthesize to a temporary WAV and
+    read it back with soundfile (already a transitive dependency).
+    """
     try:
+        import os
+        import tempfile
+        import soundfile as sf
+
         tts = _get_tts()
-        # TinyTTS returns audio at 44100 Hz
-        audio_np = tts.synthesize(text, speed=0.9)
+
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            wav_path = tmp.name
+        try:
+            tts.speak(text, output_path=wav_path, speed=0.9)
+            audio_np, source_rate = sf.read(wav_path)
+        finally:
+            try:
+                os.unlink(wav_path)
+            except OSError:
+                pass
 
         if audio_np is None or len(audio_np) == 0:
             logger.error("TinyTTS returned empty audio")
             return None
 
-        # Resample from 44100 Hz to 48000 Hz (Mumble's sample rate)
-        source_rate = 44100
+        # soundfile returns float64 mono for this model. If it ever
+        # returns stereo (shape (N, 2)), collapse to mono by averaging.
+        if audio_np.ndim > 1:
+            audio_np = audio_np.mean(axis=1)
+
+        # Resample to 48000 Hz (Mumble's sample rate) via nearest-sample
+        # index lookup — same approach as before, just source-rate aware.
         target_rate = 48000
-        duration = len(audio_np) / source_rate
-        target_length = int(duration * target_rate)
-        indices = np.linspace(0, len(audio_np) - 1, target_length).astype(int)
-        resampled = audio_np[indices]
+        if source_rate != target_rate:
+            target_length = int(len(audio_np) * target_rate / source_rate)
+            indices = np.linspace(0, len(audio_np) - 1, target_length).astype(int)
+            audio_np = audio_np[indices]
 
         # Normalize to 16-bit PCM
-        if resampled.dtype == np.float32 or resampled.dtype == np.float64:
-            resampled = np.clip(resampled, -1.0, 1.0)
-            pcm = (resampled * 32767).astype(np.int16)
+        if audio_np.dtype in (np.float32, np.float64):
+            audio_np = np.clip(audio_np, -1.0, 1.0)
+            pcm = (audio_np * 32767).astype(np.int16)
         else:
-            pcm = resampled.astype(np.int16)
+            pcm = audio_np.astype(np.int16)
 
         return pcm.tobytes()
 
