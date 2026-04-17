@@ -136,7 +136,36 @@ async def spawn_externalmedia(sess: aiohttp.ClientSession, channel_id: str) -> O
         udp.close()
         return None
     body = await r.json()
-    LOG.info("externalMedia created: id=%s", body.get("id"))
+    external_channel_id = body.get("id")
+    LOG.info("externalMedia created: id=%s", external_channel_id)
+
+    # Asterisk's externalMedia channel is isolated — it does not auto-bridge
+    # with the caller channel. Create a mixing bridge and put both channels
+    # in it so RTP flows from caller → externalMedia → our UDP socket.
+    bridge_r = await sess.post(
+        f"http://{ARI_HOST}:{ARI_PORT}/ari/bridges",
+        params={"type": "mixing", "name": f"bridge-{channel_id}"},
+        auth=auth,
+    )
+    if bridge_r.status >= 400:
+        LOG.error("bridge create failed: %d %s", bridge_r.status, await bridge_r.text())
+        udp.close()
+        return None
+    bridge_id = (await bridge_r.json()).get("id")
+    LOG.info("mixing bridge created: id=%s", bridge_id)
+
+    for chan_to_add in (channel_id, external_channel_id):
+        add_r = await sess.post(
+            f"http://{ARI_HOST}:{ARI_PORT}/ari/bridges/{bridge_id}/addChannel",
+            params={"channel": chan_to_add},
+            auth=auth,
+        )
+        if add_r.status >= 400:
+            LOG.error("addChannel failed for %s: %d %s",
+                      chan_to_add, add_r.status, await add_r.text())
+            udp.close()
+            return None
+    LOG.info("bridge %s wired: SIP=%s externalMedia=%s", bridge_id, channel_id, external_channel_id)
 
     # Stub pymumble — a mock object that just logs. Real pymumble in Task 8.
     class _MockMumble:
