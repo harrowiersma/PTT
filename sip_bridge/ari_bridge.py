@@ -88,10 +88,13 @@ class AudioPump:
         self._peer = udp_peer
         self._mumble = mumble
         self._sock.setblocking(False)
-        # RTP send state (downlink)
+        # RTP send state (downlink). _pt is learned from the first
+        # inbound packet so we send with the same payload type Asterisk
+        # uses on this session (the dynamic PT can vary per session).
         self._seq = 0
         self._ts = 0
         self._ssrc = int.from_bytes(os.urandom(4), "big")
+        self._pt = self.RTP_PAYLOAD_TYPE  # overridden on first inbound RTP
         # Downlink callback queue: pymumble calls enqueue_mumble_frame
         # from its own thread whenever a user in our channel speaks;
         # step_downlink drains one chunk per 20 ms tick. Avoids the
@@ -113,7 +116,7 @@ class AudioPump:
         header = struct.pack(
             "!BBHII",
             0x80,                       # V=2, P=0, X=0, CC=0
-            self.RTP_PAYLOAD_TYPE,      # M=0, PT=118
+            self._pt & 0x7F,            # M=0, PT=learned from inbound
             self._seq & 0xFFFF,
             self._ts & 0xFFFFFFFF,
             self._ssrc,
@@ -134,7 +137,13 @@ class AudioPump:
             return
         if self._peer == ("127.0.0.1", 0):
             self._peer = addr
-            LOG.info("latched UDP peer to %s", addr)
+            # Learn Asterisk's payload type from byte 1 of the RTP header
+            # (top bit is the marker, bottom 7 bits are PT). Mirroring it
+            # on our outbound packets avoids Asterisk dropping them as
+            # "unexpected PT".
+            if len(data) >= 2:
+                self._pt = data[1] & 0x7F
+            LOG.info("latched UDP peer to %s, learned PT=%d", addr, self._pt)
         # Expect 12B RTP header + 640B slin16 payload = 652B.
         if len(data) < self.RTP_HEADER_BYTES + self.SLIN16_FRAME_BYTES:
             return  # partial frame (seen at call start/end)
