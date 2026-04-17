@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from server.auth import get_current_admin
 from server.config import settings
 from server.database import get_db
-from server.models import SipTrunk, SipNumber
+from server.models import SipTrunk, SipNumber, User
 from server.api.schemas import (
     SipTrunkCreate, SipTrunkUpdate, SipTrunkResponse,
     SipNumberCreate, SipNumberUpdate, SipNumberResponse,
@@ -263,6 +263,87 @@ async def internal_ensure_phone_channel(
     if mumble_id is None:
         raise HTTPException(status_code=502, detail="Failed to create Phone channel")
     return {"channel_id": mumble_id, "created": True}
+
+
+# Pre-rendered ding tone (48 kHz 16-bit mono PCM). Generated on first use
+# and cached for the life of the process. ~200 ms double-beep, soft.
+_ding_pcm_cache: bytes | None = None
+
+
+def _get_ding_pcm() -> bytes:
+    global _ding_pcm_cache
+    if _ding_pcm_cache is not None:
+        return _ding_pcm_cache
+    import numpy as np
+    sr = 48000
+    def beep(freq: float, ms: int, amp: float = 0.10) -> np.ndarray:
+        n = int(sr * ms / 1000)
+        t = np.arange(n, dtype=np.float32) / sr
+        wave = np.sin(2 * np.pi * freq * t) * amp * 32767
+        # Quick attack + decay so it doesn't click.
+        env_n = int(sr * 0.008)
+        env = np.ones(n, dtype=np.float32)
+        env[:env_n] = np.linspace(0, 1, env_n)
+        env[-env_n:] = np.linspace(1, 0, env_n)
+        return (wave * env).astype(np.int16)
+    def silence(ms: int) -> np.ndarray:
+        return np.zeros(int(sr * ms / 1000), dtype=np.int16)
+    data = np.concatenate([beep(880, 90), silence(60), beep(1175, 90)])
+    _ding_pcm_cache = data.tobytes()
+    return _ding_pcm_cache
+
+
+@router.post("/internal/call-started")
+async def internal_call_started(
+    payload: dict | None = None,
+    _auth: None = Depends(_require_internal_auth),
+    murmur=Depends(get_murmur_client),
+    db: AsyncSession = Depends(get_db),
+):
+    """Subtle audio notification when an inbound SIP call lands.
+
+    The sip-bridge's dialplan hits this endpoint (Asterisk CURL()) right
+    after Answer(), so the notification fires while the Piper greeting
+    plays — by the time the caller is ready to talk, eligible users
+    have already heard the ding.
+
+    Target: each Mumble-connected user whose DB row has
+    can_answer_calls=true AND is_active=true, except if they're already
+    in Phone or Emergency. Whispered per-user (no channel-hop), so
+    everyone else in their channel hears nothing.
+    """
+    if not murmur or not murmur.has_mumble:
+        raise HTTPException(status_code=503, detail="Murmur not available")
+
+    caller_id = (payload or {}).get("caller_id", "unknown")
+
+    result = await db.execute(
+        select(User.username).where(
+            User.can_answer_calls.is_(True),
+            User.is_active.is_(True),
+        )
+    )
+    eligible_usernames = {row[0] for row in result.all()}
+    if not eligible_usernames:
+        logger.info("call-started: no users have can_answer_calls=true; skipping")
+        return {"notified": [], "reason": "no eligible users"}
+
+    mm = murmur._mumble
+    ding_pcm = _get_ding_pcm()
+    notified: list[str] = []
+
+    for sid, user in mm.users.items():
+        name = user.get("name")
+        if name not in eligible_usernames:
+            continue
+        chan = mm.channels.get(user.get("channel_id"), {})
+        if chan.get("name") in ("Phone", "Emergency"):
+            continue  # already in position to answer
+        if murmur.whisper_audio(sid, ding_pcm, with_preamble=False):
+            notified.append(name)
+
+    logger.info("call-started: notified %s (caller=%s)", notified, caller_id)
+    return {"notified": notified, "caller_id": caller_id}
 
 
 @router.post("/internal/tts")

@@ -135,7 +135,7 @@ class MurmurClient:
         try:
             users = []
             for session_id, user in self._mumble.users.items():
-                if user["name"] in ("PTTAdmin", "PTTWeather"):
+                if user["name"] in ("PTTAdmin", "PTTWeather", "PTTPhone"):
                     continue  # Skip bot users
                 users.append(
                     MumbleUser(
@@ -321,7 +321,7 @@ class MurmurClient:
                 return
 
             username = self._mumble.users[actor]["name"]
-            if username in ("PTTAdmin", "PTTWeather"):
+            if username in ("PTTAdmin", "PTTWeather", "PTTPhone"):
                 return
 
             # Check if this is an SOS acknowledgement keyword
