@@ -231,14 +231,13 @@ def run_bridge(trunks: list[dict], numbers: list[dict]) -> None:
             self._player = None
 
         def onCallState(self, prm):
-            ci = self.getInfo()
-            logger.info(
-                "Call state: %s (reason=%s)",
-                ci.stateText, prm.e.body.tsxState.tsxStatusText
-                if prm.e.body.tsxState.tsxStatusText else "",
-            )
+            try:
+                ci = self.getInfo()
+            except Exception:
+                return
+            logger.info("Call state: %s", ci.stateText)
             if ci.state == pj.PJSIP_INV_STATE_DISCONNECTED:
-                if self._player:
+                if self._player is not None:
                     try:
                         self._player = None
                     except Exception:
@@ -266,13 +265,19 @@ def run_bridge(trunks: list[dict], numbers: list[dict]) -> None:
                         # Schedule hangup once the greeting has had time
                         # to finish. TTS for the full welcome line is
                         # ~10s on Piper lessac-medium plus a 2s pad.
+                        # pjlib requires any thread calling back into it
+                        # to be registered first, otherwise it asserts and
+                        # aborts the whole process.
                         import threading
+                        ep_ref = pj.Endpoint.instance()
+                        call_ref = self
                         def _hangup():
                             try:
                                 time.sleep(12)
+                                ep_ref.libRegisterThread("hangup")
                                 cop = pj.CallOpParam()
                                 cop.statusCode = pj.PJSIP_SC_OK
-                                self.hangup(cop)
+                                call_ref.hangup(cop)
                                 logger.info("Hung up after greeting")
                             except Exception as e:
                                 logger.warning("Hangup failed: %s", e)
