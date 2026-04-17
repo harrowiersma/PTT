@@ -3,3 +3,6 @@ pytest==8.3.4
 pytest-asyncio==0.24.0
 httpx>=0.28.0
 aiosqlite==0.20.0
+# sip-bridge tests import from sip_bridge.ari_bridge which touches aiohttp at module top.
+aiohttp>=3.9.0
+numpy>=1.24.0
