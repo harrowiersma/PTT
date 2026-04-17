@@ -1,9 +1,13 @@
-#!/bin/sh
-set -e
+#!/bin/bash
+# sip-bridge/entrypoint.sh
+#
+# One-shot config rendering, then hand off to supervisord which runs
+# Asterisk + the Python ARI bridge.
 
-# PJSIP depends on libraries installed into /usr/local/lib by the Dockerfile;
-# make sure ldconfig picked them up (it did at build time, but the cache can
-# get pruned if the runtime user differs).
-ldconfig 2>/dev/null || true
+set -euo pipefail
 
-exec python3 -u /app/bridge.py
+echo "[entrypoint] rendering config from admin API"
+python3 -m sip_bridge.render_entry
+
+echo "[entrypoint] starting supervisord"
+exec /usr/bin/supervisord -c /app/supervisord.conf
