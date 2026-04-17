@@ -65,6 +65,46 @@ class User(Base):
     )
 
 
+class SipTrunk(Base):
+    """A SIP trunk (provider account). One trunk can have many DIDs.
+
+    Credentials are stored plaintext for v1 (same pattern as User.mumble_password);
+    tighten to AES-at-rest when the broader secrets story lands.
+    """
+    __tablename__ = "sip_trunks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    label: Mapped[str] = mapped_column(String(128), nullable=False)
+    sip_host: Mapped[str] = mapped_column(String(256), nullable=False)
+    sip_port: Mapped[int] = mapped_column(Integer, default=5060, nullable=False)
+    # NULL means IP-auth (allowlisted carrier sends INVITEs without REGISTER).
+    sip_user: Mapped[str] = mapped_column(String(128), nullable=True)
+    sip_password: Mapped[str] = mapped_column(String(256), nullable=True)
+    # If NULL, bridge derives from sip:<user>@<host>.
+    from_uri: Mapped[str] = mapped_column(String(256), nullable=True)
+    # udp | tcp | tls
+    transport: Mapped[str] = mapped_column(String(8), default="udp", nullable=False)
+    registration_interval_s: Mapped[int] = mapped_column(Integer, default=3600, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+
+
+class SipNumber(Base):
+    """A DID owned by a SIP trunk. All DIDs ring into the shared Phone channel."""
+    __tablename__ = "sip_numbers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    trunk_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    did: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    label: Mapped[str] = mapped_column(String(128), nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+
+
 class LoneWorkerShift(Base):
     """A bounded work session for the lone-worker system.
 

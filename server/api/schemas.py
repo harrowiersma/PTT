@@ -106,3 +106,71 @@ class QRResponse(BaseModel):
     username: str
     mumble_url: str
     qr_code_url: str
+
+
+# --- SIP gateway ---
+
+class SipTrunkCreate(BaseModel):
+    label: str = Field(min_length=1, max_length=128)
+    sip_host: str = Field(min_length=1, max_length=256)
+    sip_port: int = Field(default=5060, ge=1, le=65535)
+    sip_user: str | None = Field(default=None, max_length=128)
+    sip_password: str | None = Field(default=None, max_length=256)
+    from_uri: str | None = Field(default=None, max_length=256)
+    transport: str = Field(default="udp", pattern=r'^(udp|tcp|tls)$')
+    registration_interval_s: int = Field(default=3600, ge=60, le=86400)
+    enabled: bool = True
+
+
+class SipTrunkUpdate(BaseModel):
+    label: str | None = Field(default=None, max_length=128)
+    sip_host: str | None = Field(default=None, max_length=256)
+    sip_port: int | None = Field(default=None, ge=1, le=65535)
+    sip_user: str | None = Field(default=None, max_length=128)
+    sip_password: str | None = Field(default=None, max_length=256)
+    from_uri: str | None = Field(default=None, max_length=256)
+    transport: str | None = Field(default=None, pattern=r'^(udp|tcp|tls)$')
+    registration_interval_s: int | None = Field(default=None, ge=60, le=86400)
+    enabled: bool | None = None
+
+
+class SipTrunkResponse(BaseModel):
+    id: int
+    label: str
+    sip_host: str
+    sip_port: int
+    sip_user: str | None
+    # Password intentionally excluded from responses. The bridge reads
+    # directly from the DB; the dashboard never sees it after creation.
+    from_uri: str | None
+    transport: str
+    registration_interval_s: int
+    enabled: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SipNumberCreate(BaseModel):
+    trunk_id: int
+    did: str = Field(min_length=1, max_length=64)
+    label: str | None = Field(default=None, max_length=128)
+    enabled: bool = True
+
+
+class SipNumberUpdate(BaseModel):
+    trunk_id: int | None = None
+    did: str | None = Field(default=None, max_length=64)
+    label: str | None = Field(default=None, max_length=128)
+    enabled: bool | None = None
+
+
+class SipNumberResponse(BaseModel):
+    id: int
+    trunk_id: int
+    did: str
+    label: str | None
+    enabled: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

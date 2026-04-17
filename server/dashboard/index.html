@@ -254,6 +254,7 @@
             <div class="tab" data-tab="map" role="tab" tabindex="0" aria-selected="false" onclick="switchTab('map')" onkeydown="if(event.key==='Enter')switchTab('map')">Map</div>
             <div class="tab" data-tab="admin" role="tab" tabindex="0" aria-selected="false" onclick="switchTab('admin')" onkeydown="if(event.key==='Enter')switchTab('admin')">Admin</div>
             <div class="tab" data-tab="dispatch" role="tab" tabindex="0" aria-selected="false" onclick="switchTab('dispatch')" onkeydown="if(event.key==='Enter')switchTab('dispatch')">Dispatch</div>
+            <div class="tab" data-tab="sip" role="tab" tabindex="0" aria-selected="false" onclick="switchTab('sip')" onkeydown="if(event.key==='Enter')switchTab('sip')">SIP Gateway</div>
             <div class="tab" data-tab="audit" role="tab" tabindex="0" aria-selected="false" onclick="switchTab('audit')" onkeydown="if(event.key==='Enter')switchTab('audit')">Audit Log</div>
             <a href="help.html" class="tab" style="text-decoration:none;color:var(--color-text-secondary)" target="_blank">Help</a>
         </nav>
@@ -464,6 +465,50 @@
             </div>
         </div>
 
+        <div class="content tab-content" id="tab-sip" style="display:none" role="tabpanel" aria-label="SIP Gateway">
+            <div class="card">
+                <h2>SIP Trunks</h2>
+                <p style="color:var(--color-text-secondary);font-size:0.8125rem;margin-bottom:var(--space-md)">Each trunk is one provider account. DIDs are provisioned per trunk below. The sip-bridge container reads this config to register and route inbound calls into the Phone channel.</p>
+                <div style="overflow-x:auto">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Label</th>
+                                <th>Host</th>
+                                <th>Port</th>
+                                <th>Transport</th>
+                                <th>Auth</th>
+                                <th>Enabled</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sipTrunksList"></tbody>
+                    </table>
+                </div>
+                <button class="btn primary" style="margin-top:var(--space-md)" onclick="openSipTrunkModal()">Add trunk</button>
+            </div>
+
+            <div class="card" style="margin-top:var(--space-lg)">
+                <h2>SIP Numbers (DIDs)</h2>
+                <p style="color:var(--color-text-secondary);font-size:0.8125rem;margin-bottom:var(--space-md)">Each DID maps to one trunk. All DIDs ring into the shared Phone Mumble channel.</p>
+                <div style="overflow-x:auto">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>DID</th>
+                                <th>Label</th>
+                                <th>Trunk</th>
+                                <th>Enabled</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sipNumbersList"></tbody>
+                    </table>
+                </div>
+                <button class="btn primary" style="margin-top:var(--space-md)" onclick="openSipNumberModal()">Add number</button>
+            </div>
+        </div>
+
         <div class="content tab-content" id="tab-audit" style="display:none" role="tabpanel" aria-label="Audit Log">
             <div class="card">
                 <h2>Audit Trail</h2>
@@ -551,6 +596,50 @@
             <div style="display:flex;gap:var(--space-sm);justify-content:flex-end">
                 <button class="btn" onclick="closeModal('editUserModal')">Cancel</button>
                 <button class="btn primary" onclick="saveUserEdit()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="sipTrunkModal" style="display:none" onclick="if(event.target===this)closeModal('sipTrunkModal')" role="dialog" aria-label="SIP trunk">
+        <div class="modal">
+            <h3 id="sipTrunkModalTitle">Add SIP trunk</h3>
+            <input type="hidden" id="sipTrunkId">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-sm)">
+                <label>Label<input id="sipTrunkLabel" placeholder="Main DIDWW trunk" style="width:100%"></label>
+                <label>Host<input id="sipTrunkHost" placeholder="sip-inbound.didww.com" style="width:100%"></label>
+                <label>Port<input id="sipTrunkPort" type="number" value="5060" style="width:100%"></label>
+                <label>Transport
+                    <select id="sipTrunkTransport" style="width:100%">
+                        <option value="udp">UDP</option>
+                        <option value="tcp">TCP</option>
+                        <option value="tls">TLS</option>
+                    </select>
+                </label>
+                <label>SIP user (blank for IP-auth)<input id="sipTrunkUser" placeholder="12345" style="width:100%"></label>
+                <label>SIP password<input id="sipTrunkPassword" type="password" placeholder="••••••••" style="width:100%"></label>
+                <label style="grid-column:span 2">From URI (optional, defaults to sip:&lt;user&gt;@&lt;host&gt;)<input id="sipTrunkFromUri" placeholder="sip:12345@didww.com" style="width:100%"></label>
+                <label>Registration interval (s)<input id="sipTrunkRegInterval" type="number" value="3600" style="width:100%"></label>
+                <label style="display:flex;align-items:center;gap:var(--space-xs);margin-top:var(--space-md)"><input type="checkbox" id="sipTrunkEnabled" checked> Enabled</label>
+            </div>
+            <p style="color:var(--color-text-secondary);font-size:0.75rem;margin-top:var(--space-sm)">DIDWW typically uses IP-auth — leave user+password blank and allowlist the server's public IP in the DIDWW dashboard.</p>
+            <div style="display:flex;gap:var(--space-sm);justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn" onclick="closeModal('sipTrunkModal')">Cancel</button>
+                <button class="btn primary" onclick="saveSipTrunk()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="sipNumberModal" style="display:none" onclick="if(event.target===this)closeModal('sipNumberModal')" role="dialog" aria-label="SIP number">
+        <div class="modal">
+            <h3 id="sipNumberModalTitle">Add SIP number</h3>
+            <input type="hidden" id="sipNumberId">
+            <label>DID (E.164 format)<input id="sipNumberDid" placeholder="+14155551234" style="width:100%"></label>
+            <label>Label (optional)<input id="sipNumberLabel" placeholder="Main" style="width:100%;margin-top:var(--space-sm)"></label>
+            <label style="display:block;margin-top:var(--space-sm)">Trunk<select id="sipNumberTrunk" style="width:100%"></select></label>
+            <label style="display:flex;align-items:center;gap:var(--space-xs);margin-top:var(--space-md)"><input type="checkbox" id="sipNumberEnabled" checked> Enabled</label>
+            <div style="display:flex;gap:var(--space-sm);justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn" onclick="closeModal('sipNumberModal')">Cancel</button>
+                <button class="btn primary" onclick="saveSipNumber()">Save</button>
             </div>
         </div>
     </div>
@@ -699,6 +788,7 @@
         if (name === 'dispatch') { refreshSavedLocations(); }
         if (name === 'admin') { refreshAdmins(); loadLoneWorkerConfig(); }
         if (name === 'audit') refreshAudit();
+        if (name === 'sip') refreshSipConfig();
     }
 
     async function refreshAll() {
@@ -1511,6 +1601,174 @@
         const d = document.createElement('div');
         d.textContent = s;
         return d.innerHTML;
+    }
+
+    // === SIP GATEWAY ===
+    let _sipTrunksCache = [];
+
+    async function refreshSipConfig() {
+        const trunks = await api('/api/sip/trunks');
+        const numbers = await api('/api/sip/numbers');
+        if (trunks === null || numbers === null) return;
+        _sipTrunksCache = trunks;
+        const trunksById = {};
+        trunks.forEach(t => { trunksById[t.id] = t; });
+
+        const trunksBody = document.getElementById('sipTrunksList');
+        trunksBody.innerHTML = trunks.length === 0
+            ? '<tr><td colspan="7" style="text-align:center;color:var(--color-text-secondary);padding:var(--space-md)">No trunks configured</td></tr>'
+            : trunks.map(t =>
+                '<tr>' +
+                '<td><strong>' + esc(t.label) + '</strong></td>' +
+                '<td>' + esc(t.sip_host) + '</td>' +
+                '<td>' + t.sip_port + '</td>' +
+                '<td>' + esc(t.transport.toUpperCase()) + '</td>' +
+                '<td>' + (t.sip_user ? '<span class="badge online">user</span>' : '<span class="badge">IP-auth</span>') + '</td>' +
+                '<td>' + (t.enabled ? '<span class="badge online">on</span>' : '<span class="badge offline">off</span>') + '</td>' +
+                '<td class="actions">' +
+                  '<button class="btn" onclick="editSipTrunk(' + t.id + ')">Edit</button>' +
+                  '<button class="btn danger" onclick="deleteSipTrunk(' + t.id + ',\'' + esc(t.label) + '\')">Delete</button>' +
+                '</td></tr>').join('');
+
+        const numbersBody = document.getElementById('sipNumbersList');
+        numbersBody.innerHTML = numbers.length === 0
+            ? '<tr><td colspan="5" style="text-align:center;color:var(--color-text-secondary);padding:var(--space-md)">No numbers configured</td></tr>'
+            : numbers.map(n => {
+                const trunkLabel = trunksById[n.trunk_id] ? trunksById[n.trunk_id].label : '#' + n.trunk_id;
+                return '<tr>' +
+                  '<td><code>' + esc(n.did) + '</code></td>' +
+                  '<td>' + esc(n.label || '') + '</td>' +
+                  '<td>' + esc(trunkLabel) + '</td>' +
+                  '<td>' + (n.enabled ? '<span class="badge online">on</span>' : '<span class="badge offline">off</span>') + '</td>' +
+                  '<td class="actions">' +
+                    '<button class="btn" onclick="editSipNumber(' + n.id + ',\'' + esc(n.did) + '\',\'' + esc(n.label || '') + '\',' + n.trunk_id + ',' + n.enabled + ')">Edit</button>' +
+                    '<button class="btn danger" onclick="deleteSipNumber(' + n.id + ',\'' + esc(n.did) + '\')">Delete</button>' +
+                  '</td></tr>';
+            }).join('');
+    }
+
+    function openSipTrunkModal() {
+        document.getElementById('sipTrunkId').value = '';
+        document.getElementById('sipTrunkModalTitle').textContent = 'Add SIP trunk';
+        document.getElementById('sipTrunkLabel').value = '';
+        document.getElementById('sipTrunkHost').value = '';
+        document.getElementById('sipTrunkPort').value = '5060';
+        document.getElementById('sipTrunkTransport').value = 'udp';
+        document.getElementById('sipTrunkUser').value = '';
+        document.getElementById('sipTrunkPassword').value = '';
+        document.getElementById('sipTrunkFromUri').value = '';
+        document.getElementById('sipTrunkRegInterval').value = '3600';
+        document.getElementById('sipTrunkEnabled').checked = true;
+        document.getElementById('sipTrunkModal').style.display = 'flex';
+    }
+
+    async function editSipTrunk(id) {
+        const t = _sipTrunksCache.find(x => x.id === id);
+        if (!t) return;
+        document.getElementById('sipTrunkId').value = t.id;
+        document.getElementById('sipTrunkModalTitle').textContent = 'Edit SIP trunk';
+        document.getElementById('sipTrunkLabel').value = t.label;
+        document.getElementById('sipTrunkHost').value = t.sip_host;
+        document.getElementById('sipTrunkPort').value = t.sip_port;
+        document.getElementById('sipTrunkTransport').value = t.transport;
+        document.getElementById('sipTrunkUser').value = t.sip_user || '';
+        document.getElementById('sipTrunkPassword').value = '';  // never echoed back
+        document.getElementById('sipTrunkFromUri').value = t.from_uri || '';
+        document.getElementById('sipTrunkRegInterval').value = t.registration_interval_s;
+        document.getElementById('sipTrunkEnabled').checked = t.enabled;
+        document.getElementById('sipTrunkModal').style.display = 'flex';
+    }
+
+    async function saveSipTrunk() {
+        const id = document.getElementById('sipTrunkId').value;
+        const body = {
+            label: document.getElementById('sipTrunkLabel').value.trim(),
+            sip_host: document.getElementById('sipTrunkHost').value.trim(),
+            sip_port: parseInt(document.getElementById('sipTrunkPort').value, 10),
+            transport: document.getElementById('sipTrunkTransport').value,
+            sip_user: document.getElementById('sipTrunkUser').value.trim() || null,
+            from_uri: document.getElementById('sipTrunkFromUri').value.trim() || null,
+            registration_interval_s: parseInt(document.getElementById('sipTrunkRegInterval').value, 10),
+            enabled: document.getElementById('sipTrunkEnabled').checked,
+        };
+        const password = document.getElementById('sipTrunkPassword').value;
+        if (password) body.sip_password = password;
+        else if (!id) body.sip_password = null;  // new trunk without password -> IP auth
+
+        const method = id ? 'PATCH' : 'POST';
+        const url = id ? '/api/sip/trunks/' + id : '/api/sip/trunks';
+        const r = await api(url, { method: method, body: JSON.stringify(body) });
+        if (r) {
+            showToast('Trunk saved', 'success');
+            closeModal('sipTrunkModal');
+            refreshSipConfig();
+        }
+    }
+
+    async function deleteSipTrunk(id, label) {
+        if (!confirm('Delete trunk "' + label + '"? All numbers on it will also be removed.')) return;
+        const r = await api('/api/sip/trunks/' + id, { method: 'DELETE' });
+        if (r !== null) {
+            showToast('Trunk deleted', 'success');
+            refreshSipConfig();
+        }
+    }
+
+    function openSipNumberModal() {
+        if (_sipTrunksCache.length === 0) {
+            showToast('Add a trunk first', 'error');
+            return;
+        }
+        document.getElementById('sipNumberId').value = '';
+        document.getElementById('sipNumberModalTitle').textContent = 'Add SIP number';
+        document.getElementById('sipNumberDid').value = '';
+        document.getElementById('sipNumberLabel').value = '';
+        const trunkSel = document.getElementById('sipNumberTrunk');
+        trunkSel.innerHTML = _sipTrunksCache.map(t =>
+            '<option value="' + t.id + '">' + esc(t.label) + '</option>'
+        ).join('');
+        document.getElementById('sipNumberEnabled').checked = true;
+        document.getElementById('sipNumberModal').style.display = 'flex';
+    }
+
+    function editSipNumber(id, did, label, trunkId, enabled) {
+        document.getElementById('sipNumberId').value = id;
+        document.getElementById('sipNumberModalTitle').textContent = 'Edit SIP number';
+        document.getElementById('sipNumberDid').value = did;
+        document.getElementById('sipNumberLabel').value = label;
+        const trunkSel = document.getElementById('sipNumberTrunk');
+        trunkSel.innerHTML = _sipTrunksCache.map(t =>
+            '<option value="' + t.id + '"' + (t.id === trunkId ? ' selected' : '') + '>' + esc(t.label) + '</option>'
+        ).join('');
+        document.getElementById('sipNumberEnabled').checked = enabled;
+        document.getElementById('sipNumberModal').style.display = 'flex';
+    }
+
+    async function saveSipNumber() {
+        const id = document.getElementById('sipNumberId').value;
+        const body = {
+            did: document.getElementById('sipNumberDid').value.trim(),
+            label: document.getElementById('sipNumberLabel').value.trim() || null,
+            trunk_id: parseInt(document.getElementById('sipNumberTrunk').value, 10),
+            enabled: document.getElementById('sipNumberEnabled').checked,
+        };
+        const method = id ? 'PATCH' : 'POST';
+        const url = id ? '/api/sip/numbers/' + id : '/api/sip/numbers';
+        const r = await api(url, { method: method, body: JSON.stringify(body) });
+        if (r) {
+            showToast('Number saved', 'success');
+            closeModal('sipNumberModal');
+            refreshSipConfig();
+        }
+    }
+
+    async function deleteSipNumber(id, did) {
+        if (!confirm('Delete DID ' + did + '?')) return;
+        const r = await api('/api/sip/numbers/' + id, { method: 'DELETE' });
+        if (r !== null) {
+            showToast('Number deleted', 'success');
+            refreshSipConfig();
+        }
     }
     </script>
 </body>
