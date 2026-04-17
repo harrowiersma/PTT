@@ -253,6 +253,10 @@ async def spawn_externalmedia(sess: aiohttp.ClientSession, channel_id: str, mumb
             "external_host": f"127.0.0.1:{udp_port}",
             "format": "slin16",
             "transport": "udp",
+            # Default is "both" per the ARI spec, but at least one Asterisk
+            # build has been observed to drop inbound RTP on externalMedia
+            # when direction wasn't explicit. Belt-and-braces.
+            "direction": "both",
         },
         auth=auth,
     )
