@@ -153,6 +153,7 @@ class AudioPump:
             return
 
         frame_pcm = None
+        speaker_name = None
         try:
             for user in self._mumble.users.values():
                 # Skip ourselves (PTTPhone)
@@ -161,8 +162,9 @@ class AudioPump:
                 sound = user.sound
                 if sound.is_sound():
                     chunk = sound.get_sound(0.02)  # 20 ms
-                    if chunk is not None and len(chunk.pcm) == 1920:
-                        frame_pcm = chunk.pcm
+                    if chunk is not None and len(chunk.pcm) >= 1920:
+                        frame_pcm = chunk.pcm[:1920]
+                        speaker_name = user.get("name", "?")
                         break
         except Exception as e:
             LOG.debug("downlink drain error: %s", e)
@@ -170,6 +172,18 @@ class AudioPump:
 
         if frame_pcm is None:
             return
+
+        # Throttled log: once per second of downlink activity
+        if not hasattr(self, "_dl_count"):
+            self._dl_count = 0
+            self._dl_last_log = time.monotonic()
+        self._dl_count += 1
+        now = time.monotonic()
+        if now - self._dl_last_log > 1.0:
+            LOG.info("downlink: %d frames from Mumble (speaker=%s) in last %.1fs",
+                     self._dl_count, speaker_name, now - self._dl_last_log)
+            self._dl_count = 0
+            self._dl_last_log = now
 
         slin16_le = downsample_48_to_16(frame_pcm)
         # Asterisk expects RTP L16 in big-endian (RFC 3551).
