@@ -44,6 +44,10 @@ MUMBLE_FRAME_BYTES = 1920
 # VAD floor: don't transmit to Mumble when the caller is silent.
 # Keeps PTTPhone from hogging the half-duplex P50 channel.
 VAD_THRESHOLD = 500
+# Downlink (Mumble → phone) attenuation. pymumble delivers peak-normalized
+# audio that's hot for a phone line; 0.5 ≈ -6 dBFS is comfortable. Tune via
+# DOWNLINK_GAIN env var without rebuild.
+DOWNLINK_GAIN = float(os.environ.get("DOWNLINK_GAIN", "0.5"))
 
 # AudioSocket frame-type constants
 _TYPE_HANGUP = 0x00
@@ -183,6 +187,10 @@ class Client:
                 time.sleep(0.005)
                 continue
             slin8 = resample_48k_to_8k(frame_pcm)
+            if DOWNLINK_GAIN != 1.0:
+                samples = np.frombuffer(slin8, dtype=np.int16).astype(np.float32)
+                samples *= DOWNLINK_GAIN
+                slin8 = np.clip(samples, -32768, 32767).astype(np.int16).tobytes()
             try:
                 self._send_frame(_TYPE_AUDIO, slin8)
                 self._dl_count += 1
