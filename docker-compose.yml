@@ -66,6 +66,12 @@ services:
     # breaks SIP/RTP because the SDP reports the container IP and DIDWW
     # sends media to an unreachable destination.
     network_mode: host
+    # host-network mode + AppArmor docker-default enforce policy blocks
+    # UDP sendto() from the container, causing pjsua2's REGISTER to fail
+    # with err=120001 "Operation not permitted". Unconfine just this
+    # service — it's isolated to SIP/RTP traffic only.
+    security_opt:
+      - apparmor:unconfined
     environment:
       ADMIN_INTERNAL_URL: "http://127.0.0.1:8000"
       PTT_INTERNAL_API_SECRET: "${PTT_INTERNAL_API_SECRET}"
