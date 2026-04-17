@@ -233,8 +233,24 @@ def open_mumble(host: str, port: int) -> "object":
     Imported lazily so local pytest runs (where pymumble isn't installed)
     still work — pymumble only runs inside the sip-bridge container.
     """
+    # Compat shim: pymumble 1.6.1 calls ssl.wrap_socket(), which was
+    # removed in Python 3.12. Ubuntu 24.04 (our base image) ships 3.12.
+    # Re-implement with SSLContext before importing pymumble so its
+    # module-top `import ssl; ssl.wrap_socket(...)` call resolves.
+    import ssl as _ssl
+    if not hasattr(_ssl, "wrap_socket"):
+        def _compat_wrap_socket(sock, certfile=None, keyfile=None,
+                                ssl_version=None, **_kw):
+            ctx = _ssl.SSLContext(_ssl.PROTOCOL_TLS_CLIENT)
+            ctx.check_hostname = False
+            ctx.verify_mode = _ssl.CERT_NONE
+            if certfile:
+                ctx.load_cert_chain(certfile, keyfile)
+            return ctx.wrap_socket(sock)
+        _ssl.wrap_socket = _compat_wrap_socket
+
     import pymumble_py3 as pymumble
-    import pymumble_py3.constants as const
+    import pymumble_py3.constants as const  # noqa: F401  # reserved for Task 8+ callbacks
 
     mm = pymumble.Mumble(host, "PTTPhone", port=port, reconnect=True)
     mm.set_application_string("openPTT SIP Bridge")
