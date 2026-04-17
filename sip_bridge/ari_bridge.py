@@ -191,6 +191,14 @@ async def run() -> None:
                     continue
                 LOG.info("Stasis %s: channel=%s (%s)", parsed.kind, parsed.channel_id, parsed.channel_name)
                 if parsed.kind == "start":
+                    # Asterisk's externalMedia creates a UnicastRTP helper
+                    # channel that ALSO enters our Stasis app. Spawning
+                    # externalMedia for that helper recursively creates
+                    # more helpers — infinite loop. Only act on real SIP
+                    # channels (PJSIP/*), ignore everything else.
+                    if not parsed.channel_name.startswith("PJSIP/"):
+                        LOG.debug("ignoring non-PJSIP StasisStart: %s", parsed.channel_name)
+                        continue
                     pump = await spawn_externalmedia(sess, parsed.channel_id)
                     if pump is None:
                         LOG.error("externalMedia spawn failed for %s; channel will hear silence", parsed.channel_id)
