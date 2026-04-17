@@ -22,9 +22,7 @@ jobs:
         run: sudo apt-get install -y libopus0
 
       - name: Install Python dependencies
-        run: |
-          pip install -r server/requirements.txt
-          pip install pytest pytest-asyncio httpx aiosqlite
+        run: pip install -r requirements-test.txt
 
       - name: Run tests
         env:

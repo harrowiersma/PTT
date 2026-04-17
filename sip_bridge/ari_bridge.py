@@ -95,6 +95,7 @@ class AudioPump:
         self._ts = 0
         self._ssrc = int.from_bytes(os.urandom(4), "big")
         self._pt = self.RTP_PAYLOAD_TYPE  # overridden on first inbound RTP
+        self._pt_learned = False
         # Downlink callback queue: pymumble calls enqueue_mumble_frame
         # from its own thread whenever a user in our channel speaks;
         # step_downlink drains one chunk per 20 ms tick. Avoids the
@@ -145,15 +146,17 @@ class AudioPump:
             data, addr = self._sock.recvfrom(4096)
         except (BlockingIOError, socket.timeout):
             return
-        if self._peer == ("127.0.0.1", 0):
-            self._peer = addr
-            # Learn Asterisk's payload type from byte 1 of the RTP header
-            # (top bit is the marker, bottom 7 bits are PT). Mirroring it
-            # on our outbound packets avoids Asterisk dropping them as
-            # "unexpected PT".
+        # Learn Asterisk's payload type from byte 1 of the RTP header on
+        # the very first inbound packet, regardless of whether the peer
+        # port was set up-front (via UNICASTRTP_LOCAL_PORT) or latched here.
+        if not self._pt_learned:
             if len(data) >= 2:
                 self._pt = data[1] & 0x7F
-            LOG.info("latched UDP peer to %s, learned PT=%d", addr, self._pt)
+            self._pt_learned = True
+            LOG.info("learned PT=%d from inbound RTP (peer=%s)", self._pt, self._peer)
+        if self._peer == ("127.0.0.1", 0):
+            self._peer = addr
+            LOG.info("latched UDP peer to %s (fallback)", addr)
 
         # Diagnostic: ECHO_MODE echoes the incoming RTP bytes right back
         # to Asterisk, unmodified. If the caller hears their own voice,
@@ -297,7 +300,33 @@ async def spawn_externalmedia(sess: aiohttp.ClientSession, channel_id: str, mumb
             return None
     LOG.info("bridge %s wired: SIP=%s externalMedia=%s", bridge_id, channel_id, external_channel_id)
 
-    pump = AudioPump(udp_sock=udp, udp_peer=("127.0.0.1", 0), mumble=mumble)
+    # Asterisk's externalMedia is asymmetric: it SENDS RTP from its own
+    # chosen local port but LISTENS for return RTP on a different port
+    # that it exposes via the UNICASTRTP_LOCAL_PORT channel variable.
+    # Sending to the source port of inbound packets (from recvfrom)
+    # doesn't reach the RTP engine's read path. Ask Asterisk directly
+    # for the right port.
+    asterisk_rtp_port = None
+    for var in ("UNICASTRTP_LOCAL_PORT", "UNICASTRTP_LOCAL_ADDRESS"):
+        vr = await sess.get(
+            f"http://{ARI_HOST}:{ARI_PORT}/ari/channels/{external_channel_id}/variable",
+            params={"variable": var},
+            auth=auth,
+        )
+        if vr.status == 200:
+            val = (await vr.json()).get("value", "")
+            LOG.info("externalMedia var %s = %r", var, val)
+            if var == "UNICASTRTP_LOCAL_PORT" and val:
+                try:
+                    asterisk_rtp_port = int(val)
+                except ValueError:
+                    LOG.warning("could not parse UNICASTRTP_LOCAL_PORT=%r", val)
+
+    initial_peer = (
+        ("127.0.0.1", asterisk_rtp_port) if asterisk_rtp_port
+        else ("127.0.0.1", 0)
+    )
+    pump = AudioPump(udp_sock=udp, udp_peer=initial_peer, mumble=mumble)
     # Wire pymumble's SOUNDRECEIVED callback to this pump's rx_queue.
     # The callback in open_mumble reads mm.current_pump on every frame.
     mumble.current_pump = pump
