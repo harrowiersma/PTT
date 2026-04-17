@@ -1,0 +1,13 @@
+; sip-bridge/configs/ari.conf.tmpl
+; Rendered at entrypoint time — the password comes from env var
+; ARI_PASSWORD (generated if not set).
+
+[general]
+enabled = yes
+pretty = yes
+allowed_origins = *
+
+[openptt]
+type = user
+read_only = no
+password = {ari_password}
