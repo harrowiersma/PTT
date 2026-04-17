@@ -26,6 +26,28 @@ This document is the rolling ledger of outstanding work. Items move from
 - **Bonus: Dispatch-radio behaviour** — `PREF_AUTO_CONNECT` (default true),
   `BootReceiver` launches the service on device boot.
 
+### Shift system + Alembic (2026-04-17 afternoon)
+- **#17 Alembic migrations** — baseline migration `274f344764e1_initial_schema`
+  covers every existing table; `server/entrypoint.sh` detects pre-Alembic
+  databases and stamps them to head on first boot, then runs
+  `alembic upgrade head` on every startup. Live on prod; DB is at
+  `1f38074872ac` (shifts + user columns). Fresh installs now build the
+  schema entirely through migrations.
+- **#14 Lone-worker shift system** — new `lone_worker_shifts` table plus
+  `users.shift_duration_hours` and `users.can_answer_calls` columns.
+  Server endpoints `/api/loneworker/shift/{start,stop,active}`;
+  checker loop is now shift-aware (only pings users with an active
+  shift, auto-closes on expiry). Dashboard user-edit form gained a
+  shift duration field and a "can answer SIP calls" toggle.
+- **Shift trigger — triple-tap PTT (not long-press F3)** — the P50's
+  ROM owns F3 long-press and doesn't forward the key event to apps or
+  even to the system-level `LoneWorkerManagerService`. Pivoted to
+  three quick PTT presses within 1.2s as the shift-toggle gesture,
+  detected in `MumlaService.detectTripleTap()`. Reliable through the
+  existing `MeigPttReceiver` path, works regardless of foreground.
+  Confirmation via Android's built-in TextToSpeech. App commit
+  `e12e3f3` in openPTT-app.
+
 ### Server (PTT commits `4cc3752`, `4201c8e`)
 - **#9 Weather bot GPS matching** — resolves Traccar position via
   `User.traccar_device_id` link first, falls back to device name. Matches
@@ -92,23 +114,18 @@ transmit path.
   `docker exec ptt-murmur-1 sqlite3 /data/mumble-server.sqlite "DELETE FROM users WHERE name='harro';" && docker restart ptt-murmur-1`.
 
 ### Server — deferred (low risk, separate focused session)
-- **#11 TinyTTS verification** — needs a live double-PTT from a P50 in the
-  Weather channel to exercise the model load and audio output. Code path
-  is wired through the new `PTTWeather` connection; no known blockers,
-  just untested end-to-end.
-- **#14 Lone worker shift system** — shift-based on/off instead of 24/7
-  reminders. Blocked on #17 (new `LoneWorkerShift` table wants a
-  migration).
 - **#16 Murmur registered-user reset** — pymumble can't delete server-side
   registrations. Implementation needs to share the `murmur-data` volume
   into the admin container and modify `mumble-server.sqlite` directly, or
   introduce an alternate channel. Current manual workaround (SSH +
   `docker exec` + sqlite3) is documented and works.
-- **#17 Alembic migrations** — scaffold exists (`server/alembic/env.py`,
-  `alembic.ini`), no baseline migration yet. Plan: `alembic revision
-  --autogenerate` against an empty SQLite, then `alembic stamp head` in
-  prod to mark the existing schema as migrated, then bake `alembic
-  upgrade head` into the admin entrypoint.
+
+### SIP gateway (pending, per CEO plan `shift-system-and-sip-gateway.md`)
+- Baresip + pymumble bridge container; dedicated Phone channel with
+  multi-caller sub-channels; green-button mute; auto-disconnect on
+  empty channel; auto-return user to previous channel on hangup.
+  Blocked on a SIP provider account (VoIPms / Telnyx / Sipgate) +
+  DID. Dashboard toggle for `can_answer_calls` is already live.
 
 ---
 
