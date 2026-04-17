@@ -191,9 +191,18 @@ class WeatherBot:
         self._rate_limit: dict[str, float] = {}  # username -> last_request_time
         self._weather_channel_id: int | None = None
         self._running = False
+        # Dedicated pymumble connection as "PTTWeather" — sits in Weather channel
+        # so PYMUMBLE_CLBK_SOUNDRECEIVED fires for Weather audio. The main
+        # MurmurClient stays in Root for SOS acknowledgements in Emergency.
+        self._weather_mumble = None
 
-    def start(self):
-        """Start the weather bot. Creates Weather channel and registers callbacks."""
+    async def start(self):
+        """Start the weather bot. Creates Weather channel and registers callbacks.
+
+        Async so DB work runs on the caller's event loop — the asyncpg pool is
+        bound to the main loop and cannot be driven from a freshly created
+        loop (previous bug: RuntimeWarning 'coroutine was never awaited').
+        """
         if not self.murmur or not self.murmur.has_mumble:
             logger.warning("Weather bot: pymumble not available, skipping")
             return
@@ -221,68 +230,106 @@ class WeatherBot:
             return
 
         # Also ensure it exists in the database (for dashboard visibility)
-        self._ensure_db_channel("Weather", "ATIS-style weather reports. Double-PTT or type 'status <location>'.", self._weather_channel_id)
+        await self._ensure_db_channel("Weather", "ATIS-style weather reports. Double-PTT or type 'status <location>'.", self._weather_channel_id)
         # Also ensure Emergency channel exists for SOS
         for chan_id, chan in mm.channels.items():
             if chan["name"] == "Emergency":
-                self._ensure_db_channel("Emergency", "Emergency SOS channel. All users moved here during SOS.", chan_id)
+                await self._ensure_db_channel("Emergency", "Emergency SOS channel. All users moved here during SOS.", chan_id)
                 break
 
-        # Register audio callback to detect PTT bursts
-        import pymumble_py3.constants as const
-        mm.callbacks.set_callback(const.PYMUMBLE_CLBK_SOUNDRECEIVED, self._on_sound)
+        # Open the dedicated PTTWeather connection and move it to Weather.
+        # SOUNDRECEIVED only fires for audio in the bot's own channel; sitting
+        # this connection in Weather is what lets double-PTT detection work
+        # without yanking the main PTTAdmin bot out of Root (which handles SOS).
+        self._start_weather_connection()
 
         self._running = True
         logger.info("Weather bot started. Channel ID: %d. Double-PTT to request weather.", self._weather_channel_id)
 
-    def _ensure_db_channel(self, name: str, description: str, mumble_id: int):
+    def _start_weather_connection(self):
+        """Open the PTTWeather pymumble connection and move it to Weather channel."""
+        try:
+            import pymumble_py3 as pymumble
+            import pymumble_py3.constants as const
+
+            self._weather_mumble = pymumble.Mumble(
+                self.murmur.mumble_host,
+                "PTTWeather",
+                port=self.murmur.mumble_port,
+                reconnect=True,
+            )
+            self._weather_mumble.set_application_string("openPTT TRX-WeatherBot")
+            self._weather_mumble.start()
+            self._weather_mumble.is_ready()
+            time.sleep(1)
+
+            # Move into the Weather channel
+            if self._weather_channel_id is not None:
+                self._weather_mumble.users.myself.move_in(self._weather_channel_id)
+                time.sleep(0.2)
+
+            # Register sound callback on the weather connection — only audio
+            # from the Weather channel reaches this callback.
+            self._weather_mumble.callbacks.set_callback(
+                const.PYMUMBLE_CLBK_SOUNDRECEIVED, self._on_sound,
+            )
+            logger.info("PTTWeather connection ready in Weather channel")
+        except Exception as e:
+            logger.error("Failed to open PTTWeather connection: %s", e)
+            self._weather_mumble = None
+
+    def stop(self):
+        """Disconnect the PTTWeather connection. Called from lifespan shutdown."""
+        self._running = False
+        if self._weather_mumble is not None:
+            try:
+                # pymumble doesn't expose a clean disconnect; stop the control
+                # thread and let the socket close.
+                self._weather_mumble.control_socket.close()
+            except Exception as e:
+                logger.debug("Error closing PTTWeather socket: %s", e)
+            self._weather_mumble = None
+            logger.info("PTTWeather connection stopped")
+
+    async def _ensure_db_channel(self, name: str, description: str, mumble_id: int):
         """Ensure a channel exists in PostgreSQL for dashboard visibility."""
         try:
-            import asyncio
             from sqlalchemy import select
             from server.database import async_session
             from server.models import Channel
 
-            async def _create():
-                async with async_session() as db:
-                    result = await db.execute(select(Channel).where(Channel.name == name))
-                    if result.scalar_one_or_none():
-                        return  # Already exists
-                    ch = Channel(name=name, description=description, mumble_id=mumble_id, max_users=0)
-                    db.add(ch)
-                    await db.commit()
-                    logger.info("Created '%s' channel in database (mumble_id=%d)", name, mumble_id)
-
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(_create())
-            loop.close()
+            async with async_session() as db:
+                result = await db.execute(select(Channel).where(Channel.name == name))
+                if result.scalar_one_or_none():
+                    return  # Already exists
+                ch = Channel(name=name, description=description, mumble_id=mumble_id, max_users=0)
+                db.add(ch)
+                await db.commit()
+                logger.info("Created '%s' channel in database (mumble_id=%d)", name, mumble_id)
         except Exception as e:
             logger.debug("Could not ensure DB channel '%s': %s", name, e)
 
     def _on_sound(self, user, sound_chunk):
-        """Called when audio is received. Track PTT bursts per user."""
+        """Called when audio is received. Track PTT bursts per user.
+
+        Fires on the PTTWeather connection, so incoming audio is already
+        known to be in the Weather channel.
+        """
         if not self._running:
             return
 
         try:
             session_id = None
             username = None
-            user_channel = None
 
-            # Find the user who sent this audio
-            mm = self.murmur._mumble
+            mm = self._weather_mumble or self.murmur._mumble
             for sid, u in mm.users.items():
                 if u["name"] == user["name"]:
                     session_id = sid
                     username = u["name"]
-                    user_channel = u.get("channel_id", -1)
                     break
 
-            if session_id is None or username == "PTTAdmin":
-                return
-
-            # Only react to audio in the Weather channel
-            if user_channel != self._weather_channel_id:
+            if session_id is None or username in ("PTTAdmin", "PTTWeather"):
                 return
 
             now = time.time()
@@ -327,6 +374,22 @@ class WeatherBot:
         thread = threading.Thread(target=self._fetch_and_speak, args=(username,), daemon=True)
         thread.start()
 
+    async def _load_device_to_user(self) -> dict[int, str]:
+        """Load {traccar_device_id: username} for users with an explicit link."""
+        try:
+            from sqlalchemy import select
+            from server.database import async_session
+            from server.models import User
+            async with async_session() as db:
+                result = await db.execute(
+                    select(User.traccar_device_id, User.username)
+                    .where(User.traccar_device_id.isnot(None))
+                )
+                return {row[0]: row[1] for row in result.all()}
+        except Exception as e:
+            logger.debug("Could not load device-user map: %s", e)
+            return {}
+
     def _fetch_and_speak(self, username: str):
         """Fetch weather and play audio. Runs in a separate thread."""
         loop = asyncio.new_event_loop()
@@ -337,9 +400,16 @@ class WeatherBot:
             traccar = self.TraccarClient()
             positions = loop.run_until_complete(traccar.get_positions())
 
+            # Resolve positions via explicit User.traccar_device_id link first;
+            # fall back to device name match for unlinked rows. Matches the
+            # pattern used by server/api/status.py and server/api/dispatch.py.
+            device_to_user = loop.run_until_complete(self._load_device_to_user())
+
             user_pos = None
+            target = username.lower()
             for p in positions:
-                if p.device_name.lower() == username.lower():
+                resolved = device_to_user.get(p.device_id, p.device_name)
+                if resolved.lower() == target:
                     user_pos = p
                     break
 
@@ -377,23 +447,28 @@ class WeatherBot:
 
     def _speak(self, text: str):
         """Send a text message to the Weather channel (fallback when audio fails)."""
-        if self.murmur and self.murmur.has_mumble and self._weather_channel_id is not None:
+        if self._weather_channel_id is None:
+            return
+        mm = self._weather_mumble
+        if mm is not None and self._weather_channel_id in mm.channels:
+            try:
+                mm.channels[self._weather_channel_id].send_text_message(text)
+                return
+            except Exception as e:
+                logger.warning("PTTWeather send_text failed, falling back to main: %s", e)
+        if self.murmur and self.murmur.has_mumble:
             self.murmur.send_message(self._weather_channel_id, text)
 
     def _play_audio(self, pcm_data: bytes):
-        """Play PCM audio into the Weather channel via pymumble."""
-        if not self.murmur or not self.murmur.has_mumble:
+        """Play PCM audio into the Weather channel via the PTTWeather connection."""
+        mm = self._weather_mumble
+        if mm is None:
+            logger.warning("PTTWeather connection unavailable; cannot play audio")
             return
 
-        mm = self.murmur._mumble
-
-        # Move bot to Weather channel if not already there
-        if self._weather_channel_id is not None:
-            mm.users.myself.move_in(self._weather_channel_id)
-            time.sleep(0.1)
-
-        # Feed PCM audio to pymumble's sound output
-        # pymumble expects 48000 Hz, 16-bit, mono PCM in chunks
+        # PTTWeather is already in the Weather channel (moved on start).
+        # Feed PCM audio to pymumble's sound output.
+        # pymumble expects 48000 Hz, 16-bit, mono PCM in chunks.
         CHUNK_SIZE = 48000 * 2 * 20 // 1000  # 20ms of 48kHz 16-bit mono = 1920 bytes
 
         for i in range(0, len(pcm_data), CHUNK_SIZE):

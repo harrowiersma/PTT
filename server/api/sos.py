@@ -71,7 +71,7 @@ def _move_all_to_emergency(murmur) -> int | None:
     # Save original channels and move all users to Emergency
     _original_channels.clear()
     for session_id, user in mm.users.items():
-        if user["name"] == "PTTAdmin":
+        if user["name"] in ("PTTAdmin", "PTTWeather"):
             continue
         current_channel = user.get("channel_id", 0)
         if current_channel != emergency_id:

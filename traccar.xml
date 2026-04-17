@@ -27,9 +27,10 @@
     <entry key='logger.level'>info</entry>
     <entry key='logger.file'>/opt/traccar/logs/tracker-server.log</entry>
 
-    <!-- Forward events to our admin service (SOS alerts) -->
+    <!-- Forward events to our admin service (SOS alerts).
+         The handler lives under the /api/sos router in server/api/sos.py. -->
     <entry key='event.forward.enable'>true</entry>
-    <entry key='event.forward.url'>http://admin:8000/api/traccar/event</entry>
+    <entry key='event.forward.url'>http://admin:8000/api/sos/traccar/event</entry>
     <entry key='event.forward.headers'>Content-Type: application/json</entry>
 
     <!-- Map: OpenStreetMap (no API key needed) -->

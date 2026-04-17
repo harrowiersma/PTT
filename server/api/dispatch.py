@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -9,6 +11,8 @@ from server.dependencies import get_murmur_client
 from server.models import DispatchEvent, User
 from server.murmur.client import MurmurClient
 from server.traccar_client import TraccarClient
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/dispatch", tags=["dispatch"])
 
@@ -72,21 +76,41 @@ async def dispatch_worker(
     await db.commit()
     await db.refresh(event)
 
-    # Send text message to the user's current channel via Mumble
+    # Try TTS whisper first (only the target user hears it); fall back to a
+    # text message in their channel if TTS generation or whisper fails.
+    delivery = "none"
     if murmur and murmur.has_mumble:
-        # Find which channel the target user is in
-        target_channel = 0  # fallback to Root
+        session_id = murmur.find_session_by_username(req.target_username)
+        target_channel = 0
         mm = murmur._mumble
-        if mm:
+        if mm is not None:
             for sid, user in mm.users.items():
                 if user["name"].lower() == req.target_username.lower():
                     target_channel = user.get("channel_id", 0)
                     break
-        murmur.send_message(target_channel, f"DISPATCH: {req.target_username}, {req.message}")
+
+        if session_id is not None:
+            try:
+                from server.weather_bot import text_to_audio_pcm
+                tts_text = f"Dispatch from control. {req.message}"
+                pcm = text_to_audio_pcm(tts_text)
+                if pcm and murmur.whisper_audio(session_id, pcm):
+                    delivery = "tts_whisper"
+                    logger.info("Dispatch %d delivered via TTS whisper to %s (session %d)",
+                                event.id, req.target_username, session_id)
+            except Exception as e:
+                logger.warning("Dispatch TTS failed, falling back to text: %s", e)
+
+        if delivery == "none":
+            murmur.send_message(target_channel, f"DISPATCH: {req.target_username}, {req.message}")
+            delivery = "text"
+            logger.info("Dispatch %d delivered via text to channel %d",
+                        event.id, target_channel)
 
     return {
         "status": "dispatched",
         "id": event.id,
         "target": req.target_username,
         "message": req.message,
+        "delivery": delivery,
     }

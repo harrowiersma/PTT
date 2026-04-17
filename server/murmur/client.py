@@ -135,8 +135,8 @@ class MurmurClient:
         try:
             users = []
             for session_id, user in self._mumble.users.items():
-                if user["name"] == "PTTAdmin":
-                    continue  # Skip our own bot user
+                if user["name"] in ("PTTAdmin", "PTTWeather"):
+                    continue  # Skip bot users
                 users.append(
                     MumbleUser(
                         session=session_id,
@@ -221,6 +221,45 @@ class MurmurClient:
             logger.error("Failed to send message to channel %d: %s", channel_id, e)
             return False
 
+    def find_session_by_username(self, username: str) -> int | None:
+        """Return the Murmur session ID of a currently-connected user, or None."""
+        if not self._mumble:
+            return None
+        target = username.lower()
+        for sid, user in self._mumble.users.items():
+            if user["name"].lower() == target:
+                return sid
+        return None
+
+    def whisper_audio(self, session_id: int, pcm_data: bytes) -> bool:
+        """Play 48kHz 16-bit mono PCM audio as a whisper to one Murmur session.
+
+        The target user hears the audio regardless of their channel; no one
+        else does. Returns False if the connection is unavailable.
+        """
+        if not self._mumble or not pcm_data:
+            return False
+        mm = self._mumble
+        try:
+            import time as _time
+            mm.sound_output.set_whisper(session_id, channel=False)
+            chunk_size = 48000 * 2 * 20 // 1000  # 20ms of 48kHz 16-bit mono
+            for i in range(0, len(pcm_data), chunk_size):
+                chunk = pcm_data[i:i + chunk_size]
+                if len(chunk) < chunk_size:
+                    chunk += b'\x00' * (chunk_size - len(chunk))
+                mm.sound_output.add_sound(chunk)
+                _time.sleep(0.018)
+            return True
+        except Exception as e:
+            logger.error("whisper_audio failed for session %d: %s", session_id, e)
+            return False
+        finally:
+            try:
+                mm.sound_output.remove_whisper()
+            except Exception:
+                pass
+
     def register_user(self, username: str, password: str) -> int | None:
         """Register a user. pymumble can't register users directly.
         Users auto-register when they connect to Murmur."""
@@ -269,7 +308,7 @@ class MurmurClient:
                 return
 
             username = self._mumble.users[actor]["name"]
-            if username == "PTTAdmin":
+            if username in ("PTTAdmin", "PTTWeather"):
                 return
 
             # Check if this is an SOS acknowledgement keyword

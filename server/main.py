@@ -114,7 +114,8 @@ async def lifespan(app: FastAPI):
             from server.weather_bot import WeatherBot
             from server.traccar_client import TraccarClient
             weather_bot = WeatherBot(client, TraccarClient)
-            weather_bot.start()
+            await weather_bot.start()
+            app.state.weather_bot = weather_bot
             logger.info("Weather ATIS bot started")
         except Exception as e:
             logger.warning("Weather bot failed to start: %s", e)
@@ -139,6 +140,9 @@ async def lifespan(app: FastAPI):
     yield
 
     # Cleanup
+    weather_bot = getattr(app.state, "weather_bot", None)
+    if weather_bot is not None:
+        weather_bot.stop()
     if app.state.murmur_client:
         app.state.murmur_client.disconnect()
     logger.info("openPTT TRX-Server stopped")
