@@ -259,6 +259,10 @@ class WeatherBot:
                 reconnect=True,
             )
             self._weather_mumble.set_application_string("openPTT TRX-WeatherBot")
+            # pymumble drops incoming audio unless receive_sound is enabled;
+            # without this, PYMUMBLE_CLBK_SOUNDRECEIVED never fires, even
+            # though the callback is registered.
+            self._weather_mumble.set_receive_sound(True)
             self._weather_mumble.start()
             self._weather_mumble.is_ready()
             time.sleep(1)
@@ -273,7 +277,7 @@ class WeatherBot:
             self._weather_mumble.callbacks.set_callback(
                 const.PYMUMBLE_CLBK_SOUNDRECEIVED, self._on_sound,
             )
-            logger.info("PTTWeather connection ready in Weather channel")
+            logger.info("PTTWeather connection ready in Weather channel (receive_sound=on)")
         except Exception as e:
             logger.error("Failed to open PTTWeather connection: %s", e)
             self._weather_mumble = None
@@ -343,10 +347,12 @@ class WeatherBot:
                     "last_audio_time": now,
                     "username": username,
                 }
+                logger.info("Weather burst 1/2 from %s (session %d)", username, session_id)
             else:
                 # Check if this is a new burst (gap of >1 second since last audio)
                 if now - state["last_audio_time"] > 1.0:
                     state["burst_count"] += 1
+                    logger.info("Weather burst %d/2 from %s", state["burst_count"], username)
                 state["last_audio_time"] = now
 
                 # Two bursts detected
