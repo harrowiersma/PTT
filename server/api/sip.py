@@ -293,7 +293,7 @@ def _get_ding_pcm() -> bytes:
     return _ding_pcm_cache
 
 
-@router.post("/internal/call-started")
+@router.api_route("/internal/call-started", methods=["GET", "POST"])
 async def internal_call_started(
     caller_id: str = "unknown",
     _auth: None = Depends(_require_internal_auth),
