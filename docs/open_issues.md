@@ -106,12 +106,13 @@ transmit path.
 ## Still open
 
 ### Physical / operational
-- **#6 Install openPTT TRX on harro's P50** — yuliia's P50 has the app and
-  is connecting; harro's needs the APK installed via
-  `adb -s <serial> install -r openptt-foss-debug.apk`, then Mumble creds
-  configured in-app. The `harro` Murmur registration may need to be
-  cleared first if the cert from HamMumble is still on file:
-  `docker exec ptt-murmur-1 sqlite3 /data/mumble-server.sqlite "DELETE FROM users WHERE name='harro';" && docker restart ptt-murmur-1`.
+- ~~**#6 Install openPTT TRX on harro's P50**~~ — **Resolved 2026-04-18**:
+  APK installed on device `R259060623` via `adb install -r` (same build
+  that includes the triple-tap lone-worker gate). No `harro` Murmur
+  registration existed (only `SuperUser`), so no certificate cleanup
+  was needed. In-app configuration (Mumble creds + admin URL + optional
+  lone-worker-mode toggle) is the manual remaining step until the
+  one-click provisioning script ships.
 
 ### P50 provisioning script (one-click deploy for field devices)
 Today, flashing a P50 is manual: build APK, `adb install`, open the app,
