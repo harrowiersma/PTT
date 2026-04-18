@@ -240,6 +240,19 @@ def text_to_audio_pcm(text: str) -> bytes | None:
         return None
 
 
+def generate_trailing_silence_pcm(ms: int = 400) -> bytes:
+    """Build `ms` milliseconds of silence at 48 kHz 16-bit mono.
+
+    Appended to TTS payloads so the receiver's Opus decoder stays open
+    past the last word of real speech. Without this, the transmission
+    ends mid-syllable from the listener's POV — the P50's decoder ramps
+    down while the last ~300 ms of audio is still in flight.
+    """
+    sample_rate = 48000
+    n = int(sample_rate * ms / 1000)
+    return np.zeros(n, dtype=np.int16).tobytes()
+
+
 def generate_preamble_pcm(
     tone_ms: int = 400,
     silence_ms: int = 100,
@@ -572,6 +585,10 @@ class WeatherBot:
         # Feed PCM audio to pymumble's sound output.
         # pymumble expects 48000 Hz, 16-bit, mono PCM in chunks.
         CHUNK_SIZE = 48000 * 2 * 20 // 1000  # 20ms of 48kHz 16-bit mono = 1920 bytes
+
+        # Trailing silence keeps the Mumble transmission open past the last
+        # word — P50 receivers cut off 200-400 ms of speech otherwise.
+        pcm_data = pcm_data + generate_trailing_silence_pcm(ms=400)
 
         for i in range(0, len(pcm_data), CHUNK_SIZE):
             chunk = pcm_data[i:i + CHUNK_SIZE]

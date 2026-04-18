@@ -252,9 +252,14 @@ class MurmurClient:
         mm = self._mumble
         try:
             import time as _time
+            from server.weather_bot import generate_trailing_silence_pcm
             if with_preamble:
                 from server.weather_bot import generate_preamble_pcm
                 pcm_data = generate_preamble_pcm() + pcm_data
+            # Trailing silence keeps the transmission open past the last word.
+            # Without it, P50 receivers clip 200-400 ms of speech as the
+            # decoder ramps down.
+            pcm_data = pcm_data + generate_trailing_silence_pcm(ms=400)
             mm.sound_output.set_whisper(session_id, channel=False)
             chunk_size = 48000 * 2 * 20 // 1000  # 20ms of 48kHz 16-bit mono
             for i in range(0, len(pcm_data), chunk_size):
