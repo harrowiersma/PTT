@@ -36,6 +36,25 @@ LISTEN_HOST = os.environ.get("AUDIOSOCKET_HOST", "127.0.0.1")
 LISTEN_PORT = int(os.environ.get("AUDIOSOCKET_PORT", "9092"))
 MUMBLE_HOST = os.environ.get("MUMBLE_HOST", "127.0.0.1")
 MUMBLE_PORT = int(os.environ.get("MUMBLE_PORT", "64738"))
+ADMIN_BASE_URL = os.environ.get("ADMIN_INTERNAL_URL", "http://127.0.0.1:8000")
+INTERNAL_SECRET = os.environ.get("PTT_INTERNAL_API_SECRET", "").strip()
+
+
+def _notify_call_ended() -> None:
+    """POST /internal/call-ended so admin stops the ding-notification loop.
+    Called from the main serve() loop after a client connection closes —
+    the dialplan's CURL(call-ended) runs only on orderly hangup via our
+    Hangup() priority, which doesn't execute when the caller hangs up
+    first.
+    """
+    if not INTERNAL_SECRET:
+        return
+    try:
+        import httpx
+        with httpx.Client(timeout=5, headers={"X-Internal-Auth": INTERNAL_SECRET}) as c:
+            c.get(f"{ADMIN_BASE_URL}/api/sip/internal/call-ended")
+    except Exception as e:
+        LOG.warning("call-ended POST failed: %s", e)
 
 # AudioSocket default: slin @ 8 kHz mono int16. 20 ms = 160 samples = 320 B.
 SLIN8_FRAME_BYTES = 320
@@ -270,7 +289,17 @@ def serve() -> None:
         # is still attached, the new one replaces it — the old client's
         # socket will EOF on its next recv and its thread exits.
         mumble.current_client = client
-        threading.Thread(target=client.run, daemon=True,
+
+        def _run_and_notify(_client=client, _addr=addr):
+            try:
+                _client.run()
+            finally:
+                # Always tell admin the call ended so the ding loop stops,
+                # regardless of whether the caller hung up, the radio side
+                # hung up, or our client errored.
+                _notify_call_ended()
+
+        threading.Thread(target=_run_and_notify, daemon=True,
                          name=f"audiosocket-{addr}").start()
 
 
