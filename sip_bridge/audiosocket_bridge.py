@@ -156,8 +156,10 @@ def open_mumble(host: str, port: int):
 
     def _on_sound(user, sound_chunk):
         client = getattr(mm, "current_client", None)
-        if client is not None:
-            client.enqueue_mumble(user.get("name", "?"), sound_chunk.pcm)
+        if client is None:
+            return
+        client.enqueue_mumble(user.get("name", "?"), sound_chunk.pcm)
+        client.track_ptt_burst(user)
 
     mm.callbacks.set_callback(const.PYMUMBLE_CLBK_SOUNDRECEIVED, _on_sound)
     mm.start()
@@ -189,6 +191,13 @@ def open_mumble(host: str, port: int):
 class Client:
     """One AudioSocket TCP connection. Handles frame parsing + audio pump."""
 
+    # Triple-PTT hangup: three separate PTT bursts (gap > 0.5 s between)
+    # from the same user within 3 s ends the call. Lets a radio user
+    # hang up without waiting for the caller.
+    PTT_BURST_GAP_S = 0.5
+    PTT_BURST_WINDOW_S = 3.0
+    PTT_BURSTS_TO_HANGUP = 3
+
     def __init__(self, sock: socket.socket, mumble):
         self._sock = sock
         self._mumble = mumble
@@ -198,6 +207,8 @@ class Client:
         self._ul_count = 0
         self._dl_count = 0
         self._last_log = time.monotonic()
+        # {session_id: {"count": int, "first": ts, "last": ts, "name": str}}
+        self._ptt_bursts: dict = {}
 
     def enqueue_mumble(self, user_name: str, pcm48k: bytes) -> None:
         """Called from pymumble callback thread. Split to 20 ms pieces."""
@@ -205,6 +216,54 @@ class Client:
             return
         for i in range(0, len(pcm48k) - MUMBLE_FRAME_BYTES + 1, MUMBLE_FRAME_BYTES):
             self._rx_queue.append(pcm48k[i : i + MUMBLE_FRAME_BYTES])
+
+    def track_ptt_burst(self, user) -> None:
+        """Count PTT bursts per user. Triple-PTT within a short window
+        closes the AudioSocket connection → caller hangs up. Called from
+        the pymumble SOUNDRECEIVED callback thread on every 20 ms frame
+        of audio PTTPhone hears from another user in the Phone channel.
+        """
+        sid = user.get("session")
+        if sid is None:
+            return
+        now = time.monotonic()
+        state = self._ptt_bursts.get(sid)
+        if state is None or (now - state["first"]) > self.PTT_BURST_WINDOW_S:
+            # Fresh window for this user.
+            self._ptt_bursts[sid] = {
+                "count": 1, "first": now, "last": now,
+                "name": user.get("name", "?"),
+            }
+            return
+        # Same window — new burst detected when there's a >0.5 s gap
+        # from the last audio frame we saw from this user.
+        if (now - state["last"]) > self.PTT_BURST_GAP_S:
+            state["count"] += 1
+            LOG.info("PTT burst %d/%d from %s",
+                     state["count"], self.PTT_BURSTS_TO_HANGUP, state["name"])
+            if state["count"] >= self.PTT_BURSTS_TO_HANGUP:
+                LOG.info("triple-PTT from %s — hanging up call", state["name"])
+                self._ptt_bursts.pop(sid, None)
+                self.hangup_from_radio()
+                return
+        state["last"] = now
+
+    def hangup_from_radio(self) -> None:
+        """Radio-initiated hangup. Send an AudioSocket hangup frame so
+        Asterisk tears down the SIP call; then close the TCP socket so
+        serve()'s wrapper runs call-ended. Safe to call repeatedly.
+        """
+        if self._stop:
+            return
+        try:
+            self._send_frame(_TYPE_HANGUP)
+        except OSError as e:
+            LOG.debug("hangup send: %s", e)
+        self._stop = True
+        try:
+            self._sock.close()
+        except OSError:
+            pass
 
     def _send_frame(self, type_byte: int, payload: bytes = b"") -> None:
         header = struct.pack("!BH", type_byte & 0xFF, len(payload))
