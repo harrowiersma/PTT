@@ -160,35 +160,7 @@ def open_mumble(host: str, port: int):
             return
         client.enqueue_mumble(user.get("name", "?"), sound_chunk.pcm)
 
-    def _on_text(msg):
-        """Watch Phone channel for text-command hangup ('/hangup' or 'hangup').
-
-        Text-based because every PTT gesture conflicts with an existing
-        radio shortcut (shift-start, double-PTT weather, green-button mute)
-        and a hangup misfire is much worse than typing five characters.
-        """
-        client = getattr(mm, "current_client", None)
-        if client is None:
-            return
-        body = (msg.message or "").strip().lower()
-        if body not in ("/hangup", "hangup"):
-            return
-        # Verify the sender is in the Phone channel to avoid accidental
-        # hangups from text messages PTTPhone receives in other scopes.
-        sender_sid = msg.actor
-        try:
-            sender = mm.users[sender_sid]
-            sender_chan = mm.channels.get(sender.get("channel_id"), {})
-            if sender_chan.get("name") != "Phone":
-                return
-            sender_name = sender.get("name", "?")
-        except Exception:
-            return
-        LOG.info("hangup command from %s in Phone channel", sender_name)
-        client.hangup_from_radio()
-
     mm.callbacks.set_callback(const.PYMUMBLE_CLBK_SOUNDRECEIVED, _on_sound)
-    mm.callbacks.set_callback(const.PYMUMBLE_CLBK_TEXTMESSAGERECEIVED, _on_text)
     mm.start()
     mm.is_ready()
     time.sleep(1)
