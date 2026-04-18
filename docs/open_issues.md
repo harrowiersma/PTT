@@ -113,6 +113,39 @@ transmit path.
   cleared first if the cert from HamMumble is still on file:
   `docker exec ptt-murmur-1 sqlite3 /data/mumble-server.sqlite "DELETE FROM users WHERE name='harro';" && docker restart ptt-murmur-1`.
 
+### P50 provisioning script (one-click deploy for field devices)
+Today, flashing a P50 is manual: build APK, `adb install`, open the app,
+type Mumble creds, type admin URL, toggle lone-worker mode, set Traccar
+URL. Every step is a chance for drift between devices.
+
+**Wanted:** a downloadable provisioning script, reachable from a short
+link like `ptt.harro.ch/1234`, that picks the user's OS (macOS or
+Windows) and runs an ADB-driven zero-touch setup:
+
+- Detects the connected P50 via `adb devices`.
+- Downloads the latest `openptt-foss-debug.apk` (signed release once we
+  set that up) and `adb install -r`.
+- Pre-populates SharedPreferences via `adb shell am start` with intent
+  extras, or pushes a seeded `shared_prefs` XML — username, Mumble
+  server, admin URL, Traccar URL, lone-worker-mode, rotary behavior,
+  whatever else ships with defaults.
+- Grants the `android.permission.POST_NOTIFICATIONS`,
+  `ACCESS_FINE_LOCATION`, and `RECORD_AUDIO` runtime perms via
+  `adb shell pm grant`.
+- Launches the service so `BootReceiver` + `LocationReporter` are live
+  before the user touches the handset.
+
+**Packaging:** bash script for macOS/Linux + PowerShell script for
+Windows. Both gated by OS detection in the nginx shortlink handler
+(User-Agent sniff → redirect to the right file). Short URL slug pattern
+`ptt.harro.ch/<short>` decoded to specific device config (per-user
+shortlinks so each device gets its own credentials).
+
+**Effort:** M. Needs Android SDK platform-tools bundled (or installer
+hints), persona-specific config baking, a short-URL service on nginx,
+and careful ADB error handling (unauthorized device, USB debugging
+off, multiple devices connected). No new server-side surface.
+
 ### Architecture discussion — PTT gesture detection: app vs server
 Triple-tap-PTT shift toggle currently lives in `MumlaService.detectTripleTap()`
 in the openPTT-app (commit `91adebe` gated it on lone-worker mode + not-in-Phone).
