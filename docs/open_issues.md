@@ -113,6 +113,27 @@ transmit path.
   cleared first if the cert from HamMumble is still on file:
   `docker exec ptt-murmur-1 sqlite3 /data/mumble-server.sqlite "DELETE FROM users WHERE name='harro';" && docker restart ptt-murmur-1`.
 
+### Architecture discussion — PTT gesture detection: app vs server
+Triple-tap-PTT shift toggle currently lives in `MumlaService.detectTripleTap()`
+in the openPTT-app (commit `91adebe` gated it on lone-worker mode + not-in-Phone).
+Question raised: should gesture detection be server-side instead, so gesture
+changes don't require an APK build + flash?
+
+Trade-offs to discuss in a focused session:
+
+- **App-side (current):** precise hardware-key timing, no audio round-trip,
+  instant response, but every gesture change needs an APK rebuild + per-device
+  flash.
+- **Server-side (alternative):** hear PTT as audio bursts via pymumble's
+  SOUNDRECEIVED callback on a dedicated bot, detect gaps → count taps. Updates
+  via `docker compose up -d`. Fuzzier detection (depends on VAD + decode timing),
+  one frame of latency, couples gesture to "audio is actually reaching Mumble".
+- **Hybrid:** app emits raw gesture events to server (`/api/gesture/tap?count=3`);
+  server owns the semantics. Best of both, biggest scope.
+
+Not urgent — only blocking if we expect to add several new PTT gestures and
+the APK-flash cycle becomes the bottleneck.
+
 ### Server — deferred (low risk, separate focused session)
 - **#16 Murmur registered-user reset** — pymumble can't delete server-side
   registrations. Implementation needs to share the `murmur-data` volume
