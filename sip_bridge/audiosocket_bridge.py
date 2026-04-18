@@ -68,6 +68,37 @@ VAD_THRESHOLD = 500
 # DOWNLINK_GAIN env var without rebuild.
 DOWNLINK_GAIN = float(os.environ.get("DOWNLINK_GAIN", "0.5"))
 
+# Ringback tone. European-style 400 Hz, 1 s on / 4 s off — played to the
+# caller while no human user is present in the Phone channel so they hear
+# the line is alive and ringing, not dead silence. Pre-rendered at startup
+# as N × 320-byte slin 8 kHz frames, looped.
+def _build_ringback_frames() -> list[bytes]:
+    sr = 8000
+    on_n = sr * 1        # 1 s ringing
+    off_n = sr * 4       # 4 s silence → full cycle 5 s
+    t = np.arange(on_n, dtype=np.float32) / sr
+    # Soft envelope so the tone start/stop doesn't click.
+    env = np.ones(on_n, dtype=np.float32)
+    ramp = int(sr * 0.03)
+    env[:ramp] = np.linspace(0, 1, ramp)
+    env[-ramp:] = np.linspace(1, 0, ramp)
+    tone = (np.sin(2 * np.pi * 400 * t) * env * 0.25 * 32767).astype(np.int16)
+    silence = np.zeros(off_n, dtype=np.int16)
+    cycle = np.concatenate([tone, silence]).tobytes()
+    # Slice into 320-byte (20 ms) frames.
+    return [cycle[i : i + SLIN8_FRAME_BYTES]
+            for i in range(0, len(cycle), SLIN8_FRAME_BYTES)
+            if len(cycle[i : i + SLIN8_FRAME_BYTES]) == SLIN8_FRAME_BYTES]
+
+
+_ringback_frames: list[bytes] | None = None
+
+def _get_ringback_frames() -> list[bytes]:
+    global _ringback_frames
+    if _ringback_frames is None:
+        _ringback_frames = _build_ringback_frames()
+    return _ringback_frames
+
 # AudioSocket frame-type constants
 _TYPE_HANGUP = 0x00
 _TYPE_UUID = 0x01
@@ -197,19 +228,65 @@ class Client:
             self._dl_count = 0
             self._last_log = now
 
+    def _human_in_phone(self) -> bool:
+        """True iff a non-PTTPhone user is currently in the Phone channel."""
+        mm = self._mumble
+        try:
+            phone_cid = None
+            for cid, chan in mm.channels.items():
+                if chan.get("name") == "Phone":
+                    phone_cid = cid
+                    break
+            if phone_cid is None:
+                return False
+            my_sid = mm.users.myself.get("session")
+            for sid, user in mm.users.items():
+                if sid == my_sid:
+                    continue
+                if user.get("channel_id") == phone_cid:
+                    return True
+            return False
+        except Exception:
+            return False
+
     def _downlink_loop(self) -> None:
-        """Runs in a thread — pulls Mumble audio, sends slin8 to Asterisk."""
+        """Runs in a thread. Sends one 20 ms slin8 frame per tick to Asterisk.
+
+        Priority:
+          1. Mumble audio in rx_queue (user in Phone talking)
+          2. Ringback tone (no human in Phone — caller hears line ringing)
+          3. Nothing (human in Phone but silent — Asterisk fills with silence)
+        """
+        ringback_frames = _get_ringback_frames()
+        ringback_idx = 0
+        next_tick = time.monotonic()
         while not self._stop:
+            now = time.monotonic()
+            if now < next_tick:
+                time.sleep(min(0.005, next_tick - now))
+                continue
+            next_tick += 0.020
+
+            slin8: Optional[bytes] = None
+
+            # Priority 1: Mumble audio, if available.
             try:
                 frame_pcm = self._rx_queue.popleft()
+                slin8 = resample_48k_to_8k(frame_pcm)
+                if DOWNLINK_GAIN != 1.0:
+                    samples = np.frombuffer(slin8, dtype=np.int16).astype(np.float32)
+                    samples *= DOWNLINK_GAIN
+                    slin8 = np.clip(samples, -32768, 32767).astype(np.int16).tobytes()
+                ringback_idx = 0  # restart ringback from silent part next time
             except IndexError:
-                time.sleep(0.005)
+                # Priority 2: ringback if no human in Phone.
+                if not self._human_in_phone() and ringback_frames:
+                    slin8 = ringback_frames[ringback_idx % len(ringback_frames)]
+                    ringback_idx += 1
+
+            if slin8 is None:
                 continue
-            slin8 = resample_48k_to_8k(frame_pcm)
-            if DOWNLINK_GAIN != 1.0:
-                samples = np.frombuffer(slin8, dtype=np.int16).astype(np.float32)
-                samples *= DOWNLINK_GAIN
-                slin8 = np.clip(samples, -32768, 32767).astype(np.int16).tobytes()
+
             try:
                 self._send_frame(_TYPE_AUDIO, slin8)
                 self._dl_count += 1
