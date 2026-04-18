@@ -295,7 +295,7 @@ def _get_ding_pcm() -> bytes:
 
 @router.post("/internal/call-started")
 async def internal_call_started(
-    payload: dict | None = None,
+    caller_id: str = "unknown",
     _auth: None = Depends(_require_internal_auth),
     murmur=Depends(get_murmur_client),
     db: AsyncSession = Depends(get_db),
@@ -314,8 +314,6 @@ async def internal_call_started(
     """
     if not murmur or not murmur.has_mumble:
         raise HTTPException(status_code=503, detail="Murmur not available")
-
-    caller_id = (payload or {}).get("caller_id", "unknown")
 
     result = await db.execute(
         select(User.username).where(
