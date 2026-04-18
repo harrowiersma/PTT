@@ -265,9 +265,17 @@ async def internal_ensure_phone_channel(
     return {"channel_id": mumble_id, "created": True}
 
 
+import asyncio as _asyncio
+
 # Pre-rendered ding tone (48 kHz 16-bit mono PCM). Generated on first use
 # and cached for the life of the process. ~200 ms double-beep, soft.
 _ding_pcm_cache: bytes | None = None
+
+# Call-notification state. Only one active call at a time (single-caller
+# design), so a single-task slot is enough. Guarded by an asyncio lock.
+_notify_state: dict = {"active": False, "caller_id": None, "task": None}
+_notify_lock = _asyncio.Lock()
+_NOTIFY_INTERVAL_S = 3.0
 
 
 def _get_ding_pcm() -> bytes:
@@ -293,6 +301,73 @@ def _get_ding_pcm() -> bytes:
     return _ding_pcm_cache
 
 
+async def _fetch_eligible_usernames(db: AsyncSession) -> set[str]:
+    result = await db.execute(
+        select(User.username).where(
+            User.can_answer_calls.is_(True),
+            User.is_active.is_(True),
+        )
+    )
+    return {row[0] for row in result.all()}
+
+
+def _ding_eligible_users(murmur, eligible: set[str]) -> list[str]:
+    """Whisper the ding to every eligible user not already in Phone/Emergency.
+
+    Returns the list of usernames notified on this tick. Also returns an
+    empty list if at least one eligible user is already in Phone, which
+    the caller can use as a signal to stop pinging.
+    """
+    mm = murmur._mumble
+    ding_pcm = _get_ding_pcm()
+    in_phone_already = False
+    notified: list[str] = []
+
+    for sid, user in mm.users.items():
+        name = user.get("name")
+        if name not in eligible:
+            continue
+        chan = mm.channels.get(user.get("channel_id"), {})
+        chan_name = chan.get("name")
+        if chan_name == "Phone":
+            in_phone_already = True
+            continue
+        if chan_name == "Emergency":
+            continue
+        if murmur.whisper_audio(sid, ding_pcm, with_preamble=False):
+            notified.append(name)
+
+    # Signal "stop pinging" by stashing on the state dict; the poller reads it.
+    _notify_state["someone_in_phone"] = in_phone_already
+    return notified
+
+
+async def _notify_loop(caller_id: str, murmur, db_session_factory):
+    """Re-ping eligible users every _NOTIFY_INTERVAL_S until either a user
+    with can_answer_calls joins the Phone channel, or /internal/call-ended
+    clears the active flag.
+    """
+    from server.database import async_session as _session_factory
+    try:
+        while _notify_state["active"]:
+            async with _session_factory() as db:
+                eligible = await _fetch_eligible_usernames(db)
+            if not eligible:
+                logger.info("notify-loop: no eligible users; stopping")
+                break
+            notified = _ding_eligible_users(murmur, eligible)
+            if _notify_state.get("someone_in_phone"):
+                logger.info("notify-loop: a can_answer_calls user reached Phone; stopping")
+                break
+            logger.info("notify-loop: re-pinged %s (caller=%s)", notified, caller_id)
+            await _asyncio.sleep(_NOTIFY_INTERVAL_S)
+    except _asyncio.CancelledError:
+        logger.info("notify-loop cancelled for caller=%s", caller_id)
+    finally:
+        _notify_state["active"] = False
+        _notify_state["task"] = None
+
+
 @router.api_route("/internal/call-started", methods=["GET", "POST"])
 async def internal_call_started(
     caller_id: str = "unknown",
@@ -300,48 +375,47 @@ async def internal_call_started(
     murmur=Depends(get_murmur_client),
     db: AsyncSession = Depends(get_db),
 ):
-    """Subtle audio notification when an inbound SIP call lands.
+    """Kick off the ding-notification loop for an inbound call.
 
-    The sip-bridge's dialplan hits this endpoint (Asterisk CURL()) right
-    after Answer(), so the notification fires while the Piper greeting
-    plays — by the time the caller is ready to talk, eligible users
-    have already heard the ding.
-
-    Target: each Mumble-connected user whose DB row has
-    can_answer_calls=true AND is_active=true, except if they're already
-    in Phone or Emergency. Whispered per-user (no channel-hop), so
-    everyone else in their channel hears nothing.
+    The sip-bridge's dialplan hits this right after Answer(), so the
+    first ding fires while the Piper greeting plays. The loop re-dings
+    every 3 s until either: (a) a user with can_answer_calls joins the
+    Phone channel, or (b) /internal/call-ended is hit on hangup.
     """
     if not murmur or not murmur.has_mumble:
         raise HTTPException(status_code=503, detail="Murmur not available")
 
-    result = await db.execute(
-        select(User.username).where(
-            User.can_answer_calls.is_(True),
-            User.is_active.is_(True),
-        )
-    )
-    eligible_usernames = {row[0] for row in result.all()}
-    if not eligible_usernames:
+    eligible = await _fetch_eligible_usernames(db)
+    if not eligible:
         logger.info("call-started: no users have can_answer_calls=true; skipping")
         return {"notified": [], "reason": "no eligible users"}
 
-    mm = murmur._mumble
-    ding_pcm = _get_ding_pcm()
-    notified: list[str] = []
+    notified = _ding_eligible_users(murmur, eligible)
+    logger.info("call-started: first ping notified %s (caller=%s)", notified, caller_id)
 
-    for sid, user in mm.users.items():
-        name = user.get("name")
-        if name not in eligible_usernames:
-            continue
-        chan = mm.channels.get(user.get("channel_id"), {})
-        if chan.get("name") in ("Phone", "Emergency"):
-            continue  # already in position to answer
-        if murmur.whisper_audio(sid, ding_pcm, with_preamble=False):
-            notified.append(name)
+    async with _notify_lock:
+        existing = _notify_state.get("task")
+        if existing and not existing.done():
+            existing.cancel()
+        _notify_state["active"] = True
+        _notify_state["caller_id"] = caller_id
+        _notify_state["task"] = _asyncio.create_task(_notify_loop(caller_id, murmur, None))
 
-    logger.info("call-started: notified %s (caller=%s)", notified, caller_id)
-    return {"notified": notified, "caller_id": caller_id}
+    return {"notified": notified, "caller_id": caller_id, "looping": True}
+
+
+@router.api_route("/internal/call-ended", methods=["GET", "POST"])
+async def internal_call_ended(
+    _auth: None = Depends(_require_internal_auth),
+):
+    """Stop the ding loop. Called by the dialplan right before Hangup()."""
+    async with _notify_lock:
+        task = _notify_state.get("task")
+        _notify_state["active"] = False
+        if task and not task.done():
+            task.cancel()
+    logger.info("call-ended: ding loop stopped")
+    return {"stopped": True}
 
 
 @router.post("/internal/tts")
