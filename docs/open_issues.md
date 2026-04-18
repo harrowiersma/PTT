@@ -141,12 +141,26 @@ the APK-flash cycle becomes the bottleneck.
   introduce an alternate channel. Current manual workaround (SSH +
   `docker exec` + sqlite3) is documented and works.
 
-### SIP gateway (pending, per CEO plan `shift-system-and-sip-gateway.md`)
-- Baresip + pymumble bridge container; dedicated Phone channel with
-  multi-caller sub-channels; green-button mute; auto-disconnect on
-  empty channel; auto-return user to previous channel on hangup.
-  Blocked on a SIP provider account (VoIPms / Telnyx / Sipgate) +
-  DID. Dashboard toggle for `can_answer_calls` is already live.
+### SIP gateway — partially shipped (Phase 2b-audio live 2026-04-18)
+
+**Shipped:**
+- Asterisk 20 + AudioSocket bridge in `sip-bridge` container (not Baresip).
+- DIDWW Amsterdam trunk live on DID +351300500404.
+- Inbound calls → shared `Phone` Mumble channel, bidirectional audio.
+- Piper greeting on answer; European ringback to caller while empty Phone.
+- Per-user whisper ding every 3 s until answered (`can_answer_calls=true` gate).
+- Single concurrent call (486 Busy on second INVITE).
+- Channel-switching acts as implicit hold.
+
+**Deferred (future phases):**
+- Radio-initiated hangup gesture — every PTT pattern collides with an
+  existing app shortcut; needs dedicated keycode handler (likely
+  `KEYCODE_MENU` or `KEYCODE_CALL`) in openPTT-app first.
+- Admin-editable greeting text (currently env var).
+- Per-call sub-channels (`Phone/Call-N`) for concurrent-call support.
+- Green-button (`KEYCODE_CALL`) mute toggle per the CEO plan.
+- ACL enforcement on `Phone` channel entry based on `can_answer_calls`
+  (today the flag only gates the notification ding).
 
 ---
 

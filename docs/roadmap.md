@@ -21,6 +21,44 @@
 | One-command VPS install | Live |
 | HTTPS with SNI routing | Live |
 | CI/CD pipeline (GitHub Actions) | Live |
+| Lone-worker shifts (triple-tap PTT toggle, shift-aware checker) | Live |
+| SIP gateway — Phase 2b-audio (inbound calls, bidirectional audio) | Live |
+| SIP notifications (per-user whisper ding every 3 s until answered) | Live |
+| SIP ringback to caller while no user in Phone channel | Live |
+
+## Phase 2b-audio notes (shipped 2026-04-18)
+
+End-to-end inbound phone → Mumble bridge on DID +351300500404 (DIDWW Amsterdam).
+
+**Architecture:** Asterisk 20 (Ubuntu 24.04 apt) in the `sip-bridge` container
+registers to the DIDWW trunk, answers inbound INVITEs, plays a Piper TTS
+greeting, then hands the call to Asterisk's `AudioSocket` dialplan app. A
+Python TCP server inside the same container bridges AudioSocket's slin 8 kHz
+stream to a `pymumble` connection as user `PTTPhone`, which sits in the
+shared `Phone` Mumble channel.
+
+**Why AudioSocket, not ARI externalMedia:** externalMedia produced working
+uplink but stubborn one-way-audio on the downlink, on this specific
+Asterisk/Ubuntu build. Six hypotheses failed (endianness, PT learning,
+40→20 ms split, echo test, `direction=both`, `UNICASTRTP_LOCAL_PORT`).
+AudioSocket's TCP framing sidesteps RTP bridge-routing entirely and worked
+on the second commit. Detail in `memory/project_sip_use_audiosocket.md`.
+
+**Key UX choices:**
+- One caller at a time (`GROUP_COUNT` in dialplan → 486 Busy Here otherwise).
+- Per-user whisper ding to users with `can_answer_calls=true`, re-ping every
+  3 s until someone joins Phone or the call ends. Ding stops on call-ended.
+- European ringback (400 Hz, 1 s on / 4 s off) to the caller while no human
+  user is present in Phone.
+- Channel-switching acts as implicit hold (caller hears ringback, bridge
+  stays open, audio resumes when the user returns).
+- Downlink gain -6 dBFS default, tunable via `DOWNLINK_GAIN` env.
+- `PTTPhone` bot hidden from the admin dashboard user list.
+
+**Deferred to later phases:** radio-initiated hangup gesture (needs app-side
+key-handler work first — see `docs/open_issues.md`), admin-editable greeting
+text, per-call sub-channels, green-button mute, `can_answer_calls` ACL
+enforcement on channel entry.
 
 ## Phase 3: Safety Features (Next Priority)
 
