@@ -129,6 +129,40 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("Lone worker checker failed to start: %s", e)
 
+    # Start Phone-channel ACL eligible-set poller. Refreshes the
+    # MurmurClient's in-memory username allowlist every 30 s from the
+    # users table so the PYMUMBLE_CLBK_USERUPDATED callback can reject
+    # unauthorized entries without a cross-thread DB query.
+    phone_acl_task = None
+    if connected and client.has_mumble:
+        import asyncio
+        from sqlalchemy import select
+        from server.database import async_session
+        from server.models import User
+
+        async def _refresh_phone_eligibles():
+            while True:
+                try:
+                    async with async_session() as db:
+                        result = await db.execute(
+                            select(User.username).where(
+                                User.can_answer_calls.is_(True),
+                                User.is_active.is_(True),
+                            )
+                        )
+                        eligibles = {row[0] for row in result.all()}
+                    client.update_phone_eligible(eligibles)
+                except Exception as e:
+                    logger.warning("phone-acl: eligible refresh failed: %s", e)
+                await asyncio.sleep(30)
+
+        try:
+            phone_acl_task = asyncio.create_task(_refresh_phone_eligibles())
+            app.state.phone_acl_task = phone_acl_task
+            logger.info("Phone ACL eligible-set poller started (30 s)")
+        except Exception as e:
+            logger.warning("Phone ACL poller failed to start: %s", e)
+
     if connected:
         logger.info("Connected to Murmur via pymumble")
     else:
@@ -144,6 +178,9 @@ async def lifespan(app: FastAPI):
     weather_bot = getattr(app.state, "weather_bot", None)
     if weather_bot is not None:
         weather_bot.stop()
+    phone_acl_task = getattr(app.state, "phone_acl_task", None)
+    if phone_acl_task is not None:
+        phone_acl_task.cancel()
     if app.state.murmur_client:
         app.state.murmur_client.disconnect()
     logger.info("openPTT TRX-Server stopped")

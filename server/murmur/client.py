@@ -4,6 +4,7 @@ Connects as a bot user to Murmur to manage channels, query online users,
 and send text messages. Replaces the ICE-based client (zeroc-ice doesn't
 compile on python:3.11-slim).
 """
+from __future__ import annotations
 
 import logging
 import threading
@@ -11,6 +12,17 @@ import time
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
+
+# Bots that should never be subject to channel ACL enforcement or
+# mirrored in the dashboard user list.
+BOT_USERNAMES = ("PTTAdmin", "PTTWeather", "PTTPhone")
+
+# Text whispered to users who are bounced out of Phone for lacking the
+# can_answer_calls flag. Cached as PCM after the first render.
+PHONE_ACL_DENY_TEXT = (
+    "Phone channel requires call-answer permission; "
+    "please contact an administrator."
+)
 
 
 @dataclass
@@ -58,6 +70,17 @@ class MurmurClient:
         self._thread = None
         self._on_sos_acknowledge = None  # Callback: fn(username) called when admin types OK in Emergency
         self._text_handlers = []  # List of fn(text) callbacks for text messages
+        # Phone channel ACL enforcement state.
+        # _user_last_channel[session_id] = previous channel_id. Warms up as
+        # USERUPDATED events fire; we only bounce on a real channel change,
+        # so users who are already in Phone at startup are not touched.
+        self._user_last_channel: dict[int, int] = {}
+        # Usernames (lowercase-sensitive match to Mumble's 'name' field)
+        # allowed in Phone. Polled from the DB by the lifespan task every
+        # 30 s and dropped here by update_phone_eligible().
+        self._phone_eligible: set[str] = set()
+        # Cached "permission denied" TTS payload. Rendered on first bounce.
+        self._phone_deny_pcm: bytes | None = None
 
     def connect(self) -> bool:
         """Connect to Murmur as a bot user via pymumble."""
@@ -74,6 +97,10 @@ class MurmurClient:
             self._mumble.callbacks.set_callback(
                 pymumble.constants.PYMUMBLE_CLBK_TEXTMESSAGERECEIVED,
                 self._on_text_message,
+            )
+            self._mumble.callbacks.set_callback(
+                pymumble.constants.PYMUMBLE_CLBK_USERUPDATED,
+                self._on_user_updated,
             )
             self._mumble.start()
             self._mumble.is_ready()
@@ -135,7 +162,7 @@ class MurmurClient:
         try:
             users = []
             for session_id, user in self._mumble.users.items():
-                if user["name"] in ("PTTAdmin", "PTTWeather", "PTTPhone"):
+                if user["name"] in BOT_USERNAMES:
                     continue  # Skip bot users
                 users.append(
                     MumbleUser(
@@ -363,7 +390,7 @@ class MurmurClient:
                 return
 
             username = self._mumble.users[actor]["name"]
-            if username in ("PTTAdmin", "PTTWeather", "PTTPhone"):
+            if username in BOT_USERNAMES:
                 return
 
             # Check if this is an SOS acknowledgement keyword
@@ -391,6 +418,118 @@ class MurmurClient:
 
         except Exception as e:
             logger.error("Error handling text message: %s", e)
+
+    # --- Phone channel ACL enforcement --------------------------------
+
+    def update_phone_eligible(self, usernames: set[str]) -> None:
+        """Replace the cached set of users allowed in Phone.
+
+        Called by the lifespan poller every 30 s from the main asyncio
+        loop. Assignment is atomic under the GIL so no lock needed for
+        the reader (the USERUPDATED callback) running on pymumble's
+        thread.
+        """
+        self._phone_eligible = set(usernames)
+
+    def _resolve_phone_channel_id(self) -> int | None:
+        """Find Murmur's Phone channel by name; None if not yet seen."""
+        if not self._mumble:
+            return None
+        try:
+            for cid, chan in self._mumble.channels.items():
+                if chan.get("name") == "Phone":
+                    return cid
+        except Exception:
+            return None
+        return None
+
+    def _get_phone_deny_pcm(self) -> bytes | None:
+        """Lazily render and cache the permission-denied TTS."""
+        if self._phone_deny_pcm is not None:
+            return self._phone_deny_pcm
+        try:
+            from server.weather_bot import text_to_audio_pcm
+            pcm = text_to_audio_pcm(PHONE_ACL_DENY_TEXT)
+            if pcm:
+                self._phone_deny_pcm = pcm
+            return pcm
+        except Exception as e:
+            logger.error("failed to render phone-deny TTS: %s", e)
+            return None
+
+    def _on_user_updated(self, user, actions) -> None:
+        """pymumble USERUPDATED callback. Fires on pymumble's thread.
+
+        `user` is the current user dict (session, name, channel_id, ...).
+        `actions` is a dict of the fields that changed in this update;
+        for our purposes we only act when the user's channel_id changed
+        AND the new channel is `Phone` AND they are not in the eligible
+        set.
+
+        Kept lightweight — this fires for every user-state tick (mute
+        toggles, self-deaf, etc.).
+        """
+        try:
+            if not user:
+                return
+            name = user.get("name") if isinstance(user, dict) else getattr(user, "name", None)
+            session_id = user.get("session") if isinstance(user, dict) else getattr(user, "session", None)
+            new_channel_id = user.get("channel_id") if isinstance(user, dict) else getattr(user, "channel_id", None)
+            if name is None or session_id is None or new_channel_id is None:
+                return
+            if name in BOT_USERNAMES:
+                return
+
+            prev_channel_id = self._user_last_channel.get(session_id)
+            # Always update the record first so subsequent ticks compare
+            # against the most recent observation.
+            self._user_last_channel[session_id] = new_channel_id
+
+            # Only care about real moves.
+            if prev_channel_id is None or prev_channel_id == new_channel_id:
+                return
+
+            phone_id = self._resolve_phone_channel_id()
+            if phone_id is None or new_channel_id != phone_id:
+                return
+
+            if name in self._phone_eligible:
+                return
+
+            # Non-eligible user just entered Phone. Bounce them back.
+            logger.info(
+                "phone-acl: bouncing '%s' (session=%s) back to channel %d",
+                name, session_id, prev_channel_id,
+            )
+            self._bounce_from_phone(session_id, prev_channel_id)
+        except Exception as e:
+            logger.error("USERUPDATED handler error: %s", e)
+
+    def _bounce_from_phone(self, session_id: int, previous_channel_id: int) -> None:
+        """Move `session_id` back to `previous_channel_id` and whisper why."""
+        mm = self._mumble
+        if not mm:
+            return
+        try:
+            user = mm.users.get(session_id)
+            if user is None:
+                return
+            user.move_in(previous_channel_id)
+            # Update cache so the move we just forced doesn't look like a
+            # second violation on the next callback tick.
+            self._user_last_channel[session_id] = previous_channel_id
+        except Exception as e:
+            logger.error("phone-acl: move_in failed for session %s: %s", session_id, e)
+            return
+
+        pcm = self._get_phone_deny_pcm()
+        if pcm:
+            try:
+                self.whisper_audio(session_id, pcm, with_preamble=True)
+            except Exception as e:
+                logger.error("phone-acl: whisper failed for session %s: %s", session_id, e)
+
+    # -------------------------------------------------------------------
 
     def disconnect(self):
         """Clean up pymumble connection."""
