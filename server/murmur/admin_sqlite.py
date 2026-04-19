@@ -195,6 +195,38 @@ async def ensure_channel_and_restart(name: str, parent_id: int = 0) -> tuple[int
     return await asyncio.to_thread(_sync)
 
 
+async def ensure_phone_slots_and_restart(slot_count: int) -> dict[str, int]:
+    """Ensure Phone + Phone/Call-1..Phone/Call-N sub-channels exist.
+
+    Used by the sip-bridge at startup to provision per-call sub-channels
+    (Priority 7 — multi-caller). One restart at the end covers any new
+    rows. Returns a {name: channel_id} map covering all requested slots
+    plus "Phone" itself. Safe to call every sip-bridge restart: idempotent.
+    """
+    def _sync() -> dict[str, int]:
+        phone_id = ensure_channel_exists("Phone", parent_id=0)
+        result: dict[str, int] = {"Phone": phone_id}
+        created_any = False
+        for n in range(1, slot_count + 1):
+            name = f"Call-{n}"
+            existing = _sqlite_exec(
+                f"SELECT channel_id FROM channels "
+                f"WHERE server_id={_SERVER_ID} AND name={_sql_quote(name)} "
+                f"AND parent_id={int(phone_id)};"
+            ).strip()
+            if existing:
+                result[name] = int(existing)
+                continue
+            cid = ensure_channel_exists(name, parent_id=phone_id)
+            result[name] = cid
+            created_any = True
+        if created_any:
+            restart_murmur()
+        return result
+
+    return await asyncio.to_thread(_sync)
+
+
 async def delete_channel_and_restart(name: str) -> bool:
     def _sync() -> bool:
         deleted = delete_channel(name)

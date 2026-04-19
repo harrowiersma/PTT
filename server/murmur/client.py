@@ -14,8 +14,21 @@ from dataclasses import dataclass, field
 logger = logging.getLogger(__name__)
 
 # Bots that should never be subject to channel ACL enforcement or
-# mirrored in the dashboard user list.
+# mirrored in the dashboard user list. PTTPhone-N (N=1..PHONE_MAX_CALLS)
+# are per-call sub-channel bots spawned by the sip-bridge — matched via
+# `_is_bot_username()` below, since the suffix is variable.
 BOT_USERNAMES = ("PTTAdmin", "PTTWeather", "PTTPhone")
+
+
+def _is_bot_username(name: str | None) -> bool:
+    """True for any bot — including the PTTPhone-N per-call bots."""
+    if not name:
+        return False
+    if name in BOT_USERNAMES:
+        return True
+    if name.startswith("PTTPhone-"):
+        return True
+    return False
 
 # Text whispered to users who are bounced out of Phone for lacking the
 # can_answer_calls flag. Cached as PCM after the first render.
@@ -443,6 +456,27 @@ class MurmurClient:
             return None
         return None
 
+    def _resolve_phone_and_children(self) -> set[int]:
+        """Phone + every Call-N sub-channel directly under it.
+
+        Used by the ACL so entering any Phone/Call-N is gated identically
+        to entering Phone itself. Only immediate children — deeper nesting
+        isn't a case we ship.
+        """
+        if not self._mumble:
+            return set()
+        try:
+            phone_id = self._resolve_phone_channel_id()
+            if phone_id is None:
+                return set()
+            gated: set[int] = {phone_id}
+            for cid, chan in self._mumble.channels.items():
+                if chan.get("parent") == phone_id:
+                    gated.add(cid)
+            return gated
+        except Exception:
+            return set()
+
     def _get_phone_deny_pcm(self) -> bytes | None:
         """Lazily render and cache the permission-denied TTS."""
         if self._phone_deny_pcm is not None:
@@ -477,7 +511,7 @@ class MurmurClient:
             new_channel_id = user.get("channel_id") if isinstance(user, dict) else getattr(user, "channel_id", None)
             if name is None or session_id is None or new_channel_id is None:
                 return
-            if name in BOT_USERNAMES:
+            if _is_bot_username(name):
                 return
 
             prev_channel_id = self._user_last_channel.get(session_id)
@@ -489,8 +523,8 @@ class MurmurClient:
             if prev_channel_id is None or prev_channel_id == new_channel_id:
                 return
 
-            phone_id = self._resolve_phone_channel_id()
-            if phone_id is None or new_channel_id != phone_id:
+            gated = self._resolve_phone_and_children()
+            if not gated or new_channel_id not in gated:
                 return
 
             if name in self._phone_eligible:

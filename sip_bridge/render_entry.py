@@ -185,30 +185,32 @@ def fetch_greeting(trunk: dict | None = None) -> None:
 
 
 def ensure_phone_channel() -> None:
-    """Ask admin to create the Mumble 'Phone' channel if it doesn't exist.
+    """Ask admin to provision Phone + Phone/Call-N sub-channels.
 
-    PTTPhone (the sip-bridge's Mumble identity) is unregistered and cannot
-    create channels itself on Murmur's default ACL — PTTAdmin can, so we
-    delegate creation to the admin container's internal endpoint. Safe to
-    call repeatedly; the endpoint returns the existing id if present.
+    Priority 7 — multi-caller: the audiosocket bridge dedicates one
+    PTTPhone-N bot per concurrent call, each in its own Phone/Call-N
+    sub-channel, so audio streams stay isolated between callers. The
+    admin-side helper is idempotent and only triggers a murmur restart
+    when a new channel had to be inserted.
     """
     if not SECRET:
-        LOG.warning("no internal secret; cannot ensure Phone channel")
+        LOG.warning("no internal secret; cannot ensure Phone slots")
         return
+    slot_count = int(os.environ.get("PHONE_MAX_CALLS", "3"))
     try:
-        with httpx.Client(timeout=10) as c:
+        with httpx.Client(timeout=30) as c:
             r = c.post(
-                f"{ADMIN}/api/sip/internal/ensure-phone-channel",
+                f"{ADMIN}/api/sip/internal/ensure-phone-slots",
                 headers={"X-Internal-Auth": SECRET},
+                params={"count": slot_count},
             )
             if r.status_code == 200:
                 body = r.json()
-                LOG.info("Phone channel ready: id=%s created=%s",
-                         body.get("channel_id"), body.get("created"))
+                LOG.info("Phone slots ready: %s", body)
                 return
-            LOG.warning("ensure-phone-channel returned %d: %s", r.status_code, r.text)
+            LOG.warning("ensure-phone-slots returned %d: %s", r.status_code, r.text)
     except Exception as e:
-        LOG.warning("ensure-phone-channel failed (%s); PTTPhone will retry in open_mumble", e)
+        LOG.warning("ensure-phone-slots failed (%s); bridge will retry on call", e)
 
 
 def main() -> None:

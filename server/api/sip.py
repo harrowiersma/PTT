@@ -478,6 +478,29 @@ async def internal_ensure_phone_channel(
     return {"channel_id": mumble_id, "created": True}
 
 
+@router.post("/internal/ensure-phone-slots")
+async def internal_ensure_phone_slots(
+    count: int = 3,
+    _auth: None = Depends(_require_internal_auth),
+):
+    """Ensure Phone + Phone/Call-1..Call-N sub-channels exist.
+
+    Called by the sip-bridge at startup (Priority 7 — multi-caller).
+    Each concurrent call lands in its own Call-N sub-channel so audio
+    streams stay isolated. The murmur restart only fires when a new
+    channel had to be inserted; idempotent after the first run.
+    """
+    if count < 1 or count > 16:
+        raise HTTPException(status_code=400, detail="count must be 1..16")
+    from server.murmur.admin_sqlite import ensure_phone_slots_and_restart
+    try:
+        channels = await ensure_phone_slots_and_restart(count)
+    except Exception as e:
+        logger.exception("ensure-phone-slots failed: %s", e)
+        raise HTTPException(status_code=502, detail=str(e))
+    return {"channels": channels, "slot_count": count}
+
+
 import asyncio as _asyncio
 
 # Pre-rendered ding tone (48 kHz 16-bit mono PCM). Generated on first use
@@ -525,24 +548,39 @@ async def _fetch_eligible_usernames(db: AsyncSession) -> set[str]:
 
 
 def _ding_eligible_users(murmur, eligible: set[str]) -> list[str]:
-    """Whisper the ding to every eligible user not already in Phone/Emergency.
+    """Whisper the ding to every eligible user not already answering.
 
-    Returns the list of usernames notified on this tick. Also returns an
-    empty list if at least one eligible user is already in Phone, which
-    the caller can use as a signal to stop pinging.
+    Returns the list of usernames notified on this tick. Also treats any
+    eligible user sitting in Phone or Phone/Call-N as "already answering"
+    and signals the loop to stop pinging (Priority 7 — with multi-caller
+    sub-channels, Phone is the waiting lounge and each Call-N is an
+    active conversation; either counts as attention).
     """
     mm = murmur._mumble
     ding_pcm = _get_ding_pcm()
     in_phone_already = False
     notified: list[str] = []
 
+    # Resolve Phone parent so we can detect Phone/Call-N membership too.
+    phone_parent_id: int | None = None
+    for cid, chan in mm.channels.items():
+        if chan.get("name") == "Phone":
+            phone_parent_id = cid
+            break
+
     for sid, user in mm.users.items():
         name = user.get("name")
         if name not in eligible:
             continue
-        chan = mm.channels.get(user.get("channel_id"), {})
+        chan_id = user.get("channel_id")
+        chan = mm.channels.get(chan_id, {})
         chan_name = chan.get("name")
-        if chan_name == "Phone":
+        chan_parent = chan.get("parent")
+        in_phone_tree = (
+            chan_name == "Phone"
+            or (phone_parent_id is not None and chan_parent == phone_parent_id)
+        )
+        if in_phone_tree:
             in_phone_already = True
             continue
         if chan_name == "Emergency":

@@ -90,6 +90,10 @@ services:
       # audio is hot, higher if too quiet. Applied per 20 ms frame on
       # the AudioSocket send path.
       DOWNLINK_GAIN: "${DOWNLINK_GAIN:-0.5}"
+      # Concurrent call capacity. Each slot = one PTTPhone-N bot joined
+      # to Phone/Call-N. Read both by the Python bridge and the Asterisk
+      # dialplan (via ENV(PHONE_MAX_CALLS) in extensions.conf).
+      PHONE_MAX_CALLS: "${PHONE_MAX_CALLS:-3}"
     depends_on:
       - admin
     restart: unless-stopped

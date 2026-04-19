@@ -39,6 +39,10 @@ MUMBLE_HOST = os.environ.get("MUMBLE_HOST", "127.0.0.1")
 MUMBLE_PORT = int(os.environ.get("MUMBLE_PORT", "64738"))
 ADMIN_BASE_URL = os.environ.get("ADMIN_INTERNAL_URL", "http://127.0.0.1:8000")
 INTERNAL_SECRET = os.environ.get("PTT_INTERNAL_API_SECRET", "").strip()
+# Priority 7 — multi-caller support. One slot = one concurrent call =
+# one dedicated PTTPhone-N bot joined to Phone/Call-N. Sized up front;
+# Asterisk's dialplan should keep GROUP_COUNT(phone) ≤ PHONE_MAX_CALLS.
+PHONE_MAX_CALLS = int(os.environ.get("PHONE_MAX_CALLS", "3"))
 
 
 def _notify_call_ended() -> None:
@@ -133,67 +137,156 @@ def resample_48k_to_8k(pcm_48k: bytes) -> bytes:
     return np.clip(tgt, -32768, 32767).astype(np.int16).tobytes()
 
 
-def open_mumble(host: str, port: int):
-    """Connect as PTTPhone, join Phone channel, wire sound callback."""
-    # Pymumble 1.6.1 uses ssl.wrap_socket() removed in Python 3.12. Shim it.
+def _patch_pymumble_ssl_once() -> None:
+    """Pymumble 1.6.1 uses ssl.wrap_socket() removed in Python 3.12."""
     import ssl as _ssl
-    if not hasattr(_ssl, "wrap_socket"):
-        def _compat_wrap_socket(sock, certfile=None, keyfile=None, ssl_version=None, **_kw):
-            ctx = _ssl.SSLContext(_ssl.PROTOCOL_TLS_CLIENT)
-            ctx.check_hostname = False
-            ctx.verify_mode = _ssl.CERT_NONE
-            if certfile:
-                ctx.load_cert_chain(certfile, keyfile)
-            return ctx.wrap_socket(sock)
-        _ssl.wrap_socket = _compat_wrap_socket
+    if hasattr(_ssl, "wrap_socket"):
+        return
+    def _compat_wrap_socket(sock, certfile=None, keyfile=None, ssl_version=None, **_kw):
+        ctx = _ssl.SSLContext(_ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = _ssl.CERT_NONE
+        if certfile:
+            ctx.load_cert_chain(certfile, keyfile)
+        return ctx.wrap_socket(sock)
+    _ssl.wrap_socket = _compat_wrap_socket
 
+
+def ensure_phone_slots_via_admin(count: int) -> None:
+    """Ask admin to provision Phone + Phone/Call-1..Call-N sub-channels.
+
+    Called once at startup. Admin does the sqlite edits + murmur restart
+    if needed (idempotent on subsequent boots). Fire-and-forget: if the
+    admin isn't up yet we fall back to best-effort — the per-call bot
+    will fail to find its Call-N channel and drop the call, which is
+    less confusing than crashing the whole bridge.
+    """
+    if not INTERNAL_SECRET:
+        LOG.warning("no PTT_INTERNAL_API_SECRET set; skipping slot provisioning")
+        return
+    try:
+        import httpx
+        with httpx.Client(timeout=30, headers={"X-Internal-Auth": INTERNAL_SECRET}) as c:
+            r = c.post(f"{ADMIN_BASE_URL}/api/sip/internal/ensure-phone-slots",
+                       params={"count": count})
+            r.raise_for_status()
+            LOG.info("phone slots provisioned: %s", r.json())
+    except Exception as e:
+        LOG.warning("ensure-phone-slots failed (continuing): %s", e)
+
+
+def open_call_bot(slot: int, client: "Client"):
+    """Connect as PTTPhone-{slot}, join Phone/Call-{slot}, wire sound callback.
+
+    Each call gets its own dedicated Mumble connection so audio streams
+    between concurrent calls stay isolated (same bot in two calls would
+    bleed audio between callers). Returns a live Mumble instance; raises
+    RuntimeError if the Call-{slot} channel never appears within 6 s
+    (admin not up, slot count too low, sqlite edit didn't land yet).
+    """
+    _patch_pymumble_ssl_once()
     import pymumble_py3 as pymumble
     import pymumble_py3.constants as const
 
-    mm = pymumble.Mumble(host, "PTTPhone", port=port, reconnect=True)
+    username = f"PTTPhone-{slot}"
+    mm = pymumble.Mumble(MUMBLE_HOST, username, port=MUMBLE_PORT, reconnect=False)
     mm.set_application_string("openPTT SIP Bridge (AudioSocket)")
     mm.set_receive_sound(True)
-    mm.current_client = None  # set by serve() on each accepted connection
 
     def _on_sound(user, sound_chunk):
-        client = getattr(mm, "current_client", None)
-        if client is None:
-            return
         client.enqueue_mumble(user.get("name", "?"), sound_chunk.pcm)
 
     mm.callbacks.set_callback(const.PYMUMBLE_CLBK_SOUNDRECEIVED, _on_sound)
     mm.start()
     mm.is_ready()
-    time.sleep(1)
+    time.sleep(0.5)
 
-    def _find_phone():
+    call_channel_name = f"Call-{slot}"
+
+    def _find_call_channel() -> Optional[int]:
         for cid, chan in mm.channels.items():
-            if chan.get("name") == "Phone":
+            if chan.get("name") == call_channel_name:
                 return cid
         return None
 
-    phone_id = _find_phone()
+    cid = _find_call_channel()
     for _ in range(20):
-        if phone_id is not None:
+        if cid is not None:
             break
         time.sleep(0.3)
-        phone_id = _find_phone()
-    if phone_id is None:
-        LOG.error("Phone channel never appeared; admin must create it")
-        raise RuntimeError("Phone channel unavailable")
+        cid = _find_call_channel()
+    if cid is None:
+        try:
+            mm.stop()
+        except Exception:
+            pass
+        raise RuntimeError(f"sub-channel {call_channel_name} not available")
 
-    mm.users.myself.move_in(phone_id)
+    mm.users.myself.move_in(cid)
     time.sleep(0.2)
-    LOG.info("PTTPhone joined Phone channel id=%d", phone_id)
+    LOG.info("%s joined sub-channel %s (id=%d)", username, call_channel_name, cid)
     return mm
+
+
+class _SlotPool:
+    """Fixed-size slot pool with per-slot acquire/release.
+
+    Slot numbers are 1-indexed (1..PHONE_MAX_CALLS) so they line up with
+    the Phone/Call-N channel naming — no off-by-one surprises on-screen.
+    """
+
+    def __init__(self, size: int):
+        self._size = size
+        self._lock = threading.Lock()
+        self._in_use: set[int] = set()
+
+    def acquire(self) -> Optional[int]:
+        with self._lock:
+            for n in range(1, self._size + 1):
+                if n not in self._in_use:
+                    self._in_use.add(n)
+                    return n
+        return None
+
+    def release(self, slot: int) -> None:
+        with self._lock:
+            self._in_use.discard(slot)
+
+    def active_count(self) -> int:
+        with self._lock:
+            return len(self._in_use)
+
+
+# Global pointer to the most recently connected active call. Control
+# signals (SIGUSR1 hangup, SIGUSR2 mute-toggle) target this client. This
+# is a pragmatic choice: radio operators typically handle one call at a
+# time, and "last call wins" matches the pick-up behaviour — the most
+# recently ringing call is what the operator is actively engaging.
+# Per-slot targeting is follow-up work (needs app-side slot selection).
+_most_recent_client: "Optional[Client]" = None
+_most_recent_lock = threading.Lock()
+
+
+def _set_most_recent(client: "Optional[Client]") -> None:
+    global _most_recent_client
+    with _most_recent_lock:
+        _most_recent_client = client
+
+
+def _get_most_recent() -> "Optional[Client]":
+    with _most_recent_lock:
+        return _most_recent_client
 
 
 class Client:
     """One AudioSocket TCP connection. Handles frame parsing + audio pump."""
 
-    def __init__(self, sock: socket.socket, mumble):
+    def __init__(self, sock: socket.socket, slot: int):
         self._sock = sock
-        self._mumble = mumble
+        # Mumble connection is opened after construction (open_call_bot
+        # needs `self` for the sound callback), so start as None.
+        self._mumble = None
+        self.slot = slot
         self._rx_queue: deque = deque(maxlen=50)
         self._stop = False
         self._uuid: Optional[str] = None
@@ -205,6 +298,9 @@ class Client:
         # aside, talk in another channel, and come back without the
         # caller overhearing. Toggled by SIGUSR2 from the admin.
         self.mute_caller = False
+
+    def attach_mumble(self, mumble) -> None:
+        self._mumble = mumble
 
     def enqueue_mumble(self, user_name: str, pcm48k: bytes) -> None:
         """Called from pymumble callback thread. Split to 20 ms pieces."""
@@ -253,21 +349,28 @@ class Client:
             self._last_log = now
 
     def _human_in_phone(self) -> bool:
-        """True iff a non-PTTPhone user is currently in the Phone channel."""
+        """True iff a non-PTTPhone user sits in this call's sub-channel.
+
+        "In this call" = same channel as the bot (Phone/Call-N). Callers
+        on other concurrent sub-channels don't count — they're a
+        different conversation and shouldn't silence this one's ringback.
+        """
         mm = self._mumble
+        if mm is None:
+            return False
         try:
-            phone_cid = None
-            for cid, chan in mm.channels.items():
-                if chan.get("name") == "Phone":
-                    phone_cid = cid
-                    break
-            if phone_cid is None:
-                return False
             my_sid = mm.users.myself.get("session")
+            my_cid = mm.users.myself.get("channel_id")
+            if my_cid is None:
+                return False
             for sid, user in mm.users.items():
                 if sid == my_sid:
                     continue
-                if user.get("channel_id") == phone_cid:
+                name = user.get("name", "")
+                # Fellow bot on another slot? Ignore — only real humans.
+                if name.startswith("PTTPhone"):
+                    continue
+                if user.get("channel_id") == my_cid:
                     return True
             return False
         except Exception:
@@ -384,7 +487,7 @@ class Client:
                 pass
 
 
-def _install_control_signals(mumble) -> None:
+def _install_control_signals() -> None:
     """Radio-initiated call control via POSIX signals.
 
     Admin's `/api/sip/hangup-current` and `/api/sip/mute-toggle`
@@ -393,22 +496,27 @@ def _install_control_signals(mumble) -> None:
     control path on this setup — sip-bridge is host-networked and admin
     is bridge-networked, so a loopback HTTP port between them would
     require extra plumbing.
+
+    With multi-caller (Priority 7), signals target the most recent active
+    call — typically what the operator is engaging. Per-call targeting is
+    a future enhancement that needs an app-side slot selector.
     """
     def _on_hangup(signum, frame):
-        client = getattr(mumble, "current_client", None)
+        client = _get_most_recent()
         if client is None:
             LOG.info("SIGUSR1 received, no active call — ignoring")
             return
-        LOG.info("SIGUSR1 received — radio-initiated hangup")
+        LOG.info("SIGUSR1 received — radio-initiated hangup (slot=%d)", client.slot)
         client.hangup_from_radio()
 
     def _on_mute(signum, frame):
-        client = getattr(mumble, "current_client", None)
+        client = _get_most_recent()
         if client is None:
             LOG.info("SIGUSR2 received, no active call — ignoring")
             return
         client.mute_caller = not client.mute_caller
-        LOG.info("SIGUSR2 received — mute_caller=%s", client.mute_caller)
+        LOG.info("SIGUSR2 received — slot=%d mute_caller=%s",
+                 client.slot, client.mute_caller)
 
     signal.signal(signal.SIGUSR1, _on_hangup)
     signal.signal(signal.SIGUSR2, _on_mute)
@@ -416,9 +524,11 @@ def _install_control_signals(mumble) -> None:
 
 
 def serve() -> None:
-    LOG.info("connecting to Mumble at %s:%d as PTTPhone", MUMBLE_HOST, MUMBLE_PORT)
-    mumble = open_mumble(MUMBLE_HOST, MUMBLE_PORT)
-    _install_control_signals(mumble)
+    LOG.info("multi-caller slots: %d", PHONE_MAX_CALLS)
+    ensure_phone_slots_via_admin(PHONE_MAX_CALLS)
+    _install_control_signals()
+
+    pool = _SlotPool(PHONE_MAX_CALLS)
 
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -429,23 +539,51 @@ def serve() -> None:
     while True:
         conn, addr = srv.accept()
         conn.settimeout(30)
-        client = Client(conn, mumble)
-        # Phase 2b-audio policy: one caller at a time. If a previous client
-        # is still attached, the new one replaces it — the old client's
-        # socket will EOF on its next recv and its thread exits.
-        mumble.current_client = client
 
-        def _run_and_notify(_client=client, _addr=addr):
+        slot = pool.acquire()
+        if slot is None:
+            # All slots in use. Asterisk's GROUP_COUNT should have already
+            # 486-Busy'd this caller; if we got here, something raced —
+            # hangup the TCP stream immediately so Asterisk tears down.
+            LOG.warning("no free slot; rejecting AudioSocket connection")
             try:
+                conn.sendall(struct.pack("!BH", _TYPE_HANGUP, 0))
+            except OSError:
+                pass
+            try:
+                conn.close()
+            except OSError:
+                pass
+            continue
+
+        client = Client(conn, slot)
+        _set_most_recent(client)
+
+        def _run_and_cleanup(_client=client, _slot=slot, _addr=addr):
+            mumble = None
+            try:
+                mumble = open_call_bot(_slot, _client)
+                _client.attach_mumble(mumble)
                 _client.run()
+            except Exception as e:
+                LOG.exception("call on slot %d failed: %s", _slot, e)
             finally:
-                # Always tell admin the call ended so the ding loop stops,
-                # regardless of whether the caller hung up, the radio side
-                # hung up, or our client errored.
+                # Tear down Mumble connection for this slot, release slot,
+                # and tell admin the ding-notification loop can stop.
+                if mumble is not None:
+                    try:
+                        mumble.stop()
+                    except Exception:
+                        pass
+                pool.release(_slot)
+                # If this was the most-recent client, clear the pointer
+                # so stale signals don't fire against a dead Client.
+                if _get_most_recent() is _client:
+                    _set_most_recent(None)
                 _notify_call_ended()
 
-        threading.Thread(target=_run_and_notify, daemon=True,
-                         name=f"audiosocket-{addr}").start()
+        threading.Thread(target=_run_and_cleanup, daemon=True,
+                         name=f"audiosocket-slot{slot}-{addr}").start()
 
 
 def main() -> None:
