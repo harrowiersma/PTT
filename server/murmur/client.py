@@ -172,7 +172,15 @@ class MurmurClient:
             return ServerStatus(is_running=True)
 
     def create_channel(self, name: str, parent_id: int = 0) -> int | None:
-        """Create a new channel in Murmur."""
+        """Create a new channel in Murmur.
+
+        First tries pymumble's new_channel (fast, no restart). On this
+        server the anonymous pymumble client doesn't have the MakeChannel
+        ACL on Root, so the call silently no-ops — we detect that and
+        fall back to editing the sqlite file directly via admin_sqlite,
+        then bounce the murmur container. The fallback costs ~3 s of
+        Mumble downtime but is the only path that actually works.
+        """
         if not self._mumble:
             logger.warning("pymumble not available, cannot create channel in Murmur")
             return None
@@ -180,30 +188,59 @@ class MurmurClient:
         try:
             self._mumble.channels.new_channel(parent_id, name, temporary=False)
             time.sleep(0.5)
-            # Find the channel we just created
             for chan_id, chan in self._mumble.channels.items():
                 if chan["name"] == name:
-                    logger.info("Created channel '%s' with ID %d in Murmur", name, chan_id)
+                    logger.info("Created channel '%s' with ID %d via pymumble", name, chan_id)
                     return chan_id
-            logger.warning("Channel '%s' created but not found in channel list", name)
-            return None
         except Exception as e:
-            logger.error("Failed to create channel '%s': %s", name, e)
+            logger.warning("pymumble new_channel('%s') raised %s; falling back to sqlite", name, e)
+
+        # pymumble didn't (or can't) create the channel. Fall back to
+        # direct sqlite + restart.
+        logger.info("falling back to admin_sqlite for channel '%s'", name)
+        try:
+            from server.murmur.admin_sqlite import ensure_channel_exists, restart_murmur
+            chan_id = ensure_channel_exists(name, parent_id=parent_id)
+            restart_murmur()
+            logger.info("Created channel '%s' with ID %d via sqlite fallback", name, chan_id)
+            return chan_id
+        except Exception as e:
+            logger.error("sqlite fallback for channel '%s' failed: %s", name, e)
             return None
 
     def remove_channel(self, channel_id: int) -> bool:
-        """Remove a channel from Murmur."""
+        """Remove a channel from Murmur. Tries pymumble first; falls back
+        to sqlite + murmur restart if pymumble's remove has no effect
+        (same ACL limitation as create)."""
         if not self._mumble:
             return False
 
+        name: str | None = None
         try:
             if channel_id in self._mumble.channels:
+                name = self._mumble.channels[channel_id].get("name")
                 self._mumble.channels[channel_id].remove()
-                logger.info("Removed channel ID %d from Murmur", channel_id)
-                return True
-            return False
+                time.sleep(0.5)
+                if channel_id not in self._mumble.channels:
+                    logger.info("Removed channel ID %d via pymumble", channel_id)
+                    return True
+                logger.warning("pymumble remove() didn't drop channel %d; falling back to sqlite", channel_id)
+            else:
+                return False
         except Exception as e:
-            logger.error("Failed to remove channel %d: %s", channel_id, e)
+            logger.warning("pymumble remove_channel(%d) raised %s; falling back to sqlite", channel_id, e)
+
+        if not name:
+            logger.error("fallback: channel %d name unknown, cannot delete via sqlite", channel_id)
+            return False
+        try:
+            from server.murmur.admin_sqlite import delete_channel, restart_murmur
+            deleted = delete_channel(name)
+            if deleted:
+                restart_murmur()
+            return deleted
+        except Exception as e:
+            logger.error("sqlite fallback remove_channel(%r) failed: %s", name, e)
             return False
 
     def send_message(self, channel_id: int, message: str) -> bool:

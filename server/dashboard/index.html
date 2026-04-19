@@ -593,6 +593,11 @@
             <div id="editCanAnswerCallsRow" style="margin-bottom:var(--space-md)">
                 <label style="font-size:0.8125rem;display:flex;align-items:center;gap:var(--space-xs)"><input type="checkbox" id="editCanAnswerCalls"> Can answer SIP calls (Phone channel access)</label>
             </div>
+            <div id="editMurmurAdminRow" style="margin-bottom:var(--space-md);padding:var(--space-sm);border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-alt)">
+                <div style="font-size:0.75rem;color:var(--muted);margin-bottom:var(--space-xs)">Advanced — destructive</div>
+                <button class="btn" style="font-size:0.8125rem" onclick="resetMurmurRegistration()">Reset Murmur registration</button>
+                <div style="font-size:0.6875rem;color:var(--muted);margin-top:var(--space-xs)">Forces re-registration (new cert prompt). Briefly disconnects all Mumble clients.</div>
+            </div>
             <div style="display:flex;gap:var(--space-sm);justify-content:flex-end">
                 <button class="btn" onclick="closeModal('editUserModal')">Cancel</button>
                 <button class="btn primary" onclick="saveUserEdit()">Save</button>
@@ -1113,6 +1118,7 @@
         document.getElementById('editRoleRow').style.display = 'block';
         document.getElementById('editLoneWorkerRow').style.display = 'block';
         document.getElementById('editCanAnswerCallsRow').style.display = 'block';
+        document.getElementById('editMurmurAdminRow').style.display = 'block';
         document.getElementById('editUserModal').style.display = 'flex';
     }
 
@@ -1126,6 +1132,7 @@
         document.getElementById('editRoleRow').style.display = 'block';
         document.getElementById('editLoneWorkerRow').style.display = 'none';
         document.getElementById('editCanAnswerCallsRow').style.display = 'none';
+        document.getElementById('editMurmurAdminRow').style.display = 'none';
         document.getElementById('editTraccarDevice').parentElement.style.display = 'none';
         document.getElementById('editTraccarDevice').previousElementSibling.style.display = 'none';
         document.getElementById('editDisplayName').parentElement.previousElementSibling.style.display = 'none';
@@ -1179,6 +1186,17 @@
         document.getElementById('editDisplayName').parentElement.previousElementSibling.style.display = '';
         document.getElementById('editTraccarDevice').parentElement.style.display = '';
         document.getElementById('editTraccarDevice').previousElementSibling.style.display = '';
+    }
+
+    async function resetMurmurRegistration() {
+        const id = document.getElementById('editUserId').value;
+        const type = document.getElementById('editUserType').value;
+        if (type !== 'user') { showToast('Only available for regular users', 'info'); return; }
+        if (!confirm('Reset this user\'s Murmur registration?\n\nThey will be prompted for a new certificate on next connect. All Mumble clients briefly disconnect (~3 s) when Murmur restarts.')) return;
+        const result = await api('/api/users/' + id + '/reset-murmur-registration', { method: 'POST' });
+        if (result) {
+            showToast(result.deleted ? 'Registration cleared; murmur restarted' : 'No registration existed for this user', result.deleted ? 'success' : 'info');
+        }
     }
 
     async function createAdmin() {

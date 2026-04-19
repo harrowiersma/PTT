@@ -15,6 +15,9 @@ pymumble==1.6.1
 piper-tts==1.2.0
 numpy>=1.24.0
 alembic==1.14.1
+# Used by server/murmur/admin_sqlite.py to bounce the murmur container
+# after editing its sqlite file. We access it via the mounted /var/run/docker.sock.
+docker==7.1.0
 # zeroc-ice==3.7.10.1
 # Commented out: ICE bindings fail to compile on Python 3.11-slim.
 # The admin service runs fine without it (MurmurClient handles ImportError).

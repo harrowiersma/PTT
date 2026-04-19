@@ -167,6 +167,31 @@ async def delete_user(
     await db.commit()
 
 
+@router.post("/{user_id}/reset-murmur-registration")
+async def reset_murmur_registration(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    _admin: dict = Depends(get_current_admin),
+):
+    """Delete the user's Murmur server-side registration so they can
+    re-register with a fresh certificate. Restarts the murmur container
+    (~3 s of Mumble downtime; all clients auto-reconnect).
+    """
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    from server.murmur.admin_sqlite import delete_user_and_restart, AdminSqliteError
+    try:
+        deleted = await delete_user_and_restart(user.username)
+    except AdminSqliteError as e:
+        logger.error("reset-murmur-registration failed for %s: %s", user.username, e)
+        raise HTTPException(status_code=503, detail=f"Murmur sqlite unavailable: {e}")
+    logger.info("reset-murmur-registration for %s: deleted=%s", user.username, deleted)
+    return {"username": user.username, "deleted": deleted}
+
+
 @router.post("/{user_id}/migrate-traccar-uniqueid")
 async def migrate_traccar_unique_id(
     user_id: int,
