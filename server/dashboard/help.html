@@ -3,245 +3,595 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>openPTT TRX - Help</title>
+    <title>openPTT TRX — Documentation</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=JetBrains+Mono:ital,wght@0,300..700;1,400..700&display=swap" rel="stylesheet">
     <style>
-        :root, [data-theme="dark"] { --bg: #0a0e17; --surface: #131926; --text: #e8edf5; --muted: #8892a4; --accent: #3b82f6; --border: #1e2a3a; --success: #34d399; --danger: #f87171; --warning: #fbbf24; }
-        [data-theme="light"] { --bg: #f0f2f5; --surface: #ffffff; --text: #111827; --muted: #6b7280; --accent: #2563eb; --border: #e2e5ea; --success: #16a34a; --danger: #dc2626; --warning: #a16207; }
-        [data-theme="light"] .header { box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
-        [data-theme="light"] .feature { box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+        /* Broadcast Station palette — shared with the admin dashboard.
+         * Bricolage Grotesque display, Instrument Sans body, JetBrains
+         * Mono for data. Espresso + parchment + amber + cyan, with a
+         * soft dot-grid radio-faceplate backdrop. */
+        :root, [data-theme="dark"] {
+            --bg: #15110D;
+            --bg-alt: #1A140F;
+            --surface: #1F1A14;
+            --surface-hi: #2A231B;
+            --border: #2A231A;
+            --border-soft: #3B3024;
+            --fg: #F1E9D9;
+            --fg-muted: #A89B86;
+            --fg-dim: #6F6656;
+            --amber: #F4B340;
+            --amber-hi: #FFC75A;
+            --amber-glow: rgba(244,179,64,0.16);
+            --amber-ink: #1A1206;
+            --cyan: #7FD8D1;
+            --coral: #F08A7A;
+            --coral-glow: rgba(240,138,122,0.14);
+            --green: #9BC685;
+            --green-glow: rgba(155,198,133,0.14);
+        }
+        [data-theme="light"] {
+            --bg: #F1ECE0;
+            --bg-alt: #E7E0D0;
+            --surface: #FBF8F0;
+            --surface-hi: #F4EEDE;
+            --border: #D4CBB5;
+            --border-soft: #C0B698;
+            --fg: #23190B;
+            --fg-muted: #635943;
+            --fg-dim: #8A7F62;
+            --amber: #C9812E;
+            --amber-hi: #B46E1B;
+            --amber-glow: rgba(201,129,46,0.15);
+            --amber-ink: #FBF8F0;
+            --cyan: #318984;
+            --coral: #B84A35;
+            --coral-glow: rgba(184,74,53,0.12);
+            --green: #5F7E42;
+            --green-glow: rgba(95,126,66,0.13);
+        }
+        :root {
+            --radius-xs: 2px;
+            --radius-sm: 4px;
+            --radius-md: 6px;
+            --radius-lg: 10px;
+            --space-xxs: 0.125rem;
+            --space-xs: 0.25rem;
+            --space-sm: 0.5rem;
+            --space-md: 1rem;
+            --space-lg: 1.5rem;
+            --space-xl: 2rem;
+            --space-2xl: 3rem;
+            --ff-display: 'Bricolage Grotesque', 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
+            --ff-body: 'Instrument Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;
+            --ff-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+        }
+
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'DM Sans', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
-        .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
-        .header h1 { font-size: 1rem; display: flex; align-items: center; gap: 0.5rem; }
-        .header h1 img { width: 24px; height: 24px; border-radius: 5px; }
-        .header a { color: var(--accent); text-decoration: none; font-size: 0.875rem; }
-        .container { max-width: 800px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
-        h2 { font-size: 1.5rem; font-weight: 700; margin: 2.5rem 0 1rem; letter-spacing: -0.02em; color: var(--text); }
-        h2:first-of-type { margin-top: 1rem; }
-        h3 { font-size: 1rem; font-weight: 600; margin: 1.5rem 0 0.5rem; color: var(--text); }
-        p { color: var(--muted); margin-bottom: 0.75rem; font-size: 0.9rem; }
-        .feature { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; }
-        .feature h3 { margin-top: 0; color: var(--accent); font-size: 0.9rem; }
-        .feature p { margin-bottom: 0.25rem; }
-        .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 0.7rem; font-weight: 500; }
-        .badge-voice { background: rgba(52,211,153,0.12); color: var(--success); }
-        .badge-safety { background: rgba(248,113,113,0.12); color: var(--danger); }
-        .badge-ops { background: rgba(59,130,246,0.12); color: var(--accent); }
-        .badge-admin { background: rgba(251,191,36,0.12); color: var(--warning); }
-        code { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-size: 0.8rem; font-family: 'DM Sans', monospace; }
-        table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.85rem; }
-        th { text-align: left; padding: 0.5rem; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
-        td { padding: 0.5rem; border-bottom: 1px solid #182030; }
-        .toc { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; margin: 1rem 0 2rem; }
-        .toc h3 { margin: 0 0 0.5rem; font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
-        .toc a { color: var(--accent); text-decoration: none; font-size: 0.85rem; display: block; padding: 2px 0; }
-        .toc a:hover { text-decoration: underline; }
-        @media (max-width: 600px) { .container { padding: 1rem; } h2 { font-size: 1.25rem; } }
+        html { scroll-behavior: smooth; scroll-padding-top: 5rem; }
+        body {
+            font-family: var(--ff-body);
+            background: var(--bg);
+            background-image: radial-gradient(circle at 1px 1px, rgba(244,179,64,0.04) 1px, transparent 0);
+            background-size: 18px 18px;
+            color: var(--fg);
+            line-height: 1.65;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* Topbar — same visual rhythm as the admin dashboard */
+        .topbar {
+            position: sticky; top: 0; z-index: 20;
+            background: var(--bg-alt);
+            border-bottom: 1px solid var(--border);
+            padding: var(--space-md) var(--space-xl);
+            display: flex; justify-content: space-between; align-items: center;
+            backdrop-filter: blur(8px);
+        }
+        .topbar .brand {
+            display: flex; align-items: center; gap: var(--space-sm);
+            font-family: var(--ff-display); font-weight: 600;
+            letter-spacing: -0.02em; font-size: 1.0625rem;
+        }
+        .topbar .brand img { width: 26px; height: 26px; border-radius: var(--radius-sm); }
+        .topbar .brand .sub {
+            font-family: var(--ff-mono); font-size: 0.6875rem;
+            letter-spacing: 0.14em; text-transform: uppercase;
+            color: var(--fg-dim); margin-left: var(--space-xs);
+        }
+        .topbar .right { display: flex; gap: var(--space-sm); align-items: center; }
+        .topbar a, .topbar button {
+            font-family: var(--ff-mono); font-size: 0.75rem;
+            letter-spacing: 0.08em; text-transform: uppercase;
+            color: var(--fg-muted); text-decoration: none;
+            border: 1px solid var(--border); background: transparent;
+            padding: var(--space-xs) var(--space-sm); border-radius: var(--radius-sm);
+            cursor: pointer; transition: all 0.12s ease;
+        }
+        .topbar a:hover, .topbar button:hover {
+            border-color: var(--amber); color: var(--fg);
+        }
+
+        /* Hairline divider under the topbar */
+        .topbar::after {
+            content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px;
+            background: linear-gradient(90deg, transparent, var(--amber-glow) 20%, var(--amber-glow) 80%, transparent);
+            pointer-events: none;
+        }
+
+        .container { max-width: 860px; margin: 0 auto; padding: var(--space-2xl) var(--space-lg) 6rem; }
+
+        /* Lede block — oversized display type, muted caption */
+        .lede {
+            margin-bottom: var(--space-xl);
+            padding-bottom: var(--space-lg);
+            border-bottom: 1px solid var(--border);
+        }
+        .lede .eyebrow {
+            font-family: var(--ff-mono); font-size: 0.6875rem;
+            letter-spacing: 0.2em; text-transform: uppercase;
+            color: var(--amber); margin-bottom: var(--space-sm);
+        }
+        .lede h1 {
+            font-family: var(--ff-display); font-weight: 500;
+            font-size: clamp(2rem, 5vw, 3rem); line-height: 1.05;
+            letter-spacing: -0.035em; color: var(--fg);
+            margin-bottom: var(--space-md);
+        }
+        .lede h1 em {
+            font-style: italic; font-weight: 400;
+            color: var(--amber); font-family: var(--ff-display);
+        }
+        .lede p {
+            color: var(--fg-muted); font-size: 1.0625rem;
+            max-width: 52ch;
+        }
+
+        /* Table of contents */
+        .toc {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: var(--space-lg);
+            margin-bottom: var(--space-xl);
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: var(--space-xs) var(--space-md);
+        }
+        .toc .toc-title {
+            grid-column: 1 / -1;
+            font-family: var(--ff-mono); font-size: 0.6875rem;
+            letter-spacing: 0.2em; text-transform: uppercase;
+            color: var(--fg-dim); margin-bottom: var(--space-xs);
+        }
+        .toc a {
+            color: var(--fg); text-decoration: none;
+            font-size: 0.9375rem; padding: var(--space-xxs) 0;
+            border-left: 2px solid transparent; padding-left: var(--space-sm);
+            transition: all 0.12s ease;
+        }
+        .toc a:hover {
+            color: var(--amber); border-left-color: var(--amber);
+        }
+        @media (max-width: 600px) {
+            .toc { grid-template-columns: 1fr; }
+        }
+
+        /* Section heading */
+        h2 {
+            font-family: var(--ff-display); font-weight: 500;
+            font-size: 1.75rem; line-height: 1.2;
+            letter-spacing: -0.025em; color: var(--fg);
+            margin: var(--space-2xl) 0 var(--space-md);
+            padding-bottom: var(--space-sm);
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: baseline; gap: var(--space-sm);
+        }
+        h2 .num {
+            font-family: var(--ff-mono); font-size: 0.75rem;
+            color: var(--amber); letter-spacing: 0.1em;
+        }
+        h3 {
+            font-family: var(--ff-display); font-weight: 500;
+            font-size: 1.0625rem; color: var(--fg);
+            margin-bottom: var(--space-sm);
+            letter-spacing: -0.01em;
+        }
+
+        /* Card ("feature") */
+        .feature {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: var(--space-lg);
+            margin-bottom: var(--space-md);
+            transition: border-color 0.12s ease;
+        }
+        .feature:hover { border-color: var(--border-soft); }
+        .feature p { color: var(--fg-muted); margin-bottom: var(--space-sm); font-size: 0.9375rem; }
+        .feature p:last-child { margin-bottom: 0; }
+        .feature p strong { color: var(--fg); font-weight: 600; }
+        .feature ul, .feature ol {
+            color: var(--fg-muted); margin: var(--space-sm) 0 var(--space-md);
+            padding-left: var(--space-lg); font-size: 0.9375rem;
+        }
+        .feature li { margin-bottom: var(--space-xs); }
+        .feature li strong { color: var(--fg); }
+
+        /* Callout — for the big "run on laptop" warning */
+        .callout {
+            background: var(--amber-glow);
+            border: 1px solid var(--amber);
+            border-left-width: 3px;
+            border-radius: var(--radius-md);
+            padding: var(--space-lg);
+            margin-bottom: var(--space-md);
+        }
+        .callout .label {
+            font-family: var(--ff-mono); font-size: 0.6875rem;
+            letter-spacing: 0.2em; text-transform: uppercase;
+            color: var(--amber); margin-bottom: var(--space-sm);
+        }
+        .callout h3 { color: var(--fg); margin-bottom: var(--space-sm); }
+        .callout p { color: var(--fg); font-size: 0.9375rem; }
+        .callout strong { color: var(--fg); }
+
+        /* Badges */
+        .badge {
+            display: inline-block;
+            padding: 2px 10px;
+            font-family: var(--ff-mono);
+            font-size: 0.6875rem;
+            font-weight: 500;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            border-radius: var(--radius-full);
+            border: 1px solid transparent;
+            margin-right: var(--space-xs);
+            vertical-align: baseline;
+        }
+        .badge-voice { color: var(--green); background: var(--green-glow); border-color: rgba(155,198,133,0.3); }
+        .badge-safety { color: var(--coral); background: var(--coral-glow); border-color: rgba(240,138,122,0.3); }
+        .badge-ops { color: var(--cyan); background: rgba(127,216,209,0.1); border-color: rgba(127,216,209,0.3); }
+        .badge-admin { color: var(--amber); background: var(--amber-glow); border-color: rgba(244,179,64,0.3); }
+
+        /* Code + pre */
+        code {
+            font-family: var(--ff-mono); font-size: 0.84em;
+            background: var(--bg-alt);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-xs);
+            padding: 1px 6px;
+            color: var(--fg);
+        }
+        .feature pre, .callout pre {
+            font-family: var(--ff-mono); font-size: 0.8125rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: var(--space-md);
+            margin: var(--space-sm) 0;
+            color: var(--fg);
+            overflow-x: auto;
+            line-height: 1.5;
+        }
+
+        /* Tables */
+        table {
+            width: 100%; border-collapse: collapse;
+            margin: var(--space-md) 0;
+            font-size: 0.875rem;
+            font-family: var(--ff-mono);
+        }
+        th {
+            text-align: left; padding: var(--space-sm);
+            border-bottom: 1px solid var(--amber);
+            color: var(--amber); font-size: 0.6875rem;
+            text-transform: uppercase; letter-spacing: 0.1em;
+            font-weight: 500;
+        }
+        td {
+            padding: var(--space-sm);
+            border-bottom: 1px solid var(--border);
+            color: var(--fg-muted);
+        }
+        tr:last-child td { border-bottom: none; }
+        td strong, td code { color: var(--fg); }
+
+        a { color: var(--amber); text-decoration: none; transition: color 0.12s ease; }
+        a:hover { color: var(--amber-hi); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+
+        /* Colophon */
+        .colophon {
+            margin-top: var(--space-2xl);
+            padding-top: var(--space-xl);
+            border-top: 1px solid var(--border);
+            font-family: var(--ff-mono); font-size: 0.75rem;
+            color: var(--fg-dim); letter-spacing: 0.08em;
+            text-transform: uppercase;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1><img src="logo.svg" alt="openPTT TRX"> openPTT TRX Help</h1>
-        <div style="display:flex;align-items:center;gap:0.75rem">
-            <button onclick="toggleTheme()" id="helpThemeBtn" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:1rem">☾</button>
-            <a href="/">← Back to Dashboard</a>
+    <header class="topbar">
+        <div class="brand">
+            <img src="logo.svg" alt="">
+            <span>openPTT TRX</span>
+            <span class="sub">/ Docs</span>
         </div>
-    </div>
-    <div class="container">
-        <h2>openPTT TRX Documentation</h2>
-        <p>Self-hosted Push-to-Talk server with GPS tracking, emergency alerts, weather reporting, and fleet dispatch.</p>
-
-        <div class="toc">
-            <h3>Contents</h3>
-            <a href="#voice">Voice Communication (PTT)</a>
-            <a href="#channels">Channels</a>
-            <a href="#gps">GPS Tracking & Map</a>
-            <a href="#sos">Emergency SOS</a>
-            <a href="#weather">Weather Channel (ATIS)</a>
-            <a href="#dispatch">Dispatch</a>
-            <a href="#loneworker">Lone Worker Safety</a>
-            <a href="#users">User Management</a>
-            <a href="#admin">Admin Accounts</a>
-            <a href="#enrollment">Bulk Enrollment</a>
-            <a href="#audit">Audit Log</a>
-            <a href="#monitoring">Monitoring</a>
-            <a href="#p50setup">Device Setup</a>
-            <a href="#ports">Network & Ports</a>
+        <div class="right">
+            <button onclick="toggleTheme()" id="helpThemeBtn" title="Toggle theme">&#9790;</button>
+            <a href="/">&larr; Dashboard</a>
         </div>
+    </header>
 
-        <h2 id="voice">Voice Communication (PTT)</h2>
+    <main class="container">
+        <section class="lede">
+            <div class="eyebrow">Operator manual &middot; v2026.04</div>
+            <h1>Self-hosted push-to-talk for <em>field operations</em>.</h1>
+            <p>Voice, GPS, emergency alerts, weather, dispatch, lone-worker shifts, and a SIP bridge — running on your hardware, talking to your radios.</p>
+        </section>
+
+        <nav class="toc">
+            <div class="toc-title">Contents</div>
+            <a href="#voice">01 &middot; Voice communication (PTT)</a>
+            <a href="#channels">02 &middot; Channels</a>
+            <a href="#gps">03 &middot; GPS tracking &amp; map</a>
+            <a href="#sos">04 &middot; Emergency SOS</a>
+            <a href="#weather">05 &middot; Weather channel</a>
+            <a href="#dispatch">06 &middot; Dispatch</a>
+            <a href="#loneworker">07 &middot; Lone worker safety</a>
+            <a href="#sip">08 &middot; SIP phone gateway</a>
+            <a href="#users">09 &middot; User management</a>
+            <a href="#admin">10 &middot; Admin accounts</a>
+            <a href="#provisioning">11 &middot; Device provisioning</a>
+            <a href="#enrollment">12 &middot; Bulk enrollment</a>
+            <a href="#audit">13 &middot; Audit log</a>
+            <a href="#monitoring">14 &middot; Monitoring</a>
+            <a href="#p50setup">15 &middot; Manual device setup</a>
+            <a href="#ports">16 &middot; Network &amp; ports</a>
+        </nav>
+
+        <h2 id="voice"><span class="num">01</span> Voice Communication (PTT)</h2>
         <div class="feature">
             <h3><span class="badge badge-voice">Voice</span> Push-to-Talk</h3>
-            <p>Two-way voice communication using the Mumble protocol. Press the hardware PTT button on the device to transmit. Release to listen. Audio is encoded with Opus at 16-24 kbps for clear voice quality with low latency (&lt;200ms).</p>
+            <p>Two-way voice communication using the Mumble protocol. Press the hardware PTT button on the device to transmit. Release to listen. Audio is encoded with Opus at 16&ndash;24 kbps for clear voice quality with low latency (&lt;200 ms).</p>
             <p><strong>Server:</strong> Murmur (Mumble server) handles voice routing, encoding, and channel management.</p>
-            <p><strong>Client:</strong> openPTT TRX app on Android devices (e.g., Hytera P50, or any Android device with PTT support). Forked from Mumla, includes built-in GPS reporting and hardware-key handling for rugged radios.</p>
+            <p><strong>Client:</strong> openPTT app on Android devices (Hytera P50, or any Android device with PTT support). Forked from Mumla, includes built-in GPS reporting and hardware-key handling for rugged radios.</p>
         </div>
         <div class="feature">
-            <h3><span class="badge badge-voice">Voice</span> PTT Triple-Tap Gestures</h3>
+            <h3><span class="badge badge-voice">Voice</span> PTT triple-tap gestures</h3>
             <p>Three quick PTT presses within 1.2 seconds trigger a special action. Currently:</p>
-            <p>• <strong>Triple-tap PTT</strong> → toggle lone-worker shift start/stop (see <a href="#loneworker">Lone Worker Safety</a>).</p>
+            <p>&bull; <strong>Triple-tap PTT</strong> &rarr; toggle lone-worker shift start/stop (see <a href="#loneworker">Lone Worker Safety</a>).</p>
             <p>Normal single-press PTT behaviour is unaffected — you can still talk normally.</p>
         </div>
 
-        <h2 id="channels">Channels</h2>
+        <h2 id="channels"><span class="num">02</span> Channels</h2>
         <div class="feature">
-            <h3><span class="badge badge-voice">Voice</span> Channel Management</h3>
-            <p>Create channels for different teams or purposes (e.g., Warehouse, Security, Office). Users join a channel to hear and talk to other members. Managed from the <strong>Channels</strong> tab.</p>
+            <h3><span class="badge badge-voice">Voice</span> Channel management</h3>
+            <p>Create channels for different teams or purposes (Warehouse, Security, Office). Users join a channel to hear and talk to other members. Managed from the <strong>Channels</strong> tab.</p>
             <p><strong>Special channels:</strong></p>
-            <p>• <strong>Emergency</strong> — Auto-created for SOS events. All users are moved here during emergencies.</p>
-            <p>• <strong>Weather</strong> — Double-PTT to hear a spoken weather report for your GPS location. The <code>PTTWeather</code> bot sits permanently in this channel on a dedicated Mumble connection so the main admin bot stays in Root for SOS acknowledgements.</p>
+            <p>&bull; <strong>Emergency</strong> &mdash; Auto-created for SOS events. All users are moved here during emergencies.</p>
+            <p>&bull; <strong>Weather</strong> &mdash; Double-PTT to hear a spoken weather report for your GPS location. The <code>PTTWeather</code> bot sits permanently in this channel on a dedicated Mumble connection so the main admin bot stays in Root for SOS acknowledgements.</p>
+            <p>&bull; <strong>Phone / Call-1&hellip;Call-N</strong> &mdash; SIP gateway sub-channels (see <a href="#sip">SIP Phone Gateway</a>).</p>
         </div>
 
-        <h2 id="gps">GPS Tracking & Map</h2>
+        <h2 id="gps"><span class="num">03</span> GPS Tracking &amp; Map</h2>
         <div class="feature">
-            <h3><span class="badge badge-ops">Operations</span> Live Device Tracking</h3>
-            <p>GPS is reported by the openPTT TRX app itself — no separate Traccar Client app needed. The <strong>Map</strong> tab shows all device locations on an interactive map (OpenStreetMap).</p>
-            <p><strong>Reporting cadence:</strong> every 30 seconds or 50 m of movement, whichever comes first. The device's Mumble username is used as the Traccar <code>uniqueId</code>, so Traccar devices and PTT users share identity automatically (commit <code>2308f17</code>).</p>
-            <p><strong>Overview tab</strong> shows GPS coordinates, battery level, and last seen time per device.</p>
-            <p><strong>App setting:</strong> Settings → GPS tracking → Traccar server URL: <code>http://voice.harro.ch:5055</code> (plain HTTP because the OsmAnd protocol doesn't speak TLS; cleartext is whitelisted for that host only).</p>
+            <h3><span class="badge badge-ops">Ops</span> Live device tracking</h3>
+            <p>GPS is reported by the openPTT app itself — no separate Traccar Client app needed. The <strong>Map</strong> tab shows all device locations on an interactive map (OpenStreetMap).</p>
+            <p><strong>Reporting cadence:</strong> every 30 seconds or 50 m of movement, whichever comes first. The device's Mumble username is used as the Traccar <code>uniqueId</code>, so Traccar devices and PTT users share identity automatically.</p>
+            <p><strong>Overview tab</strong> shows GPS coordinates, battery level, and last-seen time per device.</p>
+            <p><strong>App setting:</strong> Traccar server URL &mdash; <code>http://voice.harro.ch:5055</code> (plain HTTP because the OsmAnd protocol doesn't speak TLS; cleartext is whitelisted for that host only).</p>
         </div>
 
-        <h2 id="sos">Emergency SOS</h2>
+        <h2 id="sos"><span class="num">04</span> Emergency SOS</h2>
         <div class="feature">
-            <h3><span class="badge badge-safety">Safety</span> Emergency Alert System</h3>
+            <h3><span class="badge badge-safety">Safety</span> Emergency alert system</h3>
             <p>When an SOS is triggered:</p>
-            <p>1. <strong>All connected users</strong> are automatically moved to the Emergency channel</p>
-            <p>2. <strong>Red alert banner</strong> appears on the admin dashboard with GPS location</p>
-            <p>3. <strong>Webhook/email notification</strong> sent to configured admin contacts</p>
-            <p>4. Everyone can hear the person in distress, regardless of which channel they were in</p>
+            <ol>
+                <li><strong>All connected users</strong> are automatically moved to the Emergency channel</li>
+                <li><strong>Red alert banner</strong> appears on the admin dashboard with GPS location</li>
+                <li><strong>Webhook / email notification</strong> sent to configured admin contacts</li>
+                <li>Everyone can hear the person in distress, regardless of which channel they were in</li>
+            </ol>
             <p><strong>Acknowledge:</strong> An admin can acknowledge from the dashboard or type "OK" in the Emergency channel chat. All users are moved back to their original channels.</p>
             <p><strong>Trigger methods:</strong> API call (<code>POST /api/sos</code>) and Traccar event forwarding to <code>POST /api/sos/traccar/event</code> (man-down / panic button events generated on the device route through Traccar and into the admin service automatically).</p>
         </div>
 
-        <h2 id="weather">Weather Channel (ATIS)</h2>
+        <h2 id="weather"><span class="num">05</span> Weather Channel (ATIS)</h2>
         <div class="feature">
-            <h3><span class="badge badge-ops">Operations</span> Spoken Weather Reports</h3>
+            <h3><span class="badge badge-ops">Ops</span> Spoken weather reports</h3>
             <p>Aviation-style weather reporting. Join the <strong>Weather</strong> channel and press PTT twice quickly (within 10 seconds). The system:</p>
-            <p>1. Looks up your GPS position from Traccar (resolves via <code>User.traccar_device_id</code> link, falls back to device name)</p>
-            <p>2. Fetches current weather and a 6-hour hourly forecast from Open-Meteo (free, no API key)</p>
-            <p>3. Generates a spoken report using <strong>Piper TTS</strong> with the <code>en_US-lessac-medium</code> voice (baked into the admin image at build time)</p>
-            <p>4. Plays the audio in the Weather channel</p>
-            <p><strong>Report includes:</strong> temperature, wind speed and direction, cloud cover, current conditions, plus a 6-hour outlook mentioning expected rain and wind gusts when above threshold (≥0.5mm total rain / ≥50% probability / ≥40 km/h gust).</p>
-            <p><strong>Rate limit:</strong> One request per user per 60 seconds.</p>
+            <ol>
+                <li>Looks up your GPS position from Traccar</li>
+                <li>Fetches current weather and a 6-hour hourly forecast from Open-Meteo (free, no API key)</li>
+                <li>Generates a spoken report using <strong>Piper TTS</strong> (<code>en_US-lessac-medium</code>, baked into the admin image)</li>
+                <li>Plays the audio in the Weather channel</li>
+            </ol>
+            <p><strong>Report includes:</strong> temperature, wind speed and direction, cloud cover, current conditions, plus a 6-hour outlook mentioning expected rain and wind gusts when above threshold (&ge; 0.5 mm total / &ge; 50 % probability / &ge; 40 km/h gust).</p>
+            <p><strong>Rate limit:</strong> one request per user per 60 s.</p>
             <p><strong>Also available via API:</strong> <code>POST /api/weather</code> with <code>{"location": "Paris, France"}</code></p>
         </div>
 
-        <h2 id="dispatch">Dispatch</h2>
+        <h2 id="dispatch"><span class="num">06</span> Dispatch</h2>
         <div class="feature">
-            <h3><span class="badge badge-ops">Operations</span> Nearest Worker Dispatch</h3>
-            <p>From the <strong>Dispatch</strong> tab, enter a location name or coordinates. The system geocodes the location and finds the nearest workers by GPS distance.</p>
+            <h3><span class="badge badge-ops">Ops</span> Nearest-worker dispatch</h3>
+            <p>From the <strong>Dispatch</strong> tab (or the Map), enter a location name or coordinates. The system geocodes the location and finds the nearest workers by GPS distance.</p>
             <p>Click <strong>Dispatch</strong> to send the message. Dispatch uses Piper TTS whispered directly to the target user's Mumble session — only they hear it, regardless of which channel they're in. The message is prefixed with a short tone and throwaway words ("Attention. Dispatch for {user}.") so the receiver's Opus decoder has time to wake up before the real content arrives.</p>
-            <p><strong>Fallback:</strong> if TTS or the whisper fails, dispatch falls back to a text message in the target user's current channel. The API response includes a <code>delivery</code> field (<code>tts_whisper</code> / <code>text</code> / <code>none</code>) so the dashboard can show which path fired.</p>
-            <p><strong>Also on Map tab:</strong> Click anywhere on the map to dispatch to that location.</p>
+            <p><strong>Fallback:</strong> if TTS or the whisper fails, dispatch falls back to a text message in the target user's current channel. The API response includes a <code>delivery</code> field (<code>tts_whisper</code> / <code>text</code> / <code>none</code>).</p>
         </div>
         <div class="feature">
-            <h3><span class="badge badge-ops">Operations</span> Saved Locations</h3>
-            <p>Pre-configure frequently used dispatch locations for one-click access. Add locations by name (auto-geocoded) or coordinates from the Dispatch tab.</p>
-            <p>Saved locations appear as quick-pick buttons at the top of the Dispatch tab. Click a button to instantly search for the nearest workers to that location.</p>
+            <h3><span class="badge badge-ops">Ops</span> Saved locations</h3>
+            <p>Pre-configure frequently used dispatch locations for one-click access. Add by name (auto-geocoded) or coordinates from the Dispatch tab. Saved locations appear as quick-pick buttons at the top of the Dispatch tab.</p>
         </div>
 
-        <h2 id="loneworker">Lone Worker Safety</h2>
+        <h2 id="loneworker"><span class="num">07</span> Lone Worker Safety</h2>
         <div class="feature">
-            <h3><span class="badge badge-safety">Safety</span> Shift-Based Monitoring</h3>
-            <p>Lone-worker check-ins are scoped to explicit <strong>shifts</strong>. When a user starts a shift, they're monitored; when the shift ends (manually or by auto-expiry), the checker ignores them. No 24/7 pings.</p>
-            <p><strong>Start / stop a shift from the device:</strong> triple-tap the PTT button (3 presses within 1.2 seconds). The openPTT TRX app fires <code>POST /api/loneworker/shift/start</code> or <code>/stop</code> and confirms via Android TTS:</p>
-            <p>• First triple-tap: <em>"Shift started. Ends at HH:MM."</em></p>
-            <p>• Second triple-tap: <em>"Ending shift. Long press again to cancel."</em> — 3-second grace window; triple-tap again to cancel, or let it elapse to commit the end.</p>
-            <p><strong>Shift duration:</strong> per-user field on the user edit form (1–24 hours). Blank uses the global default from the Lone Worker config (<code>default_shift_hours</code>).</p>
+            <h3><span class="badge badge-safety">Safety</span> Shift-based monitoring</h3>
+            <p>Lone-worker check-ins are scoped to explicit <strong>shifts</strong>. When a user starts a shift they're monitored; when the shift ends (manually or by auto-expiry), the checker ignores them. No 24/7 pings.</p>
+            <p><strong>Start / stop a shift from the device:</strong> triple-tap the PTT button (3 presses within 1.2 s). The openPTT app fires <code>POST /api/loneworker/shift/start</code> or <code>/stop</code> and confirms via Android TTS:</p>
+            <p>&bull; First triple-tap: <em>"Shift started. Ends at HH:MM."</em></p>
+            <p>&bull; Second triple-tap: <em>"Ending shift. Long press again to cancel."</em> &mdash; 3-second grace window; triple-tap again to cancel, or let it elapse to commit the end.</p>
+            <p><strong>Shift duration:</strong> per-user field on the user edit form (1&ndash;24 h). Blank uses the global default from the Lone Worker config.</p>
             <p><strong>While a shift is active:</strong></p>
-            <p>• The checker runs every 60 seconds, pinging users with <code>LoneWorkerShift.ended_at IS NULL</code> and missed check-ins via a TTS voice reminder: <em>"Automated check-in for {name}, please respond"</em></p>
-            <p>• Shifts past their <code>planned_end_at</code> are auto-closed with <code>end_reason=auto_expired</code></p>
-            <p>• Status shown on the Users tab: <span style="color:var(--success)">OK</span> / <span style="color:var(--warning)">Due soon</span> / <span style="color:var(--danger)">OVERDUE</span></p>
-            <p><strong>Note:</strong> The P50's ROM owns the F3 long-press and can't be intercepted by apps — that's why the gesture is triple-tap PTT instead. The device-settings "Lone Worker" option on F3 is the ROM's own implementation and is disabled here; our shift system runs independently on the admin server.</p>
-            <p><strong>Admin setup:</strong></p>
-            <p>• Admin tab → Lone Worker Safety: set check-in interval, default shift hours, warning threshold, and auto-SOS behaviour.</p>
-            <p>• Users tab → edit a user: toggle "Lone Worker" + set <code>shift_duration_hours</code>.</p>
-            <p><strong>API:</strong> <code>POST /api/loneworker/shift/start</code>, <code>POST /api/loneworker/shift/stop</code>, <code>GET /api/loneworker/shift/active</code>.</p>
+            <p>&bull; The checker runs every 60 s, pinging users with missed check-ins via a TTS voice reminder: <em>"Automated check-in for {name}, please respond."</em></p>
+            <p>&bull; Shifts past their <code>planned_end_at</code> are auto-closed with <code>end_reason=auto_expired</code></p>
+            <p>&bull; Status shown on the Users tab: <span style="color:var(--green)">OK</span> / <span style="color:var(--amber)">Due soon</span> / <span style="color:var(--coral)">OVERDUE</span></p>
+            <p><strong>Why triple-tap PTT, not F3 long-press:</strong> the P50's ROM owns F3 long-press and can't be intercepted by apps. The device-settings "Lone Worker" option on F3 is the ROM's own implementation and is disabled here; our shift system runs independently on the admin server.</p>
         </div>
 
-        <h2 id="users">User Management</h2>
+        <h2 id="sip"><span class="num">08</span> SIP Phone Gateway</h2>
         <div class="feature">
-            <h3><span class="badge badge-admin">Admin</span> Device User Accounts</h3>
+            <h3><span class="badge badge-ops">Ops</span> Inbound calls &rarr; Mumble</h3>
+            <p>A DIDWW SIP trunk terminates inbound calls into the Asterisk-backed <code>sip-bridge</code> container. Each call lands in a dedicated <code>Phone/Call-N</code> sub-channel (up to <code>PHONE_MAX_CALLS</code> concurrent, default 3). Beyond that, callers get 486 Busy.</p>
+            <p><strong>Flow:</strong> INVITE &rarr; Answer &rarr; Piper greeting &rarr; AudioSocket bridge to a per-call <code>PTTPhone-N</code> Mumble bot. Ringback plays to the caller while no radio user has joined the sub-channel.</p>
+            <p><strong>Who can answer:</strong> users with <code>can_answer_calls = true</code> are eligible. Non-eligible users who walk into Phone or any Call-N sub-channel get bounced back with a whispered "Phone channel requires call-answer permission."</p>
+            <p><strong>Notification:</strong> every eligible user gets a whispered 880 Hz + 1175 Hz ding (re-pinged every 3 s) until one of them reaches the Phone channel tree.</p>
+            <p><strong>Radio-side call control</strong> (while the user is in the Phone channel):</p>
+            <p>&bull; <strong>Green button</strong> (<code>KEYCODE_CALL</code>) &mdash; toggle caller-mute. Radios still hear each other; caller hears silence. Press again to restore bidirectional audio. TTS confirms each toggle.</p>
+            <p>&bull; <strong>MENU key</strong> (<code>KEYCODE_MENU</code>) &mdash; radio-initiated hangup. TTS confirms "call ended."</p>
+            <p><strong>Editable greeting:</strong> the Piper TTS greeting is stored per-trunk in <code>sip_trunks.greeting_text</code>. Edit on the SIP tab of the dashboard; a Save &amp; Regenerate button re-renders the WAV and hot-pushes it to the sip-bridge container.</p>
+        </div>
+
+        <h2 id="users"><span class="num">09</span> User Management</h2>
+        <div class="feature">
+            <h3><span class="badge badge-admin">Admin</span> Device user accounts</h3>
             <p>Create users for each device from the <strong>Users</strong> tab. Each user gets a username, password, and optional display name. The admin server auto-creates a matching Traccar device on user creation with <code>uniqueId=&lt;username&gt;</code> so GPS and voice identity stay unified.</p>
-            <p><strong>QR Code:</strong> Click QR to generate a QR code for quick device enrollment. Scan with the device camera to auto-configure the openPTT TRX app.</p>
+            <p><strong>QR code:</strong> Click QR to generate a QR code for quick manual device enrollment. Scan with the device camera to auto-configure the openPTT app.</p>
             <p><strong>Roles and flags:</strong></p>
-            <p>• <strong>Admin</strong> — Can acknowledge SOS from the radio (type "OK" in Emergency channel)</p>
-            <p>• <strong>Lone Worker</strong> — Subject to shift-based check-in monitoring. When checked, also set <code>shift_duration_hours</code> (1–24) or leave blank for the global default.</p>
-            <p>• <strong>Can answer SIP calls</strong> — ACL for joining Phone sub-channels once the SIP gateway is deployed. Off by default.</p>
-            <p>• <strong>User</strong> — Standard radio user with no extra privileges</p>
-            <p><strong>Linked Traccar device:</strong> dropdown lets you link a user to a specific Traccar device ID. Auto-populated on user creation but can be re-linked if the device is re-provisioned.</p>
+            <ul>
+                <li><strong>Admin</strong> &mdash; Can acknowledge SOS from the radio (type "OK" in Emergency channel)</li>
+                <li><strong>Lone Worker</strong> &mdash; Subject to shift-based check-in monitoring. When checked, also set <code>shift_duration_hours</code> (1&ndash;24) or leave blank for the global default.</li>
+                <li><strong>Can answer SIP calls</strong> &mdash; ACL for joining Phone / Call-N sub-channels.</li>
+                <li><strong>User</strong> &mdash; Standard radio user with no extra privileges</li>
+            </ul>
+            <p><strong>Murmur registration reset:</strong> if a user's cert has gone stale, "Reset Murmur registration" on the user edit form clears their registered row and restarts Murmur so they get the cert prompt again on next connect (~3 s disruption).</p>
         </div>
 
-        <h2 id="admin">Admin Accounts</h2>
+        <h2 id="admin"><span class="num">10</span> Admin Accounts</h2>
         <div class="feature">
-            <h3><span class="badge badge-admin">Admin</span> Dashboard Administrators</h3>
+            <h3><span class="badge badge-admin">Admin</span> Dashboard administrators</h3>
             <p>Manage admin dashboard accounts from the <strong>Admin</strong> tab. Passwords are hashed with bcrypt.</p>
             <p><strong>Roles:</strong> Admin (full access) or Viewer (read-only dashboard).</p>
         </div>
 
-        <h2 id="enrollment">Bulk Enrollment</h2>
+        <h2 id="provisioning"><span class="num">11</span> Device Provisioning</h2>
+        <div class="callout">
+            <div class="label">Important &mdash; where to run</div>
+            <h3>The provisioning link runs on your laptop, <em>not</em> on the P50.</h3>
+            <p>Plug the P50 in over USB with USB debugging on. The script drives <code>adb</code> from your Mac or PC to install the APK and seed credentials on the handset. The P50 has no keyboard and no way to run shell scripts — it's the target, not the executor.</p>
+        </div>
         <div class="feature">
-            <h3><span class="badge badge-admin">Admin</span> CSV Upload</h3>
+            <h3><span class="badge badge-admin">Admin</span> One-click provisioning link</h3>
+            <p>From the user edit form &rarr; <strong>Generate provisioning link</strong>. The dashboard shows a short URL plus a QR code. Send the URL to the tech doing the install.</p>
+            <p><strong>What the tech does on their laptop:</strong></p>
+            <ol>
+                <li>Plug the P50 in via USB. Enable Developer Options &rarr; USB debugging. Accept the RSA fingerprint prompt on the handset.</li>
+                <li>Open the short link in a browser; it downloads <code>openptt-provision.sh</code> (macOS / Linux) or <code>openptt-provision.ps1</code> (Windows).</li>
+                <li>Run the script:
+                    <pre># macOS / Linux
+curl -fsSL https://ptt.harro.ch/p/&lt;slug&gt; -o setup.sh
+bash setup.sh</pre>
+                    <pre># Windows (PowerShell)
+Invoke-WebRequest https://ptt.harro.ch/p/&lt;slug&gt; -OutFile setup.ps1
+.\setup.ps1</pre>
+                </li>
+            </ol>
+            <p><strong>What the script does, unattended:</strong></p>
+            <ul>
+                <li>Verifies exactly one P50 is connected over adb</li>
+                <li>Downloads and installs the signed openPTT APK</li>
+                <li>Grants <code>RECORD_AUDIO</code>, <code>ACCESS_FINE_LOCATION</code>, <code>ACCESS_COARSE_LOCATION</code> runtime perms</li>
+                <li>Seeds SharedPreferences (admin URL, Traccar URL, defaults)</li>
+                <li>Seeds the Humla <code>mumble.db</code> with the user's Mumble credentials</li>
+                <li>Launches MumlaActivity so the service registers and auto-connects</li>
+            </ul>
+            <p><strong>Prerequisites on the laptop:</strong></p>
+            <ul>
+                <li><code>adb</code> in PATH (<code>brew install --cask android-platform-tools</code> on macOS; <a href="https://developer.android.com/tools/releases/platform-tools" target="_blank" rel="noopener">Android platform-tools</a> on Windows)</li>
+                <li><code>sqlite3</code> in PATH (ships on macOS / most Linux; <code>winget install SQLite.SQLite</code> on Windows)</li>
+            </ul>
+            <p><strong>Token lifetime:</strong> 24 hours, single-use. The token is marked used when the script finishes successfully. Generate a new one for each device.</p>
+            <p><strong>Idempotent:</strong> if a step errors, re-run the script — every step is safe to repeat. If the error persists, capture it and ping an admin.</p>
+        </div>
+
+        <h2 id="enrollment"><span class="num">12</span> Bulk Enrollment</h2>
+        <div class="feature">
+            <h3><span class="badge badge-admin">Admin</span> CSV upload</h3>
             <p>From the <strong>Admin</strong> tab, upload a CSV file to create multiple users at once. Download the template, fill in usernames and passwords, upload. Returns a ZIP file with QR codes for each device.</p>
+            <p>For unattended provisioning of new devices, prefer the <a href="#provisioning">per-device provisioning link</a> flow — it seeds credentials and launches the app without the tech having to type anything into the P50.</p>
         </div>
 
-        <h2 id="audit">Audit Log</h2>
+        <h2 id="audit"><span class="num">13</span> Audit Log</h2>
         <div class="feature">
-            <h3><span class="badge badge-admin">Admin</span> Action History</h3>
-            <p>The <strong>Audit Log</strong> tab shows every admin action: user creation/deletion, admin management, SOS events. Filterable by action type. Includes timestamp, admin username, and IP address.</p>
+            <h3><span class="badge badge-admin">Admin</span> Action history</h3>
+            <p>The <strong>Audit Log</strong> tab shows every admin action: user creation / deletion, admin management, SOS events. Filterable by action type. Includes timestamp, admin username, and IP address.</p>
         </div>
 
-        <h2 id="monitoring">Monitoring</h2>
+        <h2 id="monitoring"><span class="num">14</span> Monitoring</h2>
         <div class="feature">
-            <h3><span class="badge badge-admin">Admin</span> Prometheus Metrics</h3>
+            <h3><span class="badge badge-admin">Admin</span> Prometheus metrics</h3>
             <p><code>GET /metrics</code> returns Prometheus-compatible metrics: uptime, Murmur connection status, users online, total users, channels, SOS events.</p>
             <p><strong>Health check:</strong> <code>GET /api/status/health</code> returns <code>{"status": "healthy", "murmur": "connected"}</code></p>
         </div>
 
-        <h2 id="p50setup">Device Setup</h2>
+        <h2 id="p50setup"><span class="num">15</span> Manual Device Setup</h2>
         <div class="feature">
-            <h3>Device Configuration</h3>
-            <p><strong>Only one app needed:</strong></p>
+            <h3>When the provisioning link isn't available</h3>
+            <p>For most devices, use the <a href="#provisioning">one-click provisioning link</a>. The manual path below is only for first-of-its-kind testing or recovery.</p>
             <table>
                 <tr><th>App</th><th>Purpose</th><th>Server</th><th>Port</th></tr>
-                <tr><td>openPTT TRX</td><td>Voice PTT + text + GPS + shift control</td><td>voice.harro.ch</td><td>443 (voice) / 5055 (GPS)</td></tr>
+                <tr><td>openPTT</td><td>Voice PTT + GPS + shift control</td><td>voice.harro.ch</td><td>443 (voice) / 5055 (GPS)</td></tr>
             </table>
-            <p><strong>Sideload via adb:</strong> <code>adb install -r openptt-foss-debug.apk</code></p>
+            <p><strong>Sideload via adb:</strong></p>
+            <pre>adb install -r openptt-foss-release.apk</pre>
             <p><strong>First-time settings in the app:</strong></p>
-            <p>• Favourites → add server <code>voice.harro.ch:443</code> with the user's Mumble credentials</p>
-            <p>• Settings → GPS tracking → Traccar server URL: <code>http://voice.harro.ch:5055</code></p>
-            <p>• Settings → Admin API → Admin server URL: <code>https://ptt.harro.ch</code> (required for triple-tap shift control)</p>
-            <p>• Grant runtime permissions: <code>ACCESS_FINE_LOCATION</code> (GPS) and <code>RECORD_AUDIO</code> (voice). <code>adb shell pm grant ch.harro.openptt android.permission.ACCESS_FINE_LOCATION</code> skips the dialog.</p>
-            <p><strong>Device settings:</strong> Disable battery optimization for openPTT TRX. Enable background running. The app auto-connects on boot via its BootReceiver.</p>
-            <p><strong>Hardware button behaviour on Hytera P50:</strong></p>
-            <p>• Side PTT button (keycode 142 via vendor broadcast): push to talk</p>
-            <p>• Triple-tap PTT within 1.2s: toggle lone-worker shift</p>
-            <p>• Channel rotary knob (F5/F6): previous/next channel</p>
-            <p>• Green/red/F3/F4 keys: owned by the ROM, not intercepted by the app</p>
+            <ul>
+                <li>Favourites &rarr; add server <code>voice.harro.ch:443</code> with the user's Mumble credentials</li>
+                <li>Settings &rarr; GPS tracking &rarr; Traccar server URL: <code>http://voice.harro.ch:5055</code></li>
+                <li>Settings &rarr; Admin API &rarr; Admin server URL: <code>https://ptt.harro.ch</code> (required for triple-tap shift control)</li>
+                <li>Grant runtime permissions: <code>ACCESS_FINE_LOCATION</code> (GPS) and <code>RECORD_AUDIO</code> (voice). Example: <code>adb shell pm grant ch.harro.openptt android.permission.ACCESS_FINE_LOCATION</code></li>
+            </ul>
+            <p><strong>Device settings:</strong> disable battery optimisation for openPTT. Enable background running. The app auto-connects on boot via its BootReceiver.</p>
+            <p><strong>Hardware-button behaviour on the Hytera P50:</strong></p>
+            <ul>
+                <li>Side PTT button (keycode 142 via vendor broadcast): push to talk</li>
+                <li>Triple-tap PTT within 1.2 s: toggle lone-worker shift</li>
+                <li>Channel rotary knob (F5 / F6): previous / next channel</li>
+                <li>Green button (KEYCODE_CALL): mute toggle in Phone channel (SIP)</li>
+                <li>MENU key (KEYCODE_MENU): hangup in Phone channel (SIP)</li>
+                <li>Red / F3 / F4 keys: owned by the ROM, not intercepted</li>
+            </ul>
         </div>
 
-        <h2 id="ports">Network & Ports</h2>
+        <h2 id="ports"><span class="num">16</span> Network &amp; Ports</h2>
         <div class="feature">
-            <h3>Server Ports</h3>
+            <h3>Server ports</h3>
             <table>
                 <tr><th>Port</th><th>Protocol</th><th>Service</th></tr>
                 <tr><td>443</td><td>TCP</td><td>Mumble voice (via Nginx SNI) + HTTPS admin</td></tr>
                 <tr><td>80</td><td>TCP</td><td>HTTP redirect to HTTPS</td></tr>
-                <tr><td>64738</td><td>TCP+UDP</td><td>Mumble voice (direct fallback)</td></tr>
-                <tr><td>5055</td><td>TCP+UDP</td><td>Traccar GPS client</td></tr>
+                <tr><td>64738</td><td>TCP + UDP</td><td>Mumble voice (direct fallback)</td></tr>
+                <tr><td>5055</td><td>TCP + UDP</td><td>Traccar GPS client</td></tr>
+                <tr><td>5060</td><td>UDP</td><td>SIP (DIDWW inbound only)</td></tr>
             </table>
         </div>
 
-        <p style="margin-top:3rem;color:var(--muted);font-size:0.75rem;text-align:center">openPTT TRX — Self-hosted Push-to-Talk for field operations</p>
-    </div>
+        <div class="colophon">openPTT TRX &middot; self-hosted push-to-talk for field operations</div>
+    </main>
+
     <script>
     function initTheme() {
         var t = localStorage.getItem('ptt_theme') || 'dark';
         document.documentElement.setAttribute('data-theme', t);
         var b = document.getElementById('helpThemeBtn');
-        if (b) b.textContent = t === 'dark' ? '\u263E' : '\u2600';
+        if (b) b.innerHTML = t === 'dark' ? '&#9790;' : '&#9728;';
     }
     function toggleTheme() {
         var c = document.documentElement.getAttribute('data-theme') || 'dark';
@@ -249,7 +599,7 @@
         document.documentElement.setAttribute('data-theme', n);
         localStorage.setItem('ptt_theme', n);
         var b = document.getElementById('helpThemeBtn');
-        if (b) b.textContent = n === 'dark' ? '\u263E' : '\u2600';
+        if (b) b.innerHTML = n === 'dark' ? '&#9790;' : '&#9728;';
     }
     initTheme();
     </script>

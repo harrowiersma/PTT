@@ -1156,6 +1156,11 @@
         <div class="modal-content" style="text-align:left;max-width:420px">
             <h2 style="font-size:1rem;margin-bottom:var(--space-md)">Provisioning link — <span id="provUserName"></span></h2>
             <input type="hidden" id="provUserId">
+            <div style="font-size:0.8125rem;color:var(--fg-muted);margin-bottom:var(--space-md);padding:var(--space-sm);border:1px solid var(--color-border);border-radius:var(--radius-sm);background:var(--bg-alt)">
+                <strong style="color:var(--color-text)">Run the link on your laptop, not the P50.</strong>
+                Plug the P50 in over USB with USB debugging on; the script drives <code>adb</code> from your Mac/PC to install the app and seed credentials.
+                <a id="provHelpLink" href="#" target="_blank" rel="noopener" style="display:inline-block;margin-top:var(--space-xs);color:var(--color-accent)">Full setup guide &rarr;</a>
+            </div>
             <div id="provCreateRow" style="margin-bottom:var(--space-md)">
                 <label style="font-size:0.8125rem;display:block;margin-bottom:var(--space-xs)">Mumble password (plaintext — admin must supply; DB only has the hash)</label>
                 <input type="password" id="provPassword" placeholder="Type the user's Mumble password" style="width:100%;padding:var(--space-sm);border:1px solid var(--color-border);border-radius:var(--radius-sm);margin-bottom:var(--space-sm)">
@@ -1820,6 +1825,11 @@
         document.getElementById('provPassword').value = '';
         document.getElementById('provResultRow').style.display = 'none';
         _provLastUrl = '';
+        // Help link points at the Broadcast-styled help page, anchored
+        // at the provisioning section. The plain-text /api/provisioning/help
+        // endpoint is still available for the script_help header block in
+        // provisioning.py — this link is the user-friendly one.
+        document.getElementById('provHelpLink').href = '/help.html#provisioning';
         document.getElementById('provisioningModal').style.display = 'flex';
         refreshProvisioningList();
     }
@@ -1843,6 +1853,10 @@
         // the dead chart.googleapis.com path.
         document.getElementById('provQr').src =
             '/api/provisioning/tokens/' + encodeURIComponent(result.slug) + '/qr.png';
+        // Always keep the help link pointing at the styled guide. The
+        // slug-specific plain-text version is served at
+        // /api/provisioning/script/<slug>/help if a script needs it.
+        document.getElementById('provHelpLink').href = '/help.html#provisioning';
         document.getElementById('provResultRow').style.display = 'block';
         document.getElementById('provPassword').value = '';
         showToast('Provisioning link generated', 'success');

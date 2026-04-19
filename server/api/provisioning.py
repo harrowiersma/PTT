@@ -371,17 +371,78 @@ async def fetch_apk():
     )
 
 
+def _render_help_text(slug: Optional[str]) -> str:
+    """Setup-guide body used both with and without a concrete slug.
+
+    When `slug` is None the commands show a `<slug>` placeholder so
+    operators can read the guide before generating a link.
+    """
+    base = settings.admin_public_url.rstrip("/")
+    link = f"{base}/p/{slug}" if slug else f"{base}/p/<slug>"
+    return (
+        "openPTT — device provisioning\n"
+        "=============================\n"
+        "\n"
+        "WHERE TO RUN\n"
+        "------------\n"
+        "Run the script on your LAPTOP (Mac or PC), NOT on the P50.\n"
+        "The P50 receives the APK + config over the USB cable from the\n"
+        "laptop via adb. It cannot run the script itself.\n"
+        "\n"
+        "PREREQUISITES (on the laptop)\n"
+        "-----------------------------\n"
+        "  1. adb installed and on PATH (Android platform-tools).\n"
+        "     macOS:   brew install --cask android-platform-tools\n"
+        "     Windows: https://developer.android.com/tools/releases/platform-tools\n"
+        "  2. sqlite3 installed and on PATH (ships with macOS + most Linux;\n"
+        "     on Windows: winget install SQLite.SQLite).\n"
+        "  3. The P50 plugged in via USB, with Developer Options ->\n"
+        "     USB debugging enabled, and the RSA fingerprint dialog\n"
+        "     accepted on the handset the first time you connect.\n"
+        "  4. Exactly one P50 connected. Multiple devices or no devices\n"
+        "     will abort the script with a clear error.\n"
+        "\n"
+        "SHORT LINK\n"
+        "----------\n"
+        f"  {link}\n"
+        "\n"
+        "COMMANDS\n"
+        "--------\n"
+        f"  macOS / Linux:   curl -fsSL {link} -o setup.sh && bash setup.sh\n"
+        f"  Windows (PS):    Invoke-WebRequest {link} -OutFile setup.ps1; .\\setup.ps1\n"
+        "\n"
+        "WHAT THE SCRIPT DOES\n"
+        "--------------------\n"
+        "  - Verifies one P50 connected over adb.\n"
+        "  - Downloads and installs the signed openPTT APK.\n"
+        "  - Grants RECORD_AUDIO and location runtime permissions.\n"
+        "  - Seeds SharedPreferences (admin URL, Traccar URL, defaults).\n"
+        "  - Seeds the Humla mumble.db with the user's Mumble credentials.\n"
+        "  - Launches the app so the service registers and auto-connects.\n"
+        "\n"
+        "TOKEN LIFETIME\n"
+        "--------------\n"
+        "  Short links expire 24 hours after creation. Each is single-use;\n"
+        "  the admin dashboard marks a token 'used' once the script finishes\n"
+        "  successfully. Generate a new one for each device.\n"
+        "\n"
+        "If the script errors, re-run it — every step is idempotent. If a\n"
+        "step keeps failing, copy the error and ping the admin.\n"
+    )
+
+
+@router.get("/help", response_class=PlainTextResponse)
+async def script_help_generic():
+    """Slug-less guide for the modal's 'read this first' link.
+
+    Shows the same text with a <slug> placeholder where the concrete
+    short-link would go, so operators can read the setup gotchas before
+    generating a token.
+    """
+    return _render_help_text(None)
+
+
 @router.get("/script/{slug}/help", response_class=PlainTextResponse)
 async def script_help(slug: str):
-    """Human-readable fallback for uncertain User-Agents. Not currently
-    auto-served — the OS detector falls back to bash — but wired so a
-    support tech can link the user here.
-    """
-    return (
-        "openPTT provisioning\n"
-        "\n"
-        f"Short link: {settings.admin_public_url.rstrip('/')}/p/{slug}\n"
-        "\n"
-        "macOS / Linux:  curl -fsSL <link> -o setup.sh && bash setup.sh\n"
-        "Windows (PS):  Invoke-WebRequest <link> -OutFile setup.ps1; .\\setup.ps1\n"
-    )
+    """Human-readable setup guide with a specific slug baked in."""
+    return _render_help_text(slug)
