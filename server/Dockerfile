@@ -26,7 +26,19 @@ COPY . /app/server/
 RUN chmod +x /app/server/entrypoint.sh
 
 RUN useradd -r -m -d /home/pttadmin -s /bin/false pttadmin && \
-    chown -R pttadmin:pttadmin /home/pttadmin
+    chown -R pttadmin:pttadmin /home/pttadmin && \
+    # Add pttadmin to the murmur group (GID 10000) so it can read
+    # mumble-server.sqlite on the shared `murmur-data` volume — needed
+    # for admin_sqlite's direct-edit path (create channel / reset user
+    # registration). GID matches the mumblevoip/mumble-server image.
+    groupadd -g 10000 murmur && \
+    usermod -a -G murmur pttadmin && \
+    # And the docker group so the container can call the mounted
+    # /var/run/docker.sock. GID 988 matches the host we deploy to; if
+    # that drifts, re-enumerate here. The fallback is running admin as
+    # root, which we want to avoid.
+    groupadd -g 988 docker-sock || true && \
+    usermod -a -G docker-sock pttadmin
 USER pttadmin
 ENV HOME=/home/pttadmin
 
