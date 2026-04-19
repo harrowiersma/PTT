@@ -87,6 +87,59 @@ step "Installing APK"
 adb -s "$SERIAL" install -r "$APK_FILE" || fail "adb install failed" "adb install -r openptt.apk"
 ok "APK installed"
 
+# 4b. Stand down Hytera's stock PTT apps when present.
+# hiTalk / HM Client (the factory Hytera PoC client) fights openPTT for
+# PTT key events. We target a precise allowlist of known package names
+# rather than a pattern match — the P50 ships with unrelated Hytera
+# packages (factory-mode, Hytera Market, the `com.poc.inputmethod.poc`
+# keycode-142 IME) that we MUST leave alone. `pm disable-user` is
+# reversible (factory reset or `pm enable` brings it back).
+step "Disabling Hytera stock PTT client (hiTalk) if present"
+HITALK_CANDIDATES=(
+    com.hytera.hitalk
+    com.hytera.hmtalk
+    com.hytera.hmclient
+    com.hytera.hmcm
+    com.hytera.pocapp
+    com.hytera.poc
+    com.hytera.ptt
+    com.hyt.hitalk
+    com.hyt.hmcm
+)
+DISABLED_ANY=0
+for PKG_CAND in "${HITALK_CANDIDATES[@]}"; do
+    # Check existence first — the factory P50s we have don't ship any
+    # of these, so the loop is typically a no-op.
+    if ! adb -s "$SERIAL" shell "pm list packages ${PKG_CAND}" 2>/dev/null | grep -q "package:${PKG_CAND}$"; then
+        continue
+    fi
+    if adb -s "$SERIAL" shell pm disable-user --user 0 "$PKG_CAND" >/dev/null 2>&1; then
+        ok "disabled $PKG_CAND"
+        DISABLED_ANY=1
+    else
+        printf '    (could not disable %s — may be protected; reversible via pm enable)\n' "$PKG_CAND"
+    fi
+done
+if [[ "$DISABLED_ANY" -eq 0 ]]; then
+    ok "no hiTalk-family packages found — skipping"
+fi
+
+# 4c. Battery optimization + Doze whitelist.
+# Without this the MumlaService gets killed after ~30 min of screen-off,
+# PTT broadcasts never arrive, and GPS reporting stops. The whitelist
+# survives reboot. `appops` is best-effort (OEM ROMs sometimes lock it).
+step "Exempting openPTT from battery optimization"
+adb -s "$SERIAL" shell "dumpsys deviceidle whitelist +${PACKAGE}" >/dev/null 2>&1 \
+    && ok "added to Doze whitelist" \
+    || printf '    (Doze whitelist add failed — ROM may ignore this)\n'
+adb -s "$SERIAL" shell "cmd appops set ${PACKAGE} RUN_IN_BACKGROUND allow" >/dev/null 2>&1 \
+    && ok "RUN_IN_BACKGROUND allowed" \
+    || printf '    (appops RUN_IN_BACKGROUND not honoured by this ROM)\n'
+adb -s "$SERIAL" shell "cmd appops set ${PACKAGE} RUN_ANY_IN_BACKGROUND allow" >/dev/null 2>&1 \
+    && ok "RUN_ANY_IN_BACKGROUND allowed" \
+    || true
+
+
 # 5. Runtime permissions.
 step "Granting runtime permissions"
 for PERM in android.permission.RECORD_AUDIO \

@@ -507,11 +507,14 @@ Invoke-WebRequest https://ptt.harro.ch/p/&lt;slug&gt; -OutFile setup.ps1
             <ul>
                 <li>Verifies exactly one P50 is connected over adb</li>
                 <li>Downloads and installs the signed openPTT APK</li>
+                <li>Disables any Hytera stock PTT client (hiTalk / HM Client) when present. Uses a precise package allowlist — <strong>leaves the PTT keycode-142 input method (<code>com.poc.inputmethod.poc</code>), Hytera Market, and Hytera Factory Mode alone</strong>. Reversible via <code>pm enable</code>.</li>
                 <li>Grants <code>RECORD_AUDIO</code>, <code>ACCESS_FINE_LOCATION</code>, <code>ACCESS_COARSE_LOCATION</code> runtime perms</li>
-                <li>Seeds SharedPreferences (admin URL, Traccar URL, defaults)</li>
+                <li>Adds openPTT to the Doze whitelist and grants <code>RUN_IN_BACKGROUND</code> / <code>RUN_ANY_IN_BACKGROUND</code>, so the MumlaService survives long periods of screen-off without the ROM killing it</li>
+                <li>Seeds SharedPreferences (admin URL, Traccar URL, auto-connect, PTT input method)</li>
                 <li>Seeds the Humla <code>mumble.db</code> with the user's Mumble credentials</li>
                 <li>Launches MumlaActivity so the service registers and auto-connects</li>
             </ul>
+            <p><strong>Note on our P50 fleet:</strong> the devices we ship do not come with a hiTalk client pre-installed. The Hytera packages on the stock image (<code>com.hytera.hyterafactorymode</code>, <code>com.hytera.market</code>, <code>com.poc.inputmethod.poc</code>) are intentionally left enabled — the last one is what turns the side PTT button into <code>KEYCODE 142</code> that openPTT listens for. The hiTalk disable step is there for devices sourced elsewhere.</p>
             <p><strong>Prerequisites on the laptop:</strong></p>
             <ul>
                 <li><code>adb</code> in PATH (<code>brew install --cask android-platform-tools</code> on macOS; <a href="https://developer.android.com/tools/releases/platform-tools" target="_blank" rel="noopener">Android platform-tools</a> on Windows)</li>
