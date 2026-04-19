@@ -181,3 +181,31 @@ class SipNumberResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# --- Device provisioning ---
+
+class ProvisioningTokenCreate(BaseModel):
+    """Body for POST /api/provisioning/tokens.
+
+    The plaintext Mumble password is supplied by the admin at generation
+    time (we only store a bcrypt hash on ``users.mumble_password``, and
+    Humla needs the plaintext to seed its sqlite row). The admin already
+    knows it because they set it when they created the account.
+    """
+    user_id: int = Field(ge=1)
+    password: str = Field(min_length=4, max_length=256)
+
+
+class ProvisioningTokenResponse(BaseModel):
+    slug: str
+    url: str
+    user_id: int
+    username: str
+    created_at: datetime
+    expires_at: datetime
+    used_at: datetime | None = None
+    os_fetched: str | None = None
+
+    model_config = {"from_attributes": True}
+

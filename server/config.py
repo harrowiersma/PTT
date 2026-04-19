@@ -26,6 +26,22 @@ class Settings(BaseSettings):
     public_host: str = "localhost"
     public_port: int = 443
 
+    # Admin dashboard public URL. Used by the provisioning script template
+    # so the generated setup script can fetch the APK and call back to
+    # /api/provisioning/tokens/<slug>/completed. NOT the Mumble voice host
+    # (that's PUBLIC_HOST) — this is the HTTPS admin surface.
+    admin_public_url: str = "https://ptt.harro.ch"
+
+    # OsmAnd protocol (Traccar) URL — openPTT app's LocationReporter target.
+    # Embedded in the provisioning script's seeded SharedPreferences.
+    traccar_osmand_url: str = "http://ptt.harro.ch:5055"
+
+    # Filesystem path inside the admin container where the signed APK is
+    # published. The /apk/openptt-foss-debug.apk endpoint serves this file.
+    # Follow-up: wire the CI release pipeline to write here via a shared
+    # volume. For MVP the file is absent and the endpoint returns 404.
+    provisioning_apk_path: str = "/var/openptt/apk/openptt-foss-debug.apk"
+
     # Traccar GPS tracking
     traccar_api_url: str = "http://traccar:8082"
     traccar_admin_email: str = "admin@ptt.local"

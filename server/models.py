@@ -194,6 +194,41 @@ class DispatchLocation(Base):
     )
 
 
+class DeviceProvisioningToken(Base):
+    """One-click provisioning short-link for a P50 handset.
+
+    Field tech opens ``ptt.harro.ch/p/<slug>`` on their laptop, the server
+    sniffs their User-Agent and serves the OS-appropriate ADB-driven setup
+    script with per-device config baked in. Single-use, 24 h TTL — ``used_at``
+    is stamped by a POST-back from the completed script, not on the initial
+    script GET (so a botched run can be retried from the same link within
+    its TTL).
+
+    ``mumble_password_plaintext`` lives here because the primary ``users``
+    row only has a bcrypt hash and the Humla Mumble client needs the
+    plaintext to seed its sqlite server row. Reveal is one-shot at token
+    creation; after that the only code path that reads it is the template
+    renderer inside this container.
+    """
+    __tablename__ = "device_provisioning_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    slug: Mapped[str] = mapped_column(String(16), unique=True, nullable=False)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    mumble_password_plaintext: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+    expires_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+    )
+    used_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    # "macos" | "windows" | "linux" | NULL — stamped on first GET of /p/<slug>
+    os_fetched: Mapped[str] = mapped_column(String(16), nullable=True)
+
+
 class DeviceHealth(Base):
     __tablename__ = "device_health"
 

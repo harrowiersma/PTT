@@ -1134,6 +1134,11 @@
             <div id="editCanAnswerCallsRow" style="margin-bottom:var(--space-md)">
                 <label style="font-size:0.8125rem;display:flex;align-items:center;gap:var(--space-xs)"><input type="checkbox" id="editCanAnswerCalls"> Can answer SIP calls (Phone channel access)</label>
             </div>
+            <div id="editProvisioningRow" style="margin-bottom:var(--space-md);padding:var(--space-sm);border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-alt)">
+                <div style="font-size:0.75rem;color:var(--fg-muted);margin-bottom:var(--space-xs)">Device provisioning</div>
+                <button class="btn" style="font-size:0.8125rem" onclick="openProvisioningModal()">Generate provisioning link</button>
+                <div style="font-size:0.6875rem;color:var(--fg-muted);margin-top:var(--space-xs)">One-click P50 setup via USB. 24 h TTL, single use.</div>
+            </div>
             <div id="editMurmurAdminRow" style="margin-bottom:var(--space-md);padding:var(--space-sm);border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-alt)">
                 <div style="font-size:0.75rem;color:var(--muted);margin-bottom:var(--space-xs)">Advanced — destructive</div>
                 <button class="btn" style="font-size:0.8125rem" onclick="resetMurmurRegistration()">Reset Murmur registration</button>
@@ -1142,6 +1147,37 @@
             <div style="display:flex;gap:var(--space-sm);justify-content:flex-end">
                 <button class="btn" onclick="closeModal('editUserModal')">Cancel</button>
                 <button class="btn primary" onclick="saveUserEdit()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Provisioning link modal -->
+    <div class="modal-overlay" id="provisioningModal" style="display:none" onclick="if(event.target===this)closeModal('provisioningModal')" role="dialog" aria-label="Provisioning link">
+        <div class="modal-content" style="text-align:left;max-width:420px">
+            <h2 style="font-size:1rem;margin-bottom:var(--space-md)">Provisioning link — <span id="provUserName"></span></h2>
+            <input type="hidden" id="provUserId">
+            <div id="provCreateRow" style="margin-bottom:var(--space-md)">
+                <label style="font-size:0.8125rem;display:block;margin-bottom:var(--space-xs)">Mumble password (plaintext — admin must supply; DB only has the hash)</label>
+                <input type="password" id="provPassword" placeholder="Type the user's Mumble password" style="width:100%;padding:var(--space-sm);border:1px solid var(--color-border);border-radius:var(--radius-sm);margin-bottom:var(--space-sm)">
+                <div style="display:flex;gap:var(--space-sm);justify-content:flex-end">
+                    <button class="btn primary" onclick="createProvisioningToken()">Generate link</button>
+                </div>
+            </div>
+            <div id="provResultRow" style="display:none;margin-bottom:var(--space-md);padding:var(--space-sm);border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-alt)">
+                <div class="eyebrow" style="margin-bottom:var(--space-xs)">Link (expires in 24 h)</div>
+                <div id="provUrl" style="font-family:var(--ff-mono);font-size:0.8125rem;word-break:break-all;margin-bottom:var(--space-sm)"></div>
+                <div style="display:flex;gap:var(--space-sm);align-items:center;margin-bottom:var(--space-sm)">
+                    <button class="btn" style="font-size:0.8125rem" onclick="copyProvisioningUrl()">Copy</button>
+                    <span id="provExpires" style="font-size:0.75rem;color:var(--fg-muted)"></span>
+                </div>
+                <img id="provQr" alt="" style="width:180px;height:180px;background:#fff;border-radius:var(--radius-sm);padding:var(--space-xs);display:block">
+            </div>
+            <div id="provListRow" style="margin-bottom:var(--space-md)">
+                <div class="eyebrow" style="margin-bottom:var(--space-xs)">Active links</div>
+                <div id="provList" style="font-size:0.8125rem"></div>
+            </div>
+            <div style="display:flex;gap:var(--space-sm);justify-content:flex-end">
+                <button class="btn" onclick="closeModal('provisioningModal')">Close</button>
             </div>
         </div>
     </div>
@@ -1690,6 +1726,7 @@
         document.getElementById('editLoneWorkerRow').style.display = 'block';
         document.getElementById('editCanAnswerCallsRow').style.display = 'block';
         document.getElementById('editMurmurAdminRow').style.display = 'block';
+        document.getElementById('editProvisioningRow').style.display = 'block';
         document.getElementById('editUserModal').style.display = 'flex';
     }
 
@@ -1704,6 +1741,7 @@
         document.getElementById('editLoneWorkerRow').style.display = 'none';
         document.getElementById('editCanAnswerCallsRow').style.display = 'none';
         document.getElementById('editMurmurAdminRow').style.display = 'none';
+        document.getElementById('editProvisioningRow').style.display = 'none';
         document.getElementById('editTraccarDevice').parentElement.style.display = 'none';
         document.getElementById('editTraccarDevice').previousElementSibling.style.display = 'none';
         document.getElementById('editDisplayName').parentElement.previousElementSibling.style.display = 'none';
@@ -1767,6 +1805,93 @@
         const result = await api('/api/users/' + id + '/reset-murmur-registration', { method: 'POST' });
         if (result) {
             showToast(result.deleted ? 'Registration cleared; murmur restarted' : 'No registration existed for this user', result.deleted ? 'success' : 'info');
+        }
+    }
+
+    // === PROVISIONING LINKS ===
+    let _provLastUrl = '';
+
+    async function openProvisioningModal() {
+        const id = document.getElementById('editUserId').value;
+        const username = document.getElementById('editUserName').textContent;
+        if (!id) return;
+        document.getElementById('provUserId').value = id;
+        document.getElementById('provUserName').textContent = username;
+        document.getElementById('provPassword').value = '';
+        document.getElementById('provResultRow').style.display = 'none';
+        _provLastUrl = '';
+        document.getElementById('provisioningModal').style.display = 'flex';
+        refreshProvisioningList();
+    }
+
+    async function createProvisioningToken() {
+        const id = parseInt(document.getElementById('provUserId').value, 10);
+        const password = document.getElementById('provPassword').value;
+        if (!password) { showToast('Enter the Mumble password first', 'error'); return; }
+        const result = await api('/api/provisioning/tokens', {
+            method: 'POST',
+            body: JSON.stringify({ user_id: id, password: password }),
+        });
+        if (!result) return;
+        _provLastUrl = result.url;
+        document.getElementById('provUrl').textContent = result.url;
+        const exp = new Date(result.expires_at);
+        document.getElementById('provExpires').textContent = 'Expires ' + exp.toLocaleString();
+        // Render QR via a no-dep, off-dashboard service; we already use
+        // qrcode server-side for Mumble QRs (see /api/users/{id}/qr.png).
+        // Here we use a lightweight Google Chart fallback — no new deps,
+        // no new CSS.
+        document.getElementById('provQr').src =
+            'https://chart.googleapis.com/chart?chs=240x240&cht=qr&chl=' +
+            encodeURIComponent(result.url);
+        document.getElementById('provResultRow').style.display = 'block';
+        document.getElementById('provPassword').value = '';
+        showToast('Provisioning link generated', 'success');
+        refreshProvisioningList();
+    }
+
+    function copyProvisioningUrl() {
+        if (!_provLastUrl) return;
+        navigator.clipboard.writeText(_provLastUrl).then(
+            () => showToast('Link copied', 'success'),
+            () => showToast('Copy failed — select the URL manually', 'error')
+        );
+    }
+
+    async function refreshProvisioningList() {
+        const userId = parseInt(document.getElementById('provUserId').value, 10);
+        const data = await api('/api/provisioning/tokens');
+        const container = document.getElementById('provList');
+        if (!data) { container.innerHTML = '<div style="color:var(--fg-muted)">Could not load tokens</div>'; return; }
+        const now = new Date();
+        const mine = data.filter(t => t.user_id === userId && new Date(t.expires_at) > now);
+        if (mine.length === 0) {
+            container.innerHTML = '<div style="color:var(--fg-muted)">No active links for this user</div>';
+            return;
+        }
+        container.innerHTML = mine.map(t => {
+            const status = t.used_at
+                ? '<span class="badge">used</span>'
+                : '<span class="badge online">active</span>';
+            const exp = new Date(t.expires_at).toLocaleString();
+            return '<div style="display:flex;justify-content:space-between;align-items:center;gap:var(--space-sm);padding:var(--space-xs) 0;border-bottom:1px solid var(--border-soft)">' +
+                '<div><code style="font-size:0.75rem">' + esc(t.slug) + '</code> ' + status + '<div style="font-size:0.6875rem;color:var(--fg-muted)">expires ' + esc(exp) + (t.os_fetched ? ' — fetched on ' + esc(t.os_fetched) : '') + '</div></div>' +
+                '<button class="btn danger" style="font-size:0.75rem" onclick="revokeProvisioningToken(\'' + esc(t.slug) + '\')">Revoke</button>' +
+                '</div>';
+        }).join('');
+    }
+
+    async function revokeProvisioningToken(slug) {
+        if (!confirm('Revoke provisioning link ' + slug + '?')) return;
+        const res = await fetch('/api/provisioning/tokens/' + encodeURIComponent(slug), {
+            method: 'DELETE',
+            headers: { 'Authorization': 'Bearer ' + token },
+        });
+        if (res.ok || res.status === 204) {
+            showToast('Link revoked', 'success');
+            refreshProvisioningList();
+        } else {
+            showToast('Revoke failed', 'error');
         }
     }
 

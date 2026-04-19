@@ -1,0 +1,166 @@
+#!/usr/bin/env bash
+# openPTT one-click P50 provisioning — macOS / Linux edition.
+#
+# Rendered per-device by server/api/provisioning.py. Do not edit the
+# rendered copy; edit the template at provisioning/macos.sh.tmpl and
+# regenerate a token.
+#
+#   username        : {{username}}
+#   admin URL       : {{admin_url}}
+#   traccar URL     : {{traccar_url}}
+#   mumble host:port: {{mumble_host}}:{{mumble_port}}
+#   slug            : {{slug}}
+
+set -euo pipefail
+
+USERNAME='{{username}}'
+MUMBLE_PASSWORD='{{mumble_password}}'
+ADMIN_URL='{{admin_url}}'
+TRACCAR_URL='{{traccar_url}}'
+MUMBLE_HOST='{{mumble_host}}'
+MUMBLE_PORT='{{mumble_port}}'
+SLUG='{{slug}}'
+
+PACKAGE='ch.harro.openptt'
+ACTIVITY="${PACKAGE}/se.lublin.mumla.app.MumlaActivity"
+
+TMPDIR_WORK=$(mktemp -d -t openptt-provision)
+trap 'rm -rf "$TMPDIR_WORK"' EXIT
+
+step() { printf '\n\033[1;36m==>\033[0m %s\n' "$1"; }
+ok()   { printf '    \033[32mOK\033[0m %s\n' "$1"; }
+fail() {
+    printf '\n\033[1;31m!! \033[0m %s\n' "$1" >&2
+    if [[ -n "${2:-}" ]]; then
+        printf '    command: %s\n' "$2" >&2
+    fi
+    printf '    Fix the issue above and rerun this script.\n' >&2
+    exit 1
+}
+
+# 1. Preflight: adb.
+step "Checking adb"
+if ! command -v adb >/dev/null 2>&1; then
+    cat >&2 <<'EOF'
+adb is not installed.
+
+Install options:
+  macOS:   brew install --cask android-platform-tools
+  Linux:   sudo apt install android-tools-adb   (Debian/Ubuntu)
+           sudo pacman -S android-tools         (Arch)
+  Other:   https://developer.android.com/tools/releases/platform-tools
+
+Install, open a new terminal, then rerun this script.
+EOF
+    exit 1
+fi
+ok "adb found: $(command -v adb)"
+
+# 2. Exactly one device?
+step "Detecting connected P50"
+DEVICE_LINES=$(adb devices | awk 'NR>1 && $2=="device" {print $1}')
+DEVICE_COUNT=$(printf '%s\n' "$DEVICE_LINES" | grep -c . || true)
+if [[ "$DEVICE_COUNT" -eq 0 ]]; then
+    fail "No device attached. Plug the P50 in via USB, confirm 'Allow USB debugging' on-screen, then rerun."
+fi
+if [[ "$DEVICE_COUNT" -gt 1 ]]; then
+    fail "$DEVICE_COUNT devices connected. Unplug all but the target P50 and rerun."
+fi
+SERIAL=$(printf '%s\n' "$DEVICE_LINES" | head -n1)
+ok "Device: $SERIAL"
+
+# 3. Download APK.
+step "Downloading APK"
+APK_URL="${ADMIN_URL}/apk/openptt-foss-debug.apk"
+APK_FILE="${TMPDIR_WORK}/openptt.apk"
+if command -v curl >/dev/null 2>&1; then
+    curl -fSL "$APK_URL" -o "$APK_FILE" || fail "APK download failed" "curl -fSL $APK_URL"
+elif command -v wget >/dev/null 2>&1; then
+    wget -q "$APK_URL" -O "$APK_FILE" || fail "APK download failed" "wget $APK_URL"
+else
+    fail "Need curl or wget to download the APK"
+fi
+ok "APK downloaded ($(wc -c <"$APK_FILE") bytes)"
+
+# 4. Install / upgrade.
+step "Installing APK"
+adb -s "$SERIAL" install -r "$APK_FILE" || fail "adb install failed" "adb install -r openptt.apk"
+ok "APK installed"
+
+# 5. Runtime permissions.
+step "Granting runtime permissions"
+for PERM in android.permission.RECORD_AUDIO \
+            android.permission.ACCESS_FINE_LOCATION \
+            android.permission.ACCESS_COARSE_LOCATION \
+            android.permission.POST_NOTIFICATIONS; do
+    if ! adb -s "$SERIAL" shell pm grant "$PACKAGE" "$PERM" 2>/dev/null; then
+        # POST_NOTIFICATIONS does not exist on pre-13 devices; soft-fail.
+        printf '    (skipped %s — may not apply to this Android version)\n' "$PERM"
+    else
+        ok "granted $PERM"
+    fi
+done
+
+# 6. Seed SharedPreferences.
+step "Seeding SharedPreferences"
+PREFS_XML="${TMPDIR_WORK}/prefs.xml"
+# Keys mirror se.lublin.mumla.Settings
+cat >"$PREFS_XML" <<EOF
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <string name="admin_url">${ADMIN_URL}</string>
+    <string name="traccar_url">${TRACCAR_URL}</string>
+    <boolean name="auto_connect" value="true" />
+    <boolean name="lone_worker_enabled" value="false" />
+    <string name="audioInputMethod">ptt</string>
+</map>
+EOF
+# App-private dirs block direct push; use run-as + cat.
+adb -s "$SERIAL" push "$PREFS_XML" "/data/local/tmp/openptt_prefs.xml" >/dev/null \
+    || fail "push of prefs.xml failed" "adb push prefs.xml /data/local/tmp/"
+adb -s "$SERIAL" shell "run-as $PACKAGE sh -c 'mkdir -p shared_prefs && cat /data/local/tmp/openptt_prefs.xml > shared_prefs/${PACKAGE}_preferences.xml'" \
+    || fail "seed of SharedPreferences failed" "run-as $PACKAGE cat > shared_prefs/${PACKAGE}_preferences.xml"
+adb -s "$SERIAL" shell "rm /data/local/tmp/openptt_prefs.xml" >/dev/null 2>&1 || true
+ok "SharedPreferences seeded"
+
+# 7. Seed Humla mumble.db.
+step "Seeding Humla server row"
+if ! command -v sqlite3 >/dev/null 2>&1; then
+    fail "sqlite3 not installed (needed to build mumble.db). Install via 'brew install sqlite' / 'apt install sqlite3' and rerun."
+fi
+MUMBLE_DB="${TMPDIR_WORK}/mumble.db"
+sqlite3 "$MUMBLE_DB" <<EOF
+CREATE TABLE server (
+    _id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    host TEXT NOT NULL,
+    port INTEGER,
+    username TEXT NOT NULL,
+    password TEXT
+);
+INSERT INTO server (name, host, port, username, password)
+VALUES ('openPTT', '${MUMBLE_HOST}', ${MUMBLE_PORT}, '${USERNAME}', '${MUMBLE_PASSWORD}');
+EOF
+adb -s "$SERIAL" push "$MUMBLE_DB" "/data/local/tmp/openptt_mumble.db" >/dev/null \
+    || fail "push of mumble.db failed" "adb push mumble.db"
+adb -s "$SERIAL" shell "run-as $PACKAGE sh -c 'mkdir -p databases && cat /data/local/tmp/openptt_mumble.db > databases/mumble.db'" \
+    || fail "seed of mumble.db failed" "run-as $PACKAGE cat > databases/mumble.db"
+adb -s "$SERIAL" shell "rm /data/local/tmp/openptt_mumble.db" >/dev/null 2>&1 || true
+ok "Humla mumble.db seeded with server=${MUMBLE_HOST} user=${USERNAME}"
+
+# 8. Launch app.
+step "Launching openPTT"
+adb -s "$SERIAL" shell am start -n "$ACTIVITY" >/dev/null \
+    || fail "app launch failed" "adb shell am start -n $ACTIVITY"
+ok "openPTT started on device"
+
+# 9. Mark token used.
+step "Reporting success to admin"
+if command -v curl >/dev/null 2>&1; then
+    curl -fsS -X POST "${ADMIN_URL}/api/provisioning/tokens/${SLUG}/completed" >/dev/null \
+        || printf '    (could not reach admin — token will stay un-marked, not fatal)\n'
+fi
+
+printf '\n\033[1;32m==>  Device %s provisioned for user %s.\033[0m\n' "$SERIAL" "$USERNAME"
+printf '    Mumble should auto-connect to %s:%s in a few seconds.\n' "$MUMBLE_HOST" "$MUMBLE_PORT"
+printf '    If it does not, verify USB debugging is still authorized and the device is online.\n\n'
