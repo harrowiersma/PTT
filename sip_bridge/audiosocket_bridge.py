@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
+import signal
 import socket
 import struct
 import sys
@@ -199,6 +200,11 @@ class Client:
         self._ul_count = 0
         self._dl_count = 0
         self._last_log = time.monotonic()
+        # Green-button mute: when True, the downlink sends silence to
+        # Asterisk regardless of Mumble activity. Radio users can step
+        # aside, talk in another channel, and come back without the
+        # caller overhearing. Toggled by SIGUSR2 from the admin.
+        self.mute_caller = False
 
     def enqueue_mumble(self, user_name: str, pcm48k: bytes) -> None:
         """Called from pymumble callback thread. Split to 20 ms pieces."""
@@ -287,20 +293,32 @@ class Client:
 
             slin8: Optional[bytes] = None
 
-            # Priority 1: Mumble audio, if available.
-            try:
-                frame_pcm = self._rx_queue.popleft()
-                slin8 = resample_48k_to_8k(frame_pcm)
-                if DOWNLINK_GAIN != 1.0:
-                    samples = np.frombuffer(slin8, dtype=np.int16).astype(np.float32)
-                    samples *= DOWNLINK_GAIN
-                    slin8 = np.clip(samples, -32768, 32767).astype(np.int16).tobytes()
-                ringback_idx = 0  # restart ringback from silent part next time
-            except IndexError:
-                # Priority 2: ringback if no human in Phone.
-                if not self._human_in_phone() and ringback_frames:
-                    slin8 = ringback_frames[ringback_idx % len(ringback_frames)]
-                    ringback_idx += 1
+            # Highest priority: muted → ship silence regardless of source.
+            # Radio users can hop to another channel and chat without the
+            # caller overhearing.
+            if self.mute_caller:
+                slin8 = b"\x00" * SLIN8_FRAME_BYTES
+                # Still drain the rx queue so we don't accumulate lag on unmute.
+                try:
+                    self._rx_queue.popleft()
+                except IndexError:
+                    pass
+                ringback_idx = 0
+            else:
+                # Priority 1: Mumble audio, if available.
+                try:
+                    frame_pcm = self._rx_queue.popleft()
+                    slin8 = resample_48k_to_8k(frame_pcm)
+                    if DOWNLINK_GAIN != 1.0:
+                        samples = np.frombuffer(slin8, dtype=np.int16).astype(np.float32)
+                        samples *= DOWNLINK_GAIN
+                        slin8 = np.clip(samples, -32768, 32767).astype(np.int16).tobytes()
+                    ringback_idx = 0  # restart ringback from silent part next time
+                except IndexError:
+                    # Priority 2: ringback if no human in Phone.
+                    if not self._human_in_phone() and ringback_frames:
+                        slin8 = ringback_frames[ringback_idx % len(ringback_frames)]
+                        ringback_idx += 1
 
             if slin8 is None:
                 continue
@@ -366,9 +384,41 @@ class Client:
                 pass
 
 
+def _install_control_signals(mumble) -> None:
+    """Radio-initiated call control via POSIX signals.
+
+    Admin's `/api/sip/hangup-current` and `/api/sip/mute-toggle`
+    endpoints call `docker exec pkill -USR1/-USR2 -f audiosocket_bridge`,
+    which delivers these here. Signals are the cleanest cross-container
+    control path on this setup — sip-bridge is host-networked and admin
+    is bridge-networked, so a loopback HTTP port between them would
+    require extra plumbing.
+    """
+    def _on_hangup(signum, frame):
+        client = getattr(mumble, "current_client", None)
+        if client is None:
+            LOG.info("SIGUSR1 received, no active call — ignoring")
+            return
+        LOG.info("SIGUSR1 received — radio-initiated hangup")
+        client.hangup_from_radio()
+
+    def _on_mute(signum, frame):
+        client = getattr(mumble, "current_client", None)
+        if client is None:
+            LOG.info("SIGUSR2 received, no active call — ignoring")
+            return
+        client.mute_caller = not client.mute_caller
+        LOG.info("SIGUSR2 received — mute_caller=%s", client.mute_caller)
+
+    signal.signal(signal.SIGUSR1, _on_hangup)
+    signal.signal(signal.SIGUSR2, _on_mute)
+    LOG.info("radio control signals installed (SIGUSR1=hangup, SIGUSR2=mute-toggle)")
+
+
 def serve() -> None:
     LOG.info("connecting to Mumble at %s:%d as PTTPhone", MUMBLE_HOST, MUMBLE_PORT)
     mumble = open_mumble(MUMBLE_HOST, MUMBLE_PORT)
+    _install_control_signals(mumble)
 
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

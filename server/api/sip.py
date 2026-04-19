@@ -18,6 +18,7 @@ import logging
 import os
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -267,6 +268,71 @@ async def put_sip_greeting(
             detail=f"Greeting saved to DB but push to sip-bridge failed: {err}",
         )
     return {"saved": True, "wav_bytes": wav_bytes, "pushed": True}
+
+
+# ---------------------------------------------------------------------------
+# Radio-initiated call control — hangup (KEYCODE_MENU) + mute-toggle
+# (KEYCODE_CALL green-button). App POSTs to these un-authed endpoints with
+# a username; we signal sip-bridge's Python process via `docker exec pkill`.
+# Signals are the cleanest cross-container control path here: sip-bridge
+# is host-networked while admin is bridge-networked, so a direct HTTP port
+# between them needs extra plumbing. Using the docker socket admin already
+# has mounted.
+# ---------------------------------------------------------------------------
+
+def _signal_sip_bridge(signame: str) -> None:
+    """Deliver `signame` (e.g. SIGUSR1) to the audiosocket_bridge process
+    inside the sip-bridge container. `pkill -<signame> -f audiosocket_bridge`
+    exits 0 if at least one process matched, 1 if none — we treat both as
+    success because "no bridge running" is a legitimate state (no call).
+    """
+    try:
+        import docker
+    except ImportError as e:
+        raise RuntimeError(f"docker SDK not available: {e}")
+    client = docker.from_env()
+    container = client.containers.get(SIP_BRIDGE_CONTAINER_NAME)
+    short = signame.replace("SIG", "")  # pkill wants -USR1 not -SIGUSR1
+    result = container.exec_run(["pkill", f"-{short}", "-f", "audiosocket_bridge"])
+    if result.exit_code not in (0, 1):
+        raise RuntimeError(
+            f"pkill exit={result.exit_code}: {result.output.decode('utf-8', 'replace').strip()}"
+        )
+
+
+class RadioCallControlRequest(BaseModel):
+    """App POSTs its Mumble username so we can log who triggered the action."""
+    username: str = Field(min_length=1, max_length=64)
+
+
+@router.post("/hangup-current")
+async def hangup_current_call(req: RadioCallControlRequest):
+    """End the in-flight phone call from the radio side. Called by the
+    P50 app when the MENU key is pressed while the user is in the Phone
+    channel. No auth — app and admin share the internal network only.
+    """
+    logger.info("radio hangup requested by user=%r", req.username)
+    try:
+        _signal_sip_bridge("SIGUSR1")
+    except Exception as e:
+        logger.error("hangup signal failed: %s", e)
+        raise HTTPException(status_code=503, detail=f"signal failed: {e}")
+    return {"ok": True, "action": "hangup", "username": req.username}
+
+
+@router.post("/mute-toggle")
+async def mute_toggle(req: RadioCallControlRequest):
+    """Toggle the caller-inaudible state. Called by the P50 app when the
+    green (KEYCODE_CALL) key is pressed in the Phone channel. Radio user
+    can still hear the caller; caller hears silence until the next toggle.
+    """
+    logger.info("radio mute toggle requested by user=%r", req.username)
+    try:
+        _signal_sip_bridge("SIGUSR2")
+    except Exception as e:
+        logger.error("mute signal failed: %s", e)
+        raise HTTPException(status_code=503, detail=f"signal failed: {e}")
+    return {"ok": True, "action": "mute-toggle", "username": req.username}
 
 
 # --- Numbers (DIDs) ---
