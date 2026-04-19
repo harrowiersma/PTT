@@ -1089,7 +1089,7 @@
             <img id="qrImage" src="" alt="QR code for device enrollment">
             <div class="instructions">
                 <ol>
-                    <li>Open <strong>HamMumble</strong> on the P50</li>
+                    <li>Open <strong>openPTT</strong> on the P50</li>
                     <li>Scan this QR code with the camera</li>
                     <li>Press the PTT button to test the connection</li>
                 </ol>
@@ -1837,13 +1837,12 @@
         document.getElementById('provUrl').textContent = result.url;
         const exp = new Date(result.expires_at);
         document.getElementById('provExpires').textContent = 'Expires ' + exp.toLocaleString();
-        // Render QR via a no-dep, off-dashboard service; we already use
-        // qrcode server-side for Mumble QRs (see /api/users/{id}/qr.png).
-        // Here we use a lightweight Google Chart fallback — no new deps,
-        // no new CSS.
+        // Render QR from the server — matches /api/users/{id}/qr.png.
+        // The slug IS the auth (it's already in the public URL), so the
+        // endpoint is anonymous; reusing qrcode[pil] server-side avoids
+        // the dead chart.googleapis.com path.
         document.getElementById('provQr').src =
-            'https://chart.googleapis.com/chart?chs=240x240&cht=qr&chl=' +
-            encodeURIComponent(result.url);
+            '/api/provisioning/tokens/' + encodeURIComponent(result.slug) + '/qr.png';
         document.getElementById('provResultRow').style.display = 'block';
         document.getElementById('provPassword').value = '';
         showToast('Provisioning link generated', 'success');

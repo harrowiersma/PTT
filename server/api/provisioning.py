@@ -29,8 +29,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
+import io
+
+import qrcode
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
-from fastapi.responses import FileResponse, PlainTextResponse, Response
+from fastapi.responses import FileResponse, PlainTextResponse, Response, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -277,6 +280,42 @@ async def fetch_script(
             "Cache-Control": "no-store",
         },
     )
+
+
+@router.get("/tokens/{slug}/qr.png")
+async def token_qr_image(
+    slug: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Serve a PNG QR encoding the public provisioning URL for `slug`.
+
+    Anonymous by design — the slug IS the auth, and the encoded URL is
+    the same short-link the admin would copy-paste into a chat. Avoids
+    leaning on a third-party chart service for something we already have
+    a server-side QR library for (matches /api/users/{id}/qr.png).
+    """
+    token = (
+        await db.execute(
+            select(DeviceProvisioningToken).where(DeviceProvisioningToken.slug == slug)
+        )
+    ).scalar_one_or_none()
+    if token is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    if _is_expired(token):
+        raise HTTPException(status_code=410, detail="Provisioning link expired")
+
+    admin_url = settings.admin_public_url.rstrip("/")
+    public_url = f"{admin_url}/p/{slug}"
+
+    qr = qrcode.QRCode(version=1, box_size=10, border=4)
+    qr.add_data(public_url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return StreamingResponse(buf, media_type="image/png")
 
 
 @router.post("/tokens/{slug}/completed", status_code=status.HTTP_200_OK)
