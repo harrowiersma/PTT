@@ -59,6 +59,11 @@ services:
       # perms line up without having to mount the data volume here.
       # See server/murmur/admin_sqlite.py.
       - /var/run/docker.sock:/var/run/docker.sock:rw
+      # Signed APK(s) served via the /apk/ route. Upload new builds to
+      # the host path; read-only mount means a misbehaving admin can't
+      # corrupt or overwrite the binary. See
+      # server/config.py::provisioning_apk_path.
+      - /var/openptt/apk:/var/openptt/apk:ro
     depends_on:
       - postgres
       - murmur
