@@ -199,7 +199,10 @@ the APK-flash cycle becomes the bottleneck.
 - Radio-initiated hangup gesture — every PTT pattern collides with an
   existing app shortcut; needs dedicated keycode handler (likely
   `KEYCODE_MENU` or `KEYCODE_CALL`) in openPTT-app first.
-- Admin-editable greeting text (currently env var).
+- ~~Admin-editable greeting text~~ — **Resolved 2026-04-19** via
+  `sip_trunks.greeting_text` + `PUT /api/sip/greeting` + live WAV
+  push to the sip-bridge container (commits `85dee5e`, `d9343aa`).
+  Dashboard SIP tab has a textarea with Save & regenerate.
 - Per-call sub-channels (`Phone/Call-N`) for concurrent-call support.
 - Green-button (`KEYCODE_CALL`) mute toggle per the CEO plan.
 - ACL enforcement on `Phone` channel entry based on `can_answer_calls`
