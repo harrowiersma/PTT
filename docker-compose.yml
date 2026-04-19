@@ -53,15 +53,12 @@ services:
     env_file:
       - .env
     volumes:
-      # Read/write access to Murmur's sqlite DB so admin can create
-      # channels and reset registrations. pymumble is a client API and
-      # can't do SuperUser ops; we edit the file directly and bounce
-      # murmur. See server/murmur/admin_sqlite.py.
-      - murmur-data:/murmur-data:rw
-      # Docker socket so admin can restart the murmur container after
-      # editing its sqlite file. Read-only is enough — we only call
-      # container restart, not create/destroy.
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Docker socket so admin can both `exec sqlite3` inside the murmur
+      # container (to create channels / reset user registrations) and
+      # `restart` it afterwards. Edits run as murmur's own user so file
+      # perms line up without having to mount the data volume here.
+      # See server/murmur/admin_sqlite.py.
+      - /var/run/docker.sock:/var/run/docker.sock:rw
     depends_on:
       - postgres
       - murmur

@@ -1,156 +1,105 @@
 """Unit tests for server.murmur.admin_sqlite.
 
-Uses a temporary sqlite file seeded with Murmur's real channels + users
-schema so we can exercise the helper without touching a live Murmur
-container. restart_murmur() is not covered here — it talks to the
-docker socket and is verified during deploy.
+admin_sqlite runs its edits via `docker exec sqlite3` inside the murmur
+container, so we mock `_sqlite_exec` to simulate Murmur's sqlite
+responses. restart_murmur() is exercised end-to-end during deploy.
 """
 from __future__ import annotations
 
-import sqlite3
-from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 
-# Canonical Murmur schema (extracted via
-#   docker exec ptt-murmur-1 sqlite3 /data/mumble-server.sqlite ".schema"
-# during Phase 2b-audio). We recreate it here so tests don't depend on
-# the image having been booted.
-_MURMUR_SCHEMA_SQL = """
-CREATE TABLE channels (
-    server_id INTEGER NOT NULL,
-    channel_id INTEGER NOT NULL,
-    parent_id INTEGER,
-    name TEXT,
-    inheritacl INTEGER
-);
-CREATE UNIQUE INDEX channel_id ON channels (server_id, channel_id);
-CREATE TABLE users (
-    server_id INTEGER NOT NULL,
-    user_id INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    pw TEXT,
-    lastchannel INTEGER,
-    texture BLOB,
-    last_active DATE
-);
-CREATE UNIQUE INDEX users_name ON users (server_id, name);
-CREATE TABLE user_info (
-    server_id INTEGER NOT NULL,
-    user_id INTEGER NOT NULL,
-    key INTEGER,
-    value TEXT
-);
-"""
-
-
 @pytest.fixture
-def murmur_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "mumble-server.sqlite"
-    conn = sqlite3.connect(str(db_path), isolation_level=None)
-    conn.executescript(_MURMUR_SCHEMA_SQL)
-    # Seed with the stock channels our test Murmur had.
-    conn.executemany(
-        "INSERT INTO channels (server_id, channel_id, parent_id, name, inheritacl) VALUES (?, ?, ?, ?, ?)",
-        [
-            (1, 0, None, "Root", 1),
-            (1, 1, 0, "Internal", 1),
-            (1, 3, 0, "Weather", 1),
-            (1, 4, 0, "Emergency", 1),
-        ],
-    )
-    # Seed one registered user.
-    conn.execute(
-        "INSERT INTO users (server_id, user_id, name) VALUES (1, 42, 'testuser')"
-    )
-    conn.close()
+def fake_sqlite():
+    """Patch _sqlite_exec so tests don't hit docker.
 
-    # Reload the module against this temp DB location.
-    monkeypatch.setenv("MURMUR_DATA_DIR", str(tmp_path))
-    import importlib
-    import server.murmur.admin_sqlite as admin_sqlite
-    importlib.reload(admin_sqlite)
-    yield admin_sqlite, db_path
-    # Leave cleanup to pytest's tmp_path.
+    Each test configures `calls` (list of recorded SQL) and
+    `responses` (list of stdout strings to return in order).
+    """
+    calls: list[str] = []
+    responses: list[str] = []
+
+    def _fake(sql: str) -> str:
+        calls.append(sql)
+        if not responses:
+            return ""
+        return responses.pop(0)
+
+    with patch("server.murmur.admin_sqlite._sqlite_exec", side_effect=_fake):
+        yield calls, responses
 
 
-def _channel_names(db_path: Path) -> list[str]:
-    with sqlite3.connect(str(db_path)) as conn:
-        return [row[0] for row in conn.execute(
-            "SELECT name FROM channels ORDER BY channel_id"
-        ).fetchall()]
+def test_ensure_channel_creates_when_missing(fake_sqlite):
+    calls, responses = fake_sqlite
+    # SELECT existing → empty ; SELECT MAX(id) → "4" ; INSERT → ""
+    responses.extend(["", "4", ""])
+    from server.murmur.admin_sqlite import ensure_channel_exists
+    cid = ensure_channel_exists("Phone")
+    assert cid == 5
+    assert any("INSERT INTO channels" in sql for sql in calls)
+    assert any("'Phone'" in sql for sql in calls)
 
 
-def _user_names(db_path: Path) -> list[str]:
-    with sqlite3.connect(str(db_path)) as conn:
-        return [row[0] for row in conn.execute(
-            "SELECT name FROM users ORDER BY user_id"
-        ).fetchall()]
+def test_ensure_channel_returns_existing_id(fake_sqlite):
+    calls, responses = fake_sqlite
+    # SELECT existing → "3" (Weather channel is at id=3 on prod)
+    responses.extend(["3"])
+    from server.murmur.admin_sqlite import ensure_channel_exists
+    cid = ensure_channel_exists("Weather")
+    assert cid == 3
+    # No INSERT should have happened.
+    assert not any("INSERT" in sql for sql in calls)
 
 
-class TestEnsureChannelExists:
-    def test_creates_new_channel(self, murmur_db):
-        admin_sqlite, db_path = murmur_db
-        cid = admin_sqlite.ensure_channel_exists("Phone")
-        assert cid > 0
-        assert "Phone" in _channel_names(db_path)
-
-    def test_idempotent_on_existing(self, murmur_db):
-        admin_sqlite, db_path = murmur_db
-        # "Weather" is seeded at id=3.
-        cid = admin_sqlite.ensure_channel_exists("Weather")
-        assert cid == 3
-        # No duplicate row.
-        assert _channel_names(db_path).count("Weather") == 1
-
-    def test_assigns_next_available_id(self, murmur_db):
-        admin_sqlite, db_path = murmur_db
-        # Seeded ids: 0,1,3,4 → next MAX+1 = 5.
-        cid = admin_sqlite.ensure_channel_exists("NewChan")
-        assert cid == 5
-
-    def test_respects_parent_id(self, murmur_db):
-        admin_sqlite, db_path = murmur_db
-        cid = admin_sqlite.ensure_channel_exists("Sub", parent_id=3)
-        with sqlite3.connect(str(db_path)) as conn:
-            parent = conn.execute(
-                "SELECT parent_id FROM channels WHERE channel_id=?", (cid,)
-            ).fetchone()[0]
-        assert parent == 3
+def test_ensure_channel_respects_parent(fake_sqlite):
+    calls, responses = fake_sqlite
+    responses.extend(["", "10", ""])
+    from server.murmur.admin_sqlite import ensure_channel_exists
+    cid = ensure_channel_exists("Sub", parent_id=3)
+    assert cid == 11
+    insert_sql = next(sql for sql in calls if "INSERT" in sql)
+    # parent_id=3 should be in the VALUES tuple.
+    assert ", 3, 'Sub', 1" in insert_sql
 
 
-class TestDeleteChannel:
-    def test_deletes_existing(self, murmur_db):
-        admin_sqlite, db_path = murmur_db
-        assert admin_sqlite.delete_channel("Internal") is True
-        assert "Internal" not in _channel_names(db_path)
-
-    def test_noop_for_missing(self, murmur_db):
-        admin_sqlite, db_path = murmur_db
-        assert admin_sqlite.delete_channel("DoesNotExist") is False
-        # Other channels untouched.
-        assert "Root" in _channel_names(db_path)
-        assert "Weather" in _channel_names(db_path)
+def test_delete_channel_present(fake_sqlite):
+    calls, responses = fake_sqlite
+    # SELECT 1 → "1" ; DELETE → ""
+    responses.extend(["1", ""])
+    from server.murmur.admin_sqlite import delete_channel
+    assert delete_channel("SmokeTest") is True
+    assert any("DELETE FROM channels" in sql for sql in calls)
 
 
-class TestDeleteUserRegistration:
-    def test_deletes_existing(self, murmur_db):
-        admin_sqlite, db_path = murmur_db
-        assert admin_sqlite.delete_user_registration("testuser") is True
-        assert "testuser" not in _user_names(db_path)
-
-    def test_noop_for_missing(self, murmur_db):
-        admin_sqlite, db_path = murmur_db
-        assert admin_sqlite.delete_user_registration("ghost") is False
-        assert "testuser" in _user_names(db_path)
+def test_delete_channel_missing(fake_sqlite):
+    calls, responses = fake_sqlite
+    responses.extend([""])  # SELECT returns nothing
+    from server.murmur.admin_sqlite import delete_channel
+    assert delete_channel("Ghost") is False
+    assert not any("DELETE" in sql for sql in calls)
 
 
-class TestConnectErrors:
-    def test_raises_when_sqlite_missing(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("MURMUR_DATA_DIR", str(tmp_path))  # empty dir
-        import importlib
-        import server.murmur.admin_sqlite as admin_sqlite
-        importlib.reload(admin_sqlite)
-        with pytest.raises(admin_sqlite.AdminSqliteError):
-            admin_sqlite.ensure_channel_exists("X")
+def test_delete_user_registration_present(fake_sqlite):
+    calls, responses = fake_sqlite
+    responses.extend(["1", ""])
+    from server.murmur.admin_sqlite import delete_user_registration
+    assert delete_user_registration("testuser") is True
+    assert any("DELETE FROM users" in sql for sql in calls)
+    assert any("'testuser'" in sql for sql in calls)
+
+
+def test_delete_user_registration_missing(fake_sqlite):
+    calls, responses = fake_sqlite
+    responses.extend([""])
+    from server.murmur.admin_sqlite import delete_user_registration
+    assert delete_user_registration("ghost") is False
+    assert not any("DELETE" in sql for sql in calls)
+
+
+def test_sql_quote_escapes_apostrophes():
+    from server.murmur.admin_sqlite import _sql_quote
+    assert _sql_quote("O'Brien") == "'O''Brien'"
+    assert _sql_quote("plain") == "'plain'"
+    assert _sql_quote("") == "''"
