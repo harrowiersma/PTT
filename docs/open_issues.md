@@ -169,26 +169,20 @@ Not urgent — only blocking if we expect to add several new PTT gestures and
 the APK-flash cycle becomes the bottleneck.
 
 ### Server — deferred (low risk, separate focused session)
-- **#16 Murmur registered-user reset** — pymumble can't delete server-side
-  registrations. Implementation needs to share the `murmur-data` volume
-  into the admin container and modify `mumble-server.sqlite` directly, or
-  introduce an alternate channel. Current manual workaround (SSH +
-  `docker exec` + sqlite3) is documented and works.
 
-- **Dashboard "Create Channel" doesn't actually create in Murmur** — same
-  root cause as #16. `POST /api/channels` inserts into the Postgres
-  `channels` table and calls `MurmurClient.create_channel()`, which calls
-  pymumble `new_channel()`. On this server the call silently returns
-  without creating the channel (anonymous pymumble clients don't have
-  the MakeChannel ACL on Root post-ICE-migration). Dashboard shows the
-  new row, but Mumble clients don't see it. Discovered during Phase
-  2b-audio when the `Phone` channel never materialized until we inserted
-  it directly into murmur's sqlite and restarted the container. Same
-  fix path: either share the murmur-data volume into admin and touch
-  sqlite + restart, OR re-enable ICE for administrative operations, OR
-  grant `MakeChannel` on Root to the `PTTAdmin` user in murmur's ACL
-  config. Until fixed, new channels need the same manual-sqlite +
-  murmur-restart dance we did for `Phone`.
+- ~~**#16 Murmur registered-user reset**~~ — **Resolved 2026-04-19** via
+  `server/murmur/admin_sqlite.py` (commits `75fd700`, `d602efe`). Admin
+  container mounts the host Docker socket and runs `docker exec sqlite3`
+  inside `ptt-murmur-1` to edit `mumble-server.sqlite` as murmur's own
+  user, then bounces the container. Exposed as
+  `POST /api/users/{user_id}/reset-murmur-registration`; dashboard
+  user-edit form has a "Reset Murmur registration" button.
+
+- ~~**Dashboard "Create Channel" doesn't actually create in Murmur"**~~
+  — **Resolved 2026-04-19** (same infrastructure). `MurmurClient.create_channel`
+  and `remove_channel` now fall back to the sqlite helper when pymumble's
+  call silently no-ops. Verified end-to-end: create → murmur sees it →
+  delete → gone.
 
 ### SIP gateway — partially shipped (Phase 2b-audio live 2026-04-18)
 
