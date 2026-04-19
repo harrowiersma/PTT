@@ -105,6 +105,40 @@ transmit path.
 
 ## Still open
 
+### Call groups — per-user channel-access scoping (implementation TBD)
+Today every user can see and join every channel the Mumble server
+knows about. As the fleet grows (multiple teams, sites, or customers
+sharing a server) we need a way to scope a user's visible channel set
+to a subset — a "call group."
+
+**Shape (sketched, not committed):**
+- New `call_groups` table + `user_call_groups` join table.
+- Each channel gets an optional `call_group_id` (null = visible to all,
+  the current default).
+- A user sees and can join only channels whose `call_group_id` is in
+  their group membership set, or is null.
+- Enforcement lives in `MurmurClient`: on `CHANNEL_CHANGE`, bounce a
+  user out of any channel whose `call_group_id` isn't in their set
+  (same mechanism as the Phone ACL in commit `01ee04c`).
+- Dashboard: a Call Groups tab under Directory. On the user edit form,
+  a multi-select of groups. On a channel edit form, a single-select.
+
+**Open questions:**
+- Do we also hide non-visible channels from the user's client channel
+  tree (requires Murmur-side ACL work, harder) or just bounce on entry
+  (simpler, uses the pattern we already have)?
+- How does this interact with the Phone / Call-N sub-channels? Probably
+  orthogonal — `can_answer_calls` gates Phone, call group gates the
+  broader channel tree.
+- Should there be a default "all users" group, or do new users start
+  with zero group memberships?
+- Super-admin escape hatch: admins ignore call-group restrictions so
+  they can moderate any channel.
+
+Effort estimate: M. Schema + migration + ACL callback + two dashboard
+tabs. No Murmur protocol changes required if we do bounce-on-entry;
+much more if we go client-tree-hiding.
+
 ### Physical / operational
 - ~~**#6 Install openPTT TRX on harro's P50**~~ — **Resolved 2026-04-18**:
   APK installed on device `R259060623` via `adb install -r` (same build
