@@ -114,38 +114,18 @@ transmit path.
   lone-worker-mode toggle) is the manual remaining step until the
   one-click provisioning script ships.
 
-### P50 provisioning script (one-click deploy for field devices)
-Today, flashing a P50 is manual: build APK, `adb install`, open the app,
-type Mumble creds, type admin URL, toggle lone-worker mode, set Traccar
-URL. Every step is a chance for drift between devices.
+### ~~P50 provisioning script~~ — **Resolved 2026-04-19** (commit `5d95ba2`)
+Admin generates a per-device short-link `ptt.harro.ch/p/<slug>` from the
+user-edit modal. Token is single-use, 24 h TTL, single-view password
+reveal. The script (bash on macOS/Linux, PowerShell on Windows) picks
+up the connected P50 via ADB, installs the APK from `/apk/openptt-foss-debug.apk`,
+pushes seeded SharedPreferences + Humla `mumble.db`, grants the
+`RECORD_AUDIO`/`ACCESS_FINE_LOCATION`/`POST_NOTIFICATIONS` perms, and
+launches MumlaActivity. Short-link + QR code shown in the dashboard.
 
-**Wanted:** a downloadable provisioning script, reachable from a short
-link like `ptt.harro.ch/1234`, that picks the user's OS (macOS or
-Windows) and runs an ADB-driven zero-touch setup:
-
-- Detects the connected P50 via `adb devices`.
-- Downloads the latest `openptt-foss-debug.apk` (signed release once we
-  set that up) and `adb install -r`.
-- Pre-populates SharedPreferences via `adb shell am start` with intent
-  extras, or pushes a seeded `shared_prefs` XML — username, Mumble
-  server, admin URL, Traccar URL, lone-worker-mode, rotary behavior,
-  whatever else ships with defaults.
-- Grants the `android.permission.POST_NOTIFICATIONS`,
-  `ACCESS_FINE_LOCATION`, and `RECORD_AUDIO` runtime perms via
-  `adb shell pm grant`.
-- Launches the service so `BootReceiver` + `LocationReporter` are live
-  before the user touches the handset.
-
-**Packaging:** bash script for macOS/Linux + PowerShell script for
-Windows. Both gated by OS detection in the nginx shortlink handler
-(User-Agent sniff → redirect to the right file). Short URL slug pattern
-`ptt.harro.ch/<short>` decoded to specific device config (per-user
-shortlinks so each device gets its own credentials).
-
-**Effort:** M. Needs Android SDK platform-tools bundled (or installer
-hints), persona-specific config baking, a short-URL service on nginx,
-and careful ADB error handling (unauthorized device, USB debugging
-off, multiple devices connected). No new server-side surface.
+**Known follow-up:** the APK served at `/apk/openptt-foss-debug.apk`
+is debug-signed. Wiring the CI signed-release flow to overwrite
+`/var/openptt/apk/openptt-foss-debug.apk` is a separate task.
 
 ### Architecture discussion — PTT gesture detection: app vs server
 Triple-tap-PTT shift toggle currently lives in `MumlaService.detectTripleTap()`
@@ -196,21 +176,38 @@ the APK-flash cycle becomes the bottleneck.
 - Channel-switching acts as implicit hold.
 
 **Deferred (future phases):**
-- Radio-initiated hangup gesture — every PTT pattern collides with an
-  existing app shortcut; needs dedicated keycode handler (likely
-  `KEYCODE_MENU` or `KEYCODE_CALL`) in openPTT-app first.
+- ~~Radio-initiated hangup gesture~~ — **Resolved 2026-04-19** (commit `127132f`).
+  `KEYCODE_MENU` in MumlaActivity → admin `/api/sip/hangup-current` →
+  `docker exec pkill -USR1` into sip-bridge → `Client.hangup_from_radio()`
+  sends an AudioSocket HANGUP frame so Asterisk tears down the SIP leg.
+  Only active while the user is in the `Phone` channel; TTS confirms.
 - ~~Admin-editable greeting text~~ — **Resolved 2026-04-19** via
   `sip_trunks.greeting_text` + `PUT /api/sip/greeting` + live WAV
   push to the sip-bridge container (commits `85dee5e`, `d9343aa`).
   Dashboard SIP tab has a textarea with Save & regenerate.
-- Per-call sub-channels (`Phone/Call-N`) for concurrent-call support.
-- Green-button (`KEYCODE_CALL`) mute toggle per the CEO plan.
+- ~~Per-call sub-channels (`Phone/Call-N`)~~ — **Resolved 2026-04-19**
+  (commit `a1d7281`). `PHONE_MAX_CALLS` (default 3) slots provisioned
+  at sip-bridge startup via a new
+  `POST /api/sip/internal/ensure-phone-slots` admin endpoint
+  (`admin_sqlite.ensure_phone_slots_and_restart`). Each concurrent call
+  gets its own `PTTPhone-N` Mumble bot joined to `Phone/Call-N` so audio
+  streams stay isolated between callers. Dialplan cap reads
+  `ENV(PHONE_MAX_CALLS)`; Phone ACL and the ding-notification loop both
+  consider any `Phone/Call-N` membership equivalent to `Phone`. Control
+  signals target the most-recent client; per-slot targeting is a
+  follow-up once the app exposes a slot picker.
+- ~~Green-button (`KEYCODE_CALL`) mute toggle~~ — **Resolved 2026-04-19**
+  (commit `127132f`). Only active in `Phone` channel; toggles
+  `Client.mute_caller` in the bridge, which ships 320 B silence frames
+  on the downlink while still draining the Mumble rx queue so no
+  backlog builds up during the mute window. TTS confirms each toggle.
 - ~~ACL enforcement on `Phone` channel entry~~ — **Resolved 2026-04-19**.
   `MurmurClient` watches `PYMUMBLE_CLBK_USERUPDATED`; non-eligible
   users who walk into Phone are bounced back to their previous channel
   and whispered "Phone channel requires call-answer permission". 30-s
   eligible-set cache refreshed from `users.can_answer_calls`.
   14 unit tests (`tests/test_phone_acl.py`). Commits `01ee04c`, `094855e`.
+  Extended to `Phone/Call-N` sub-channels in commit `a1d7281`.
 
 ### Dashboard IA + visual overhaul — shipped 2026-04-19
 Consolidated 8 flat tabs into 4 grouped modes (Live Ops · Directory ·
