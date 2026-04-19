@@ -205,8 +205,19 @@ the APK-flash cycle becomes the bottleneck.
   Dashboard SIP tab has a textarea with Save & regenerate.
 - Per-call sub-channels (`Phone/Call-N`) for concurrent-call support.
 - Green-button (`KEYCODE_CALL`) mute toggle per the CEO plan.
-- ACL enforcement on `Phone` channel entry based on `can_answer_calls`
-  (today the flag only gates the notification ding).
+- ~~ACL enforcement on `Phone` channel entry~~ — **Resolved 2026-04-19**.
+  `MurmurClient` watches `PYMUMBLE_CLBK_USERUPDATED`; non-eligible
+  users who walk into Phone are bounced back to their previous channel
+  and whispered "Phone channel requires call-answer permission". 30-s
+  eligible-set cache refreshed from `users.can_answer_calls`.
+  14 unit tests (`tests/test_phone_acl.py`). Commits `01ee04c`, `094855e`.
+
+### Dashboard IA + visual overhaul — shipped 2026-04-19
+Consolidated 8 flat tabs into 4 grouped modes (Live Ops · Directory ·
+SIP Gateway · System) with secondary segmented controls under each.
+Rebuilt the aesthetic as "Broadcast Station" — espresso-on-parchment
+palette, amber primary, JetBrains Mono for data, Bricolage Grotesque
+for display, dot-grid radio-faceplate backdrop. `094855e`.
 
 ---
 
