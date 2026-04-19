@@ -105,6 +105,110 @@ transmit path.
 
 ## Still open
 
+### Commercial-peer feature research (2026-04-19)
+Background research on what Hytera HyTalk Pro, Motorola WAVE PTX, Zello
+Work, Tait AXIOM, and ESChat ship that openPTT doesn't. Full landscape +
+selection reasoning lives in
+`~/.gstack/projects/PTT/harrowiersma-main-design-20260419-152016.md`.
+The five items below were picked as the next iteration's theme
+("day-to-day ops upgrade"). A parallel track — safety & situational
+awareness (man-down, geofencing automation, dispatch video-on-demand,
+voice recording + transcription) — is captured in the design doc and
+intentionally deferred until this theme lands.
+
+### Photo + file messaging in channels (implementation TBD)
+Zello / Motorola WAVE / ESChat all ship multimedia messaging as a core
+feature. Our current text-chat path carries strings only. For
+field-to-dispatch clarity ("here's the thing I'm looking at"), this is
+the single highest-daily-value add from the research.
+
+**Shape (sketched):**
+- New `message_attachments` table keyed by a Mumble text-message id.
+- P50 app: add an attach-image button in the chat UI that uploads to
+  the admin API, receives an attachment_id, sends a Mumble text message
+  with a `[img:N]` sentinel that other clients render as a thumbnail.
+- Dashboard: chat tab per channel with inline image previews + full-size
+  modal on click.
+- Storage: `/var/openptt/attachments/` mounted into admin, similar to
+  the `/var/openptt/apk/` pattern from provisioning. Age-out policy TBD
+  (30 days default?).
+
+Effort: S-M. Dependencies: existing dashboard chat surface; Humla app
+text-message plumbing; admin container volume mount + retention job.
+
+### User status / presence (implementation TBD)
+Zello and Motorola WAVE surface a per-user status (available / busy /
+off-shift). Today the dashboard shows channel membership but no intent.
+A status field lets dispatchers see "Sarah is at lunch" before
+whispering a dispatch to her.
+
+**Shape:**
+- New `users.status_label` + `users.status_updated_at` columns.
+- P50 app: status picker in the drawer (3-4 fixed options + custom).
+- Dashboard: status badge next to the username in Live Ops + user list.
+- Interplay with lone-worker shift: "off-shift" status auto-stops any
+  active shift; starting a shift auto-sets "on-duty."
+
+Effort: S. Smallest item of the five — good warm-up.
+
+### Private 1:1 PTT (not channel-based) (implementation TBD)
+Zello's signature feature. User picks a target from their contact list
+and presses PTT; only the target hears it. We have a server-side whisper
+path already (used by dispatch TTS); this extends it into a radio-side
+picker flow.
+
+**Shape:**
+- P50 app: "call user" UI — a contact picker list (filtered to fleet
+  members) + a picked-target-for-next-PTT state. While armed, PTT
+  transmits as a Mumble whisper to the target session instead of a
+  channel broadcast. Target hears only that user.
+- Admin API: GET `/api/users?online=true` already exists; app polls it
+  for the picker list.
+- Hardware-key question: which P50 key enters "call user" mode? Every
+  pattern collides with something. Likely app-side UI + soft button,
+  not a keycode.
+- Timeout: after N seconds of no transmission, drop the target and
+  revert to channel PTT.
+
+Effort: M. Depends on answering the hardware-key UX question first.
+
+### Dynamic user-created channels (implementation TBD)
+Zello's other big idea — any user with the flag can create a channel on
+the fly ("hey let's talk in `job-site-7`"), and it auto-cleans when
+empty for N minutes. Reduces admin toil when field teams self-organize.
+
+**Shape:**
+- New `users.can_create_channels` boolean (admin-gated, off by default).
+- P50 app: long-press the channel switcher to prompt for a channel name.
+  Calls admin's `POST /api/channels` (which already uses admin_sqlite +
+  murmur restart from Priority 1).
+- Admin: add a "dynamic" flag on channels; a reaper runs every 5 min
+  and deletes dynamic channels empty for 15 min.
+- Interplay with call groups (the other open item): dynamic channels
+  inherit the creator's call-group membership by default.
+
+Effort: M. Depends on call groups being specced (so the membership
+inheritance rule is clear) and on accepting the ~3 s Murmur-restart
+hit on every channel create (acceptable at the hoped-for cadence of
+a few per week).
+
+### Web / desktop client for office users (implementation TBD)
+Today, joining Mumble requires the P50 app or a desktop Mumble client
+(separate install). Zello and Motorola WAVE ship web and Windows
+clients so office staff can participate without dedicated hardware. A
+browser PWA that connects to Mumble via a websocket proxy lets
+dispatchers and managers listen and text-chat from any browser.
+
+**Shape (two variants, decision needed):**
+- **Slim path:** admin API already exposes channels + chat; build a
+  React/Preact page that renders channel tree + text chat + user list.
+  No voice. Talks only to admin, not Murmur directly.
+- **Full path:** WebRTC or websocket proxy in front of Murmur, full
+  Opus decode in browser (via mumble-web or similar), voice + text.
+
+Effort: L (slim) to XL (full). Defer to after the first four items
+land; pick variant based on actual demand from office users.
+
 ### Call groups — per-user channel-access scoping (implementation TBD)
 Today every user can see and join every channel the Mumble server
 knows about. As the fleet grows (multiple teams, sites, or customers
