@@ -86,6 +86,12 @@ class SipTrunk(Base):
     transport: Mapped[str] = mapped_column(String(8), default="udp", nullable=False)
     registration_interval_s: Mapped[int] = mapped_column(Integer, default=3600, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Piper TTS greeting the caller hears on answer. NULL → sip-bridge falls
+    # back to the GREETING_TEXT env var. Admin edits via the dashboard;
+    # a save triggers immediate regeneration + push to sip-bridge's
+    # asterisk sounds dir, so the next call uses the new audio without
+    # a container restart.
+    greeting_text: Mapped[str] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False,
     )

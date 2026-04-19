@@ -15,6 +15,7 @@ the nginx config returns 404 for /api/sip/internal/*.
 """
 
 import logging
+import os
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import select
@@ -27,6 +28,7 @@ from server.models import SipTrunk, SipNumber, User
 from server.api.schemas import (
     SipTrunkCreate, SipTrunkUpdate, SipTrunkResponse,
     SipNumberCreate, SipNumberUpdate, SipNumberResponse,
+    SipGreetingUpdate,
 )
 
 
@@ -123,6 +125,150 @@ async def delete_trunk(
     logger.info("SIP trunk deleted: id=%d", trunk_id)
 
 
+# ---------------------------------------------------------------------------
+# Greeting text — per-trunk, editable from the dashboard. Saving also
+# regenerates the 8 kHz WAV via Piper and pushes it into the sip-bridge
+# container's asterisk sounds dir so the next call uses the new audio
+# without waiting for a sip-bridge restart.
+# ---------------------------------------------------------------------------
+
+SIP_BRIDGE_CONTAINER_NAME = os.environ.get("SIP_BRIDGE_CONTAINER_NAME", "ptt-sip-bridge-1")
+SIP_BRIDGE_GREETING_PATH = "/usr/share/asterisk/sounds/en/openptt-greeting.wav"
+
+
+def _build_greeting_wav_8k(text: str) -> bytes:
+    """Render `text` through Piper (48 kHz mono int16 PCM) and wrap as an
+    8 kHz WAV — matches what sip_bridge/render_entry produces so the
+    asterisk Playback() pipeline consumes it unchanged.
+    """
+    import io
+    import wave
+
+    import numpy as np
+    from server.weather_bot import text_to_audio_pcm
+
+    pcm_48k = text_to_audio_pcm(text)
+    if not pcm_48k:
+        raise RuntimeError("Piper returned no audio")
+
+    samples_48k = np.frombuffer(pcm_48k, dtype=np.int16).astype(np.float32)
+    target_n = int(len(samples_48k) * 8000 / 48000)
+    src_idx = np.arange(len(samples_48k), dtype=np.float32)
+    tgt_idx = np.linspace(0, len(samples_48k) - 1, target_n, dtype=np.float32)
+    samples_8k = np.interp(tgt_idx, src_idx, samples_48k)
+    samples_8k = np.clip(samples_8k, -32768, 32767).astype(np.int16)
+
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(8000)
+        w.writeframes(samples_8k.tobytes())
+    return buf.getvalue()
+
+
+def _push_greeting_to_sip_bridge(wav_bytes: bytes) -> None:
+    """Tar the WAV and put_archive() it into the sip-bridge container's
+    asterisk sounds dir. Same Docker socket we already mount for the
+    Murmur admin path — no new infrastructure.
+    """
+    import io
+    import tarfile
+    import time
+
+    try:
+        import docker
+    except ImportError as e:
+        raise RuntimeError(f"docker SDK not available: {e}")
+
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tar:
+        info = tarfile.TarInfo(name="openptt-greeting.wav")
+        info.size = len(wav_bytes)
+        info.mtime = int(time.time())
+        info.mode = 0o644
+        tar.addfile(info, io.BytesIO(wav_bytes))
+    buf.seek(0)
+
+    client = docker.from_env()
+    container = client.containers.get(SIP_BRIDGE_CONTAINER_NAME)
+    target_dir = os.path.dirname(SIP_BRIDGE_GREETING_PATH)
+    ok = container.put_archive(path=target_dir, data=buf.getvalue())
+    if not ok:
+        raise RuntimeError("put_archive returned False")
+    logger.info("pushed new greeting WAV (%d bytes) to %s:%s",
+                len(wav_bytes), SIP_BRIDGE_CONTAINER_NAME, SIP_BRIDGE_GREETING_PATH)
+
+
+@router.get("/greeting")
+async def get_sip_greeting(
+    _admin: dict = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the current greeting text. Falls back to the default string
+    from sip_bridge's GREETING_TEXT env if no trunk has a value set."""
+    result = await db.execute(select(SipTrunk).order_by(SipTrunk.id))
+    trunks = result.scalars().all()
+    for t in trunks:
+        if t.greeting_text:
+            return {"text": t.greeting_text, "source": "db", "trunk_id": t.id}
+    return {
+        "text": (
+            "You are now being connected to the openPTT radio trunk system. "
+            "Please note that there may be small delays between transmissions."
+        ),
+        "source": "default",
+        "trunk_id": None,
+    }
+
+
+@router.put("/greeting")
+async def put_sip_greeting(
+    payload: SipGreetingUpdate,
+    _admin: dict = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save a new greeting text across all trunks, regenerate the WAV via
+    Piper, and push the new file into sip-bridge's sounds dir. The next
+    inbound call picks it up automatically.
+    """
+    result = await db.execute(select(SipTrunk).order_by(SipTrunk.id))
+    trunks = result.scalars().all()
+    if not trunks:
+        raise HTTPException(status_code=400, detail="No SIP trunks configured")
+
+    text = payload.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Greeting text is required")
+
+    for t in trunks:
+        t.greeting_text = text
+    await db.commit()
+    logger.info("greeting_text saved to %d trunk(s)", len(trunks))
+
+    # Regenerate + push. Both are blocking, so run in a thread so the
+    # asyncio loop stays responsive for other admin requests.
+    import asyncio
+    def _regen_and_push() -> tuple[int, str | None]:
+        try:
+            wav = _build_greeting_wav_8k(text)
+            _push_greeting_to_sip_bridge(wav)
+            return len(wav), None
+        except Exception as e:
+            return 0, str(e)
+
+    wav_bytes, err = await asyncio.to_thread(_regen_and_push)
+    if err:
+        logger.error("greeting regen/push failed: %s", err)
+        # DB is already saved; surface the error but don't rollback — next
+        # sip-bridge restart will render from DB text on its own.
+        raise HTTPException(
+            status_code=502,
+            detail=f"Greeting saved to DB but push to sip-bridge failed: {err}",
+        )
+    return {"saved": True, "wav_bytes": wav_bytes, "pushed": True}
+
+
 # --- Numbers (DIDs) ---
 
 @router.get("/numbers", response_model=list[SipNumberResponse])
@@ -213,6 +359,7 @@ async def internal_list_trunks(
             "transport": t.transport,
             "registration_interval_s": t.registration_interval_s,
             "enabled": t.enabled,
+            "greeting_text": t.greeting_text,
         }
         for t in rows
     ]

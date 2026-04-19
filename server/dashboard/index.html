@@ -489,6 +489,17 @@
             </div>
 
             <div class="card" style="margin-top:var(--space-lg)">
+                <h2>Caller greeting</h2>
+                <p style="color:var(--color-text-secondary);font-size:0.8125rem;margin-bottom:var(--space-md)">Piper-synthesized message the caller hears on answer. Saving regenerates the audio and pushes it live to the sip-bridge — the next inbound call uses it immediately; no container restart needed.</p>
+                <textarea id="sipGreetingText" rows="4" style="width:100%;padding:var(--space-sm);border:1px solid var(--color-border);border-radius:var(--radius-sm);font-family:inherit;font-size:0.875rem;line-height:1.4;resize:vertical" placeholder="Loading…"></textarea>
+                <div id="sipGreetingMeta" style="font-size:0.6875rem;color:var(--color-text-secondary);margin-top:var(--space-xs)"></div>
+                <div style="display:flex;gap:var(--space-sm);margin-top:var(--space-sm);align-items:center">
+                    <button class="btn primary" onclick="saveSipGreeting()">Save &amp; regenerate</button>
+                    <button class="btn" onclick="refreshSipGreeting()">Reload</button>
+                </div>
+            </div>
+
+            <div class="card" style="margin-top:var(--space-lg)">
                 <h2>SIP Numbers (DIDs)</h2>
                 <p style="color:var(--color-text-secondary);font-size:0.8125rem;margin-bottom:var(--space-md)">Each DID maps to one trunk. All DIDs ring into the shared Phone Mumble channel.</p>
                 <div style="overflow-x:auto">
@@ -1663,6 +1674,29 @@
                     '<button class="btn danger" onclick="deleteSipNumber(' + n.id + ',\'' + esc(n.did) + '\')">Delete</button>' +
                   '</td></tr>';
             }).join('');
+
+        refreshSipGreeting();
+    }
+
+    async function refreshSipGreeting() {
+        const resp = await api('/api/sip/greeting');
+        if (resp === null) return;
+        document.getElementById('sipGreetingText').value = resp.text || '';
+        const meta = document.getElementById('sipGreetingMeta');
+        meta.textContent = resp.source === 'db'
+            ? 'Source: DB (trunk #' + resp.trunk_id + '). Saved text overrides the sip-bridge env default.'
+            : 'Source: baked-in default. Save to override for this deployment.';
+    }
+
+    async function saveSipGreeting() {
+        const text = document.getElementById('sipGreetingText').value.trim();
+        if (!text) { showToast('Greeting text is required', 'error'); return; }
+        if (text.length > 2000) { showToast('Greeting text too long (max 2000 chars)', 'error'); return; }
+        const resp = await api('/api/sip/greeting', { method: 'PUT', body: JSON.stringify({ text }) });
+        if (resp) {
+            showToast('Greeting saved and pushed to sip-bridge (' + resp.wav_bytes + ' bytes)', 'success');
+            refreshSipGreeting();
+        }
     }
 
     function openSipTrunkModal() {

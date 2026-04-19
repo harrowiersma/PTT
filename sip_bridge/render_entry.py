@@ -122,26 +122,41 @@ def _resample_wav_to_8k(wav_bytes: bytes) -> bytes:
     return buf.getvalue()
 
 
-def fetch_greeting() -> None:
+def fetch_greeting(trunk: dict | None = None) -> None:
+    """Cache the Piper-rendered greeting WAV at startup.
+
+    Text source priority: trunk.greeting_text (admin-editable via
+    dashboard) → GREETING_TEXT env var → baked-in default. DB is source
+    of truth, so we always ask admin to re-render; if admin is
+    unreachable and we already have a cached WAV, keep it (last-good
+    behavior). Only if there's no cached WAV at all do we fall back to
+    the tone pattern so calls aren't left silent.
+    """
     SOUNDS_DIR.mkdir(parents=True, exist_ok=True)
-    if GREETING_PATH.exists():
-        LOG.info("greeting already cached at %s", GREETING_PATH)
-        return
+    text = (trunk or {}).get("greeting_text") or GREETING_TEXT
+
     try:
         with httpx.Client(timeout=60) as c:
             r = c.post(
                 f"{ADMIN}/api/sip/internal/tts",
                 headers={"X-Internal-Auth": SECRET},
-                json={"text": GREETING_TEXT},
+                json={"text": text},
             )
             if r.status_code == 200 and r.content:
                 resampled = _resample_wav_to_8k(r.content)
                 GREETING_PATH.write_bytes(resampled)
-                LOG.info("greeting cached (%d bytes)", len(resampled))
+                LOG.info("greeting rendered (%d bytes) from trunk=%s",
+                         len(resampled), "db" if (trunk or {}).get("greeting_text") else "env")
                 return
-            LOG.warning("admin TTS returned %d; using fallback tones", r.status_code)
+            LOG.warning("admin TTS returned %d; %s",
+                        r.status_code,
+                        "keeping cached WAV" if GREETING_PATH.exists() else "using fallback tones")
     except Exception as e:
-        LOG.warning("admin TTS unreachable (%s); using fallback tones", e)
+        LOG.warning("admin TTS unreachable (%s); %s", e,
+                    "keeping cached WAV" if GREETING_PATH.exists() else "using fallback tones")
+
+    if GREETING_PATH.exists():
+        return  # last-good cached WAV survives
 
     # Three-tone fallback (same pattern as old bridge.py)
     import wave
@@ -200,7 +215,7 @@ def main() -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     trunk = fetch_trunk()
     render_and_write(trunk)
-    fetch_greeting()
+    fetch_greeting(trunk)
     ensure_phone_channel()
     LOG.info("entrypoint rendering complete")
 

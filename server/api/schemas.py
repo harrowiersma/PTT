@@ -120,6 +120,7 @@ class SipTrunkCreate(BaseModel):
     transport: str = Field(default="udp", pattern=r'^(udp|tcp|tls)$')
     registration_interval_s: int = Field(default=3600, ge=60, le=86400)
     enabled: bool = True
+    greeting_text: str | None = Field(default=None, max_length=2000)
 
 
 class SipTrunkUpdate(BaseModel):
@@ -132,6 +133,7 @@ class SipTrunkUpdate(BaseModel):
     transport: str | None = Field(default=None, pattern=r'^(udp|tcp|tls)$')
     registration_interval_s: int | None = Field(default=None, ge=60, le=86400)
     enabled: bool | None = None
+    greeting_text: str | None = Field(default=None, max_length=2000)
 
 
 class SipTrunkResponse(BaseModel):
@@ -146,9 +148,14 @@ class SipTrunkResponse(BaseModel):
     transport: str
     registration_interval_s: int
     enabled: bool
+    greeting_text: str | None
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class SipGreetingUpdate(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
 
 
 class SipNumberCreate(BaseModel):
