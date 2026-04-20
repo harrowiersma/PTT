@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from server import features as _features
 from server.api.schemas import ServerStatusResponse, UserOnline
 from server.auth import get_current_admin
 from server.database import get_db
@@ -113,4 +114,16 @@ async def health_check(
     return {
         "status": "healthy" if murmur_ok else "degraded",
         "murmur": "connected" if murmur_ok else "disconnected",
+    }
+
+
+@router.get("/capabilities")
+async def get_capabilities():
+    """Public endpoint — Android app + dashboard read this to know which
+    features to surface. No auth required so the app can fetch it before
+    login. Returns the same shape regardless of caller.
+    """
+    return {
+        "features": _features.snapshot(),
+        "server_version": "2026.04",
     }
