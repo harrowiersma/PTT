@@ -352,6 +352,10 @@
         .sub-tab:hover { color: var(--fg); }
         .sub-tab.active { background: var(--amber); color: var(--amber-ink); }
 
+        /* Applied by applyCapabilityVisibility() when a feature flag is off.
+           !important beats switchTab()'s inline display manipulation. */
+        .feature-hidden { display: none !important; }
+
         /* ============================================================
          * Layout containers
          * ============================================================ */
@@ -756,7 +760,7 @@
             <div class="tab" data-group="directory" data-numeral="02" role="tab" tabindex="0" aria-selected="false"
                 onclick="switchGroup('directory')" onkeydown="if(event.key==='Enter')switchGroup('directory')">Directory</div>
             <div class="tab" data-group="sip" data-numeral="03" role="tab" tabindex="0" aria-selected="false"
-                onclick="switchGroup('sip')" onkeydown="if(event.key==='Enter')switchGroup('sip')">SIP Gateway</div>
+                onclick="switchGroup('sip')" onkeydown="if(event.key==='Enter')switchGroup('sip')" data-feature="sip">SIP Gateway</div>
             <div class="tab" data-group="system" data-numeral="04" role="tab" tabindex="0" aria-selected="false"
                 onclick="switchGroup('system')" onkeydown="if(event.key==='Enter')switchGroup('system')">System</div>
             <a href="help.html" class="tab" style="text-decoration:none;margin-left:auto" target="_blank">⤤ Help</a>
@@ -767,13 +771,13 @@
             <div class="sub-tabs" id="subTabsLive" style="display:flex">
                 <div class="sub-tab active" data-tab="overview" onclick="switchTab('overview')">Overview</div>
                 <div class="sub-tab" data-tab="map" onclick="switchTab('map')">Map</div>
-                <div class="sub-tab" data-tab="dispatch" onclick="switchTab('dispatch')">Dispatch</div>
+                <div class="sub-tab" data-tab="dispatch" onclick="switchTab('dispatch')" data-feature="dispatch">Dispatch</div>
             </div>
             <div class="sub-tabs" id="subTabsDirectory" style="display:none">
                 <div class="sub-tab active" data-tab="users" onclick="switchTab('users')">Users</div>
                 <div class="sub-tab" data-tab="channels" onclick="switchTab('channels')">Channels</div>
             </div>
-            <div class="sub-tabs" id="subTabsSip" style="display:none">
+            <div class="sub-tabs" id="subTabsSip" style="display:none" data-feature="sip">
                 <div class="sub-tab active" data-tab="sip" onclick="switchTab('sip')">Trunks · Numbers · Greeting</div>
             </div>
             <div class="sub-tabs" id="subTabsSystem" style="display:none">
@@ -783,7 +787,7 @@
         </div>
 
         <!-- SOS Alert Banner -->
-        <div class="alert-banner error" id="sosBanner" style="display:none;cursor:pointer" onclick="switchTab('map')">
+        <div class="alert-banner error" id="sosBanner" style="display:none;cursor:pointer" onclick="switchTab('map')" data-feature="sos">
             <strong>SOS ALERT</strong> <span id="sosInfo"></span> — click to view on map
         </div>
 
@@ -845,7 +849,7 @@
                     </table>
                 </div>
             </div>
-            <div class="card" id="loneWorkerCard">
+            <div class="card" id="loneWorkerCard" data-feature="lone_worker">
                 <h2>Lone Worker Check-In Status</h2>
                 <div id="loneWorkerStatus">
                     <div class="empty-state"><p>Lone worker monitoring is disabled. Enable it in the Admin tab.</p></div>
@@ -880,7 +884,7 @@
             <div class="card" style="padding:0;overflow:hidden">
                 <div id="mapContainer" style="height:500px;width:100%"></div>
             </div>
-            <div class="card" id="dispatchPanel" style="display:none">
+            <div class="card" id="dispatchPanel" style="display:none" data-feature="dispatch">
                 <h2>Dispatch Worker</h2>
                 <p style="font-size:0.875rem;color:var(--color-text-secondary);margin-bottom:var(--space-md)" id="dispatchLocation"></p>
                 <div id="nearestList"></div>
@@ -889,7 +893,7 @@
 
         <!-- Admin Tab -->
         <div class="content tab-content" id="tab-admin" style="display:none" role="tabpanel" aria-label="Admin">
-            <div class="card">
+            <div class="card" data-feature="lone_worker">
                 <h2>Lone Worker Safety</h2>
                 <p style="font-size:0.8125rem;color:var(--color-text-secondary);margin-bottom:var(--space-md)">When enabled, workers must check in periodically. Overdue workers show red on the Overview. Optionally auto-triggers SOS.</p>
                 <div id="loneWorkerAdminConfig" style="display:flex;flex-wrap:wrap;gap:var(--space-md);align-items:center">
@@ -942,7 +946,7 @@
 
         <!-- Audit Log Tab -->
         <!-- Dispatch Tab -->
-        <div class="content tab-content" id="tab-dispatch" style="display:none" role="tabpanel" aria-label="Dispatch">
+        <div class="content tab-content" id="tab-dispatch" style="display:none" role="tabpanel" aria-label="Dispatch" data-feature="dispatch">
             <div class="card">
                 <h2>Dispatch Worker</h2>
                 <p style="font-size:0.8125rem;color:var(--color-text-secondary);margin-bottom:var(--space-md)">Select a saved location or enter a custom one to find the nearest available workers.</p>
@@ -995,7 +999,7 @@
             </div>
         </div>
 
-        <div class="content tab-content" id="tab-sip" style="display:none" role="tabpanel" aria-label="SIP Gateway">
+        <div class="content tab-content" id="tab-sip" style="display:none" role="tabpanel" aria-label="SIP Gateway" data-feature="sip">
             <div class="card">
                 <h2>SIP Trunks</h2>
                 <p style="color:var(--color-text-secondary);font-size:0.8125rem;margin-bottom:var(--space-md)">Each trunk is one provider account. DIDs are provisioned per trunk below. The sip-bridge container reads this config to register and route inbound calls into the Phone channel.</p>
@@ -1125,13 +1129,13 @@
             <div id="editRoleRow" style="margin-bottom:var(--space-sm)">
                 <label style="font-size:0.8125rem;display:flex;align-items:center;gap:var(--space-xs)"><input type="checkbox" id="editIsAdmin"> Admin role</label>
             </div>
-            <div id="editLoneWorkerRow" style="margin-bottom:var(--space-md)">
+            <div id="editLoneWorkerRow" style="margin-bottom:var(--space-md)" data-feature="lone_worker">
                 <label style="font-size:0.8125rem;display:flex;align-items:center;gap:var(--space-xs)"><input type="checkbox" id="editIsLoneWorker"> Lone Worker (requires periodic check-in)</label>
                 <label style="font-size:0.8125rem;display:block;margin-top:var(--space-xs)">Shift duration (hours) — blank uses the global default
                     <input type="number" id="editShiftDurationHours" min="1" max="24" style="width:80px;margin-left:var(--space-xs)">
                 </label>
             </div>
-            <div id="editCanAnswerCallsRow" style="margin-bottom:var(--space-md)">
+            <div id="editCanAnswerCallsRow" style="margin-bottom:var(--space-md)" data-feature="sip">
                 <label style="font-size:0.8125rem;display:flex;align-items:center;gap:var(--space-xs)"><input type="checkbox" id="editCanAnswerCalls"> Can answer SIP calls (Phone channel access)</label>
             </div>
             <div id="editProvisioningRow" style="margin-bottom:var(--space-md);padding:var(--space-sm);border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-alt)">
@@ -1287,9 +1291,44 @@
         document.getElementById('appPage').classList.remove('active');
     }
 
-    function showApp() {
+    // Global capability state — read on every UI render to decide what to
+    // show. Refreshed on login, on tab switch to Features, and after a
+    // feature-flag save. Defaults to all-enabled so UI isn't accidentally
+    // blank on a transient fetch failure.
+    let _capabilities = {
+        features: { lone_worker: true, sip: true, dispatch: true, weather: true, sos: true },
+        server_version: "unknown",
+    };
+
+    async function fetchCapabilities() {
+        try {
+            const r = await fetch("/api/status/capabilities");
+            if (r.ok) {
+                _capabilities = await r.json();
+            }
+        } catch (e) {
+            console.warn("capabilities fetch failed:", e);
+        }
+    }
+
+    function hasFeature(key) {
+        return !!(_capabilities && _capabilities.features && _capabilities.features[key]);
+    }
+
+    function applyCapabilityVisibility() {
+        // Toggle .feature-hidden instead of inline style so switchTab()'s
+        // display:flex/block manipulation can't clobber our hide.
+        document.querySelectorAll('[data-feature]').forEach(el => {
+            const key = el.dataset.feature;
+            el.classList.toggle('feature-hidden', !hasFeature(key));
+        });
+    }
+
+    async function showApp() {
         document.getElementById('loginPage').style.display = 'none';
         document.getElementById('appPage').classList.add('active');
+        await fetchCapabilities();
+        applyCapabilityVisibility();
         refreshAll();
         refreshTimer = setInterval(refreshStatus, 10000);
     }
