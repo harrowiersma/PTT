@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from server.auth import get_current_admin
 from server.config import settings
 from server.database import get_db
+from server.features_gate import requires_feature
 from server.models import SipTrunk, SipNumber, User
 from server.api.schemas import (
     SipTrunkCreate, SipTrunkUpdate, SipTrunkResponse,
@@ -48,7 +49,24 @@ logger = logging.getLogger(__name__)
 
 from server.dependencies import get_murmur_client
 
-router = APIRouter(prefix="/api/sip", tags=["sip"])
+# Public (operator-facing) SIP API. Gated by the "sip" feature flag so
+# an admin who turns SIP off stops the dashboard and users from poking
+# trunks, numbers, and greetings.
+router = APIRouter(
+    prefix="/api/sip",
+    tags=["sip"],
+    dependencies=[requires_feature("sip")],
+)
+
+# Internal endpoints consumed by the sip-bridge container. NOT gated by
+# the feature flag — turning SIP "off" in the UI must not break the
+# bridge's ability to fetch config or notify call-started/ended. Auth
+# is still required via the shared-secret header.
+internal_router = APIRouter(
+    prefix="/api/sip",
+    tags=["sip-internal"],
+    dependencies=[Depends(_require_internal_auth)],
+)
 
 
 # --- Trunks ---
@@ -405,9 +423,8 @@ async def delete_number(
 
 # --- Internal endpoints (sip-bridge container only) ---
 
-@router.get("/internal/config/trunks")
+@internal_router.get("/internal/config/trunks")
 async def internal_list_trunks(
-    _auth: None = Depends(_require_internal_auth),
     db: AsyncSession = Depends(get_db),
 ):
     """Full trunk config INCLUDING sip_password. For the bridge only."""
@@ -431,9 +448,8 @@ async def internal_list_trunks(
     ]
 
 
-@router.get("/internal/config/numbers")
+@internal_router.get("/internal/config/numbers")
 async def internal_list_numbers(
-    _auth: None = Depends(_require_internal_auth),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(SipNumber).order_by(SipNumber.id))
@@ -450,9 +466,8 @@ async def internal_list_numbers(
     ]
 
 
-@router.post("/internal/ensure-phone-channel")
+@internal_router.post("/internal/ensure-phone-channel")
 async def internal_ensure_phone_channel(
-    _auth: None = Depends(_require_internal_auth),
     murmur=Depends(get_murmur_client),
 ):
     """Ensure a Mumble channel named "Phone" exists; return its id.
@@ -478,10 +493,9 @@ async def internal_ensure_phone_channel(
     return {"channel_id": mumble_id, "created": True}
 
 
-@router.post("/internal/ensure-phone-slots")
+@internal_router.post("/internal/ensure-phone-slots")
 async def internal_ensure_phone_slots(
     count: int = 3,
-    _auth: None = Depends(_require_internal_auth),
 ):
     """Ensure Phone + Phone/Call-1..Call-N sub-channels exist.
 
@@ -619,10 +633,9 @@ async def _notify_loop(caller_id: str, murmur, db_session_factory):
         _notify_state["task"] = None
 
 
-@router.api_route("/internal/call-started", methods=["GET", "POST"])
+@internal_router.api_route("/internal/call-started", methods=["GET", "POST"])
 async def internal_call_started(
     caller_id: str = "unknown",
-    _auth: None = Depends(_require_internal_auth),
     murmur=Depends(get_murmur_client),
     db: AsyncSession = Depends(get_db),
 ):
@@ -655,10 +668,8 @@ async def internal_call_started(
     return {"notified": notified, "caller_id": caller_id, "looping": True}
 
 
-@router.api_route("/internal/call-ended", methods=["GET", "POST"])
-async def internal_call_ended(
-    _auth: None = Depends(_require_internal_auth),
-):
+@internal_router.api_route("/internal/call-ended", methods=["GET", "POST"])
+async def internal_call_ended():
     """Stop the ding loop. Called by the dialplan right before Hangup()."""
     async with _notify_lock:
         task = _notify_state.get("task")
@@ -669,10 +680,9 @@ async def internal_call_ended(
     return {"stopped": True}
 
 
-@router.post("/internal/tts")
+@internal_router.post("/internal/tts")
 async def internal_tts(
     payload: dict,
-    _auth: None = Depends(_require_internal_auth),
 ):
     """Return a 48kHz 16-bit mono WAV of the given text, synthesized by Piper.
 

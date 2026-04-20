@@ -9,11 +9,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from server.auth import get_current_admin
 from server.config import settings
 from server.database import get_db
+from server.features_gate import requires_feature
 from server.models import SOSEvent
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/sos", tags=["sos"])
+router = APIRouter(
+    prefix="/api/sos",
+    tags=["sos"],
+    dependencies=[requires_feature("sos")],
+)
 
 # Track original channels so we can move users back after SOS
 _original_channels: dict[int, int] = {}  # session_id -> channel_id

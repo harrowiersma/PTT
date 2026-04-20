@@ -6,11 +6,16 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from server.auth import get_current_admin
+from server.features_gate import requires_feature
 from server.weather_bot import fetch_weather, format_weather_report, geocode_location
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/weather", tags=["weather"])
+router = APIRouter(
+    prefix="/api/weather",
+    tags=["weather"],
+    dependencies=[requires_feature("weather")],
+)
 
 
 class WeatherRequest(BaseModel):

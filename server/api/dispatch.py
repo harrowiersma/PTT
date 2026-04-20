@@ -8,13 +8,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from server.auth import get_current_admin
 from server.database import get_db
 from server.dependencies import get_murmur_client
+from server.features_gate import requires_feature
 from server.models import DispatchEvent, User
 from server.murmur.client import MurmurClient
 from server.traccar_client import TraccarClient
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/dispatch", tags=["dispatch"])
+router = APIRouter(
+    prefix="/api/dispatch",
+    tags=["dispatch"],
+    dependencies=[requires_feature("dispatch")],
+)
 
 
 class DispatchRequest(BaseModel):

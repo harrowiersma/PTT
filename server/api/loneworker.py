@@ -17,11 +17,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.auth import get_current_admin
 from server.database import get_db, async_session
+from server.features_gate import requires_feature
 from server.models import User, LoneWorkerShift
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/loneworker", tags=["loneworker"])
+router = APIRouter(
+    prefix="/api/loneworker",
+    tags=["loneworker"],
+    dependencies=[requires_feature("lone_worker")],
+)
 
 
 class LoneWorkerConfig(BaseModel):
