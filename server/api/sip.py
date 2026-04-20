@@ -668,6 +668,72 @@ async def internal_call_started(
     return {"notified": notified, "caller_id": caller_id, "looping": True}
 
 
+@internal_router.api_route("/internal/call-assigned", methods=["GET", "POST"])
+async def internal_call_assigned(
+    slot: int,
+    murmur=Depends(get_murmur_client),
+    db: AsyncSession = Depends(get_db),
+):
+    """Emit the INCOMING_CALL text whisper once the sip-bridge has
+    allocated a Call-N sub-channel for this call.
+
+    The audio ding fires earlier (call-started, driven from the Asterisk
+    dialplan, pre-Playback), but the exact sub-channel isn't known until
+    _SlotPool.acquire() runs inside the Python bridge after AudioSocket
+    connects. This endpoint is the bridge's signal that "slot N is the
+    right destination for the overlay's Answer button." We look up the
+    caller_id stashed on /call-started, build the structured payload,
+    and whisper it to every eligible user.
+
+    Clients parse "INCOMING_CALL|<caller>|Call-<slot>" and raise a
+    full-screen overlay. The message never hits channel chat because it's
+    a user-targeted whisper, not a channel send.
+    """
+    if not murmur or not murmur.has_mumble:
+        raise HTTPException(status_code=503, detail="Murmur not available")
+    caller_id = _notify_state.get("caller_id") or "unknown"
+    sub_channel = f"Call-{slot}"
+    payload = f"INCOMING_CALL|{caller_id}|{sub_channel}"
+
+    eligible = await _fetch_eligible_usernames(db)
+    if not eligible:
+        return {"whispered": [], "reason": "no eligible users"}
+
+    mm = murmur._mumble
+    # Resolve Phone parent so we don't notify users who are already in
+    # Phone or a Phone/Call-* sub-channel (they're answering or already
+    # in a call; the overlay is redundant for them).
+    phone_parent_id: int | None = None
+    for cid, chan in mm.channels.items():
+        if chan.get("name") == "Phone":
+            phone_parent_id = cid
+            break
+
+    whispered: list[str] = []
+    for sid, user in mm.users.items():
+        name = user.get("name")
+        if name not in eligible:
+            continue
+        chan_id = user.get("channel_id")
+        chan = mm.channels.get(chan_id, {})
+        chan_name = chan.get("name")
+        chan_parent = chan.get("parent")
+        in_phone_tree = (
+            chan_name == "Phone"
+            or (phone_parent_id is not None and chan_parent == phone_parent_id)
+        )
+        if in_phone_tree:
+            continue
+        if murmur.whisper_text(sid, payload):
+            whispered.append(name)
+
+    logger.info(
+        "call-assigned: whispered %s to caller=%s sub=%s",
+        whispered, caller_id, sub_channel,
+    )
+    return {"whispered": whispered, "caller_id": caller_id, "sub_channel": sub_channel}
+
+
 @internal_router.api_route("/internal/call-ended", methods=["GET", "POST"])
 async def internal_call_ended():
     """Stop the ding loop. Called by the dialplan right before Hangup()."""

@@ -298,6 +298,28 @@ class MurmurClient:
             logger.error("Failed to send message to channel %d: %s", channel_id, e)
             return False
 
+    def whisper_text(self, session_id: int, message: str) -> bool:
+        """Whisper a text message to one Murmur session.
+
+        Pymumble's User.send_text_message delivers the message to that
+        specific user only — no one else sees it. Used by Phase 5 to
+        push a structured "INCOMING_CALL|<caller>|<sub>" payload to
+        P50 radios alongside the audible ding so the app can raise a
+        full-screen overlay without polluting any channel chat log.
+        """
+        if not self._mumble:
+            return False
+        try:
+            user = self._mumble.users.get(session_id)
+            if user is None:
+                logger.warning("whisper_text: session %d not found", session_id)
+                return False
+            user.send_text_message(message)
+            return True
+        except Exception as e:
+            logger.error("whisper_text failed for session %d: %s", session_id, e)
+            return False
+
     def find_session_by_username(self, username: str) -> int | None:
         """Return the Murmur session ID of a currently-connected user, or None."""
         if not self._mumble:

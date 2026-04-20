@@ -61,6 +61,29 @@ def _notify_call_ended() -> None:
     except Exception as e:
         LOG.warning("call-ended POST failed: %s", e)
 
+
+def _notify_call_assigned(slot: int) -> None:
+    """POST /internal/call-assigned once this bridge has joined Call-<slot>
+    so the admin can whisper the INCOMING_CALL payload to eligible radios.
+
+    Asterisk fires /call-started pre-slot (audio ding), but the Call-N
+    identity the P50 overlay's Answer button needs isn't known until
+    AudioSocket connects and the pool allocates a slot — that's here.
+    Best-effort; an HTTP error just means the overlay misses this call
+    and users fall back to the audio ding.
+    """
+    if not INTERNAL_SECRET:
+        return
+    try:
+        import httpx
+        with httpx.Client(timeout=5, headers={"X-Internal-Auth": INTERNAL_SECRET}) as c:
+            c.post(
+                f"{ADMIN_BASE_URL}/api/sip/internal/call-assigned",
+                params={"slot": slot},
+            )
+    except Exception as e:
+        LOG.warning("call-assigned POST failed (slot=%d): %s", slot, e)
+
 # AudioSocket default: slin @ 8 kHz mono int16. 20 ms = 160 samples = 320 B.
 SLIN8_FRAME_BYTES = 320
 # Mumble / pymumble: slin @ 48 kHz mono int16. 20 ms = 960 samples = 1920 B.
@@ -564,6 +587,10 @@ def serve() -> None:
             try:
                 mumble = open_call_bot(_slot, _client)
                 _client.attach_mumble(mumble)
+                # Now that PTTPhone-<slot> is in Call-<slot>, signal admin
+                # to whisper INCOMING_CALL to eligible radios so the P50
+                # app can raise its overlay. Non-fatal on error.
+                _notify_call_assigned(_slot)
                 _client.run()
             except Exception as e:
                 LOG.exception("call on slot %d failed: %s", _slot, e)
