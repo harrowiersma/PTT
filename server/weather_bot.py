@@ -587,8 +587,9 @@ class WeatherBot:
         CHUNK_SIZE = 48000 * 2 * 20 // 1000  # 20ms of 48kHz 16-bit mono = 1920 bytes
 
         # Trailing silence keeps the Mumble transmission open past the last
-        # word — P50 receivers cut off 200-400 ms of speech otherwise.
-        pcm_data = pcm_data + generate_trailing_silence_pcm(ms=400)
+        # word so the P50's Opus decoder ramps down through silence instead
+        # of real speech. 800 ms covers network jitter + decoder tail.
+        pcm_data = pcm_data + generate_trailing_silence_pcm(ms=800)
 
         for i in range(0, len(pcm_data), CHUNK_SIZE):
             chunk = pcm_data[i:i + CHUNK_SIZE]
@@ -597,5 +598,16 @@ class WeatherBot:
                 chunk += b'\x00' * (CHUNK_SIZE - len(chunk))
             mm.sound_output.add_sound(chunk)
             time.sleep(0.018)  # Slightly less than 20ms to keep the buffer fed
+
+        # The feed loop sleeps 18 ms per 20 ms chunk, so pymumble ends up
+        # with ~10% of the total audio buffered when we finish queueing
+        # (2 s for a 20 s report). Don't return until pymumble has drained
+        # the buffer — otherwise the caller's thread exits and a hiccup on
+        # pymumble's send thread can cut the tail of the transmission.
+        drain_deadline = time.monotonic() + 5.0
+        while mm.sound_output.get_buffer_size() > 0 and time.monotonic() < drain_deadline:
+            time.sleep(0.05)
+        # Extra 200 ms for network + P50 decoder drain after the last frame.
+        time.sleep(0.2)
 
         logger.info("Weather audio playback complete")
