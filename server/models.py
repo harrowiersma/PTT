@@ -243,3 +243,22 @@ class DeviceHealth(Base):
     last_updated: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class FeatureFlag(Base):
+    """Admin-configurable feature toggle. One row per module.
+
+    Enabled flags propagate to: (a) lifespan task startup, (b) route
+    dependencies, (c) /api/status/capabilities for downstream clients.
+    """
+    __tablename__ = "feature_flags"
+
+    key: Mapped[str] = mapped_column(String(32), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+    updated_by: Mapped[str] = mapped_column(String(64), nullable=True)
