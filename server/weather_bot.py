@@ -581,33 +581,30 @@ class WeatherBot:
             logger.warning("PTTWeather connection unavailable; cannot play audio")
             return
 
-        # PTTWeather is already in the Weather channel (moved on start).
-        # Feed PCM audio to pymumble's sound output.
-        # pymumble expects 48000 Hz, 16-bit, mono PCM in chunks.
-        CHUNK_SIZE = 48000 * 2 * 20 // 1000  # 20ms of 48kHz 16-bit mono = 1920 bytes
-
         # Trailing silence keeps the Mumble transmission open past the last
         # word so the P50's Opus decoder ramps down through silence instead
         # of real speech. 800 ms covers network jitter + decoder tail.
         pcm_data = pcm_data + generate_trailing_silence_pcm(ms=800)
 
-        for i in range(0, len(pcm_data), CHUNK_SIZE):
-            chunk = pcm_data[i:i + CHUNK_SIZE]
-            if len(chunk) < CHUNK_SIZE:
-                # Pad the last chunk with silence
-                chunk += b'\x00' * (CHUNK_SIZE - len(chunk))
-            mm.sound_output.add_sound(chunk)
-            time.sleep(0.018)  # Slightly less than 20ms to keep the buffer fed
+        # Hand the entire PCM to pymumble in one shot. add_sound() just
+        # chunks it into 20 ms Opus frames and appends them to sound_output.pcm,
+        # which pymumble's main thread drains at wall-clock rate. A feeder
+        # loop with time.sleep() between add_sound calls was susceptible to
+        # Python sleep jitter: if the feeder ever fell more than one frame
+        # behind, pymumble's send_audio() saw an empty queue and hit its
+        # "paused, resetting sequence" branch (soundoutput.py line ~60),
+        # which the P50's Opus decoder perceives as end-of-speech — mid
+        # sentence and again at the tail.
+        mm.sound_output.add_sound(pcm_data)
 
-        # The feed loop sleeps 18 ms per 20 ms chunk, so pymumble ends up
-        # with ~10% of the total audio buffered when we finish queueing
-        # (2 s for a 20 s report). Don't return until pymumble has drained
-        # the buffer — otherwise the caller's thread exits and a hiccup on
-        # pymumble's send thread can cut the tail of the transmission.
-        drain_deadline = time.monotonic() + 5.0
+        # Wait for pymumble to finish draining before returning. Safety
+        # deadline = audio length + 5 s (covers reconnects / stalls without
+        # blocking the reporter thread forever).
+        audio_seconds = len(pcm_data) / (48000 * 2)
+        drain_deadline = time.monotonic() + audio_seconds + 5.0
         while mm.sound_output.get_buffer_size() > 0 and time.monotonic() < drain_deadline:
             time.sleep(0.05)
         # Extra 200 ms for network + P50 decoder drain after the last frame.
         time.sleep(0.2)
 
-        logger.info("Weather audio playback complete")
+        logger.info("Weather audio playback complete (%.1f s)", audio_seconds)
