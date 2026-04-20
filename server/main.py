@@ -13,6 +13,7 @@ from server.api.metrics import router as metrics_router
 from server.api.channels import router as channels_router
 from server.api.dispatch import router as dispatch_router
 from server.api.dispatch_locations import router as dispatch_locations_router
+from server.api.features import router as features_router
 from server.api.gps import router as gps_router
 from server.api.provisioning import router as provisioning_router
 from server.api.sip import router as sip_router
@@ -210,6 +211,7 @@ app.include_router(weather_router)
 app.include_router(bulk_router)
 app.include_router(loneworker_router)
 app.include_router(metrics_router)
+app.include_router(features_router)
 
 # Serve dashboard static files
 dashboard_dir = Path(__file__).parent / "dashboard"
