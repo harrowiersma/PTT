@@ -41,6 +41,14 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("Database initialized")
 
+    # Refresh feature-flag cache once at startup so conditional task
+    # launches below see the operator's configured state.
+    from server.database import async_session as _async_session
+    from server.features import is_enabled as _feature_enabled
+    from server.features import refresh_cache as _refresh_features
+    async with _async_session() as _db:
+        await _refresh_features(_db)
+
     # Connect to Murmur
     client = MurmurClient(
         host=settings.murmur_ice_host,
@@ -112,7 +120,7 @@ async def lifespan(app: FastAPI):
         logger.info("SOS text acknowledgement enabled (admin types OK in Emergency channel)")
 
     # Start Weather ATIS bot
-    if connected and client.has_mumble:
+    if connected and client.has_mumble and _feature_enabled("weather"):
         try:
             from server.weather_bot import WeatherBot
             from server.traccar_client import TraccarClient
@@ -122,21 +130,25 @@ async def lifespan(app: FastAPI):
             logger.info("Weather ATIS bot started")
         except Exception as e:
             logger.warning("Weather bot failed to start: %s", e)
+    elif not _feature_enabled("weather"):
+        logger.info("Weather ATIS disabled by feature flag — skipping bot")
 
     # Start lone worker overdue checker (voice reminders for overdue workers)
-    if connected and client.has_mumble:
+    if connected and client.has_mumble and _feature_enabled("lone_worker"):
         try:
             from server.api.loneworker import start_overdue_checker
             start_overdue_checker(client)
         except Exception as e:
             logger.warning("Lone worker checker failed to start: %s", e)
+    elif not _feature_enabled("lone_worker"):
+        logger.info("Lone worker disabled by feature flag — checker not started")
 
     # Start Phone-channel ACL eligible-set poller. Refreshes the
     # MurmurClient's in-memory username allowlist every 30 s from the
     # users table so the PYMUMBLE_CLBK_USERUPDATED callback can reject
     # unauthorized entries without a cross-thread DB query.
     phone_acl_task = None
-    if connected and client.has_mumble:
+    if connected and client.has_mumble and _feature_enabled("sip"):
         import asyncio
         from sqlalchemy import select
         from server.database import async_session
@@ -164,6 +176,8 @@ async def lifespan(app: FastAPI):
             logger.info("Phone ACL eligible-set poller started (30 s)")
         except Exception as e:
             logger.warning("Phone ACL poller failed to start: %s", e)
+    elif not _feature_enabled("sip"):
+        logger.info("SIP disabled by feature flag — Phone ACL poller not started")
 
     if connected:
         logger.info("Connected to Murmur via pymumble")
