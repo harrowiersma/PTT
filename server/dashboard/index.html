@@ -356,6 +356,50 @@
            !important beats switchTab()'s inline display manipulation. */
         .feature-hidden { display: none !important; }
 
+        /* Feature toggles (System → Features) */
+        .feature-row {
+            display: flex; gap: var(--space-md);
+            padding: var(--space-md) 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .feature-row:last-child { border-bottom: none; }
+        .feature-meta { flex: 1; }
+        .feature-name {
+            font-family: var(--ff-display);
+            font-size: 1.0625rem;
+            color: var(--fg);
+        }
+        .feature-desc {
+            color: var(--fg-muted);
+            font-size: 0.875rem;
+            margin-top: 2px;
+        }
+        .feature-updated {
+            font-family: var(--ff-mono);
+            font-size: 0.6875rem;
+            color: var(--fg-dim);
+            letter-spacing: 0.04em;
+            margin-top: var(--space-xs);
+        }
+        /* Pill toggle switch (used only on Features tab for now) */
+        .switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute; cursor: pointer; inset: 0;
+            background-color: var(--border);
+            border-radius: 24px;
+            transition: 0.2s;
+        }
+        .slider:before {
+            position: absolute; content: "";
+            height: 18px; width: 18px; left: 3px; bottom: 3px;
+            background-color: var(--fg);
+            border-radius: 50%;
+            transition: 0.2s;
+        }
+        .switch input:checked + .slider { background-color: var(--amber); }
+        .switch input:checked + .slider:before { transform: translateX(20px); background: var(--amber-ink); }
+
         /* ============================================================
          * Layout containers
          * ============================================================ */
@@ -783,6 +827,7 @@
             <div class="sub-tabs" id="subTabsSystem" style="display:none">
                 <div class="sub-tab active" data-tab="admin" onclick="switchTab('admin')">Admins</div>
                 <div class="sub-tab" data-tab="audit" onclick="switchTab('audit')">Audit Log</div>
+                <div class="sub-tab" data-tab="features" onclick="switchTab('features')">Features</div>
             </div>
         </div>
 
@@ -940,6 +985,17 @@
                             <tr><td colspan="5"><div class="skeleton skeleton-line"></div></td></tr>
                         </tbody>
                     </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Features Tab -->
+        <div class="content tab-content" id="tab-features" style="display:none" role="tabpanel" aria-label="Features">
+            <div class="card">
+                <h2>Feature toggles</h2>
+                <p style="font-size:0.875rem;color:var(--fg-muted);margin-bottom:var(--space-md)">Enable or disable modules deployment-wide. Disabled features hide from the dashboard and the P50 app immediately. DB data is preserved — re-enabling restores full behavior.</p>
+                <div id="featuresList">
+                    <div class="empty-state"><p>Loading feature flags…</p></div>
                 </div>
             </div>
         </div>
@@ -1324,6 +1380,68 @@
         });
     }
 
+    const FEATURE_LABELS = {
+        lone_worker: { name: "Lone Worker",  desc: "Shift-based check-ins, triple-tap PTT gesture, overdue alerts." },
+        sip:         { name: "SIP Gateway",  desc: "Inbound phone calls via Asterisk → Phone/Call-N sub-channels." },
+        dispatch:    { name: "Dispatch / Taxi", desc: "Closest-driver TTS, busy state, OSM routing." },
+        weather:     { name: "Weather ATIS", desc: "Double-PTT weather report from Piper TTS on GPS position." },
+        sos:         { name: "Emergency SOS", desc: "SOS trigger moves everyone to Emergency channel. DISABLE WITH CAUTION." },
+    };
+
+    async function renderFeatures() {
+        const flags = await api("/api/admin/features");
+        const container = document.getElementById("featuresList");
+        if (!flags) {
+            container.innerHTML = '<div class="empty-state"><p>Could not load feature flags.</p></div>';
+            return;
+        }
+        container.innerHTML = flags.map(flag => {
+            const meta = FEATURE_LABELS[flag.key] || { name: flag.key, desc: "" };
+            const id = "feat-" + flag.key;
+            const when = flag.updated_at ? new Date(flag.updated_at).toLocaleString() : "—";
+            const who = flag.updated_by ? " by " + flag.updated_by : "";
+            return `
+            <div class="feature-row">
+                <label class="switch">
+                    <input type="checkbox" id="${id}" ${flag.enabled ? "checked" : ""}
+                           onchange="toggleFeature('${flag.key}', this.checked)">
+                    <span class="slider"></span>
+                </label>
+                <div class="feature-meta">
+                    <div class="feature-name">${meta.name}</div>
+                    <div class="feature-desc">${meta.desc}</div>
+                    <div class="feature-updated">Last changed: ${when}${who}</div>
+                </div>
+            </div>`;
+        }).join("");
+    }
+
+    async function toggleFeature(key, enabled) {
+        if (key === "sos" && !enabled) {
+            if (!confirm("Disabling SOS removes emergency alerts from the system. Are you sure?")) {
+                const el = document.getElementById("feat-" + key);
+                if (el) el.checked = true;
+                return;
+            }
+        }
+        const updated = await api("/api/admin/features/" + encodeURIComponent(key), {
+            method: "PUT",
+            body: JSON.stringify({ enabled }),
+        });
+        if (!updated) {
+            // api() already toasted; roll back the checkbox.
+            const el = document.getElementById("feat-" + key);
+            if (el) el.checked = !enabled;
+            return;
+        }
+        const label = (FEATURE_LABELS[key] && FEATURE_LABELS[key].name) || key;
+        showToast(label + " " + (enabled ? "enabled" : "disabled"), "success");
+        // Re-fetch capabilities so the other tabs + modal rows update live.
+        await fetchCapabilities();
+        applyCapabilityVisibility();
+        await renderFeatures();
+    }
+
     async function showApp() {
         document.getElementById('loginPage').style.display = 'none';
         document.getElementById('appPage').classList.add('active');
@@ -1406,7 +1524,7 @@
         overview: 'live', map: 'live', dispatch: 'live',
         users: 'directory', channels: 'directory',
         sip: 'sip',
-        admin: 'system', audit: 'system',
+        admin: 'system', audit: 'system', features: 'system',
     };
     const _groupDefaults = { live: 'overview', directory: 'users', sip: 'sip', system: 'admin' };
 
@@ -1439,6 +1557,7 @@
         if (name === 'admin') { refreshAdmins(); loadLoneWorkerConfig(); }
         if (name === 'audit') refreshAudit();
         if (name === 'sip') refreshSipConfig();
+        if (name === 'features') renderFeatures();
     }
 
     // Primary nav click → jump to the group's default sub-tab.
