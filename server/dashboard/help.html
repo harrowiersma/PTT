@@ -362,9 +362,8 @@
         <h2 id="voice"><span class="num">01</span> Voice Communication (PTT)</h2>
         <div class="feature">
             <h3><span class="badge badge-voice">Voice</span> Push-to-Talk</h3>
-            <p>Two-way voice communication using the Mumble protocol. Press the hardware PTT button on the device to transmit. Release to listen. Audio is encoded with Opus at 16&ndash;24 kbps for clear voice quality with low latency (&lt;200 ms).</p>
-            <p><strong>Server:</strong> Murmur (Mumble server) handles voice routing, encoding, and channel management.</p>
-            <p><strong>Client:</strong> openPTT app on Android devices (Hytera P50, or any Android device with PTT support). Forked from Mumla, includes built-in GPS reporting and hardware-key handling for rugged radios.</p>
+            <p>Two-way low-latency voice. Press the hardware PTT button to transmit, release to listen. Audio is encrypted in transit and routed by channel, so only members of the channel hear what's said.</p>
+            <p><strong>Client:</strong> the openPTT app on Android — Hytera P50 ruggedised radios, or any Android device with a PTT button.</p>
         </div>
         <div class="feature">
             <h3><span class="badge badge-voice">Voice</span> PTT triple-tap gestures</h3>
@@ -379,16 +378,15 @@
             <p>Create channels for different teams or purposes (Warehouse, Security, Office). Users join a channel to hear and talk to other members. Managed from <strong>Directory &rarr; Channels</strong> (Add form + per-row delete). The <em>Channels</em> stat card on the Live Ops Overview is also clickable as a shortcut.</p>
             <p><strong>Special channels:</strong></p>
             <p>&bull; <strong>Emergency</strong> &mdash; Auto-created for SOS events. All users are moved here during emergencies.</p>
-            <p>&bull; <strong>Weather</strong> &mdash; Double-PTT to hear a spoken weather report for your GPS location. The <code>PTTWeather</code> bot sits permanently in this channel on a dedicated Mumble connection so the main admin bot stays in Root for SOS acknowledgements.</p>
-            <p>&bull; <strong>Phone / Call-1&hellip;Call-N</strong> &mdash; SIP gateway sub-channels (see <a href="#sip">SIP Phone Gateway</a>).</p>
+            <p>&bull; <strong>Weather</strong> &mdash; double-press PTT to hear a spoken weather report for your GPS location.</p>
+            <p>&bull; <strong>Phone</strong> &mdash; reserved for inbound phone calls (see <a href="#sip">SIP Phone Gateway</a>). Sub-channels under Phone are entered automatically when you accept a call; no need to navigate there manually.</p>
         </div>
 
         <h2 id="gps"><span class="num">03</span> GPS Tracking</h2>
         <div class="feature">
             <h3><span class="badge badge-ops">Ops</span> Live device tracking</h3>
-            <p>GPS is reported by the openPTT app itself — no separate Traccar Client app needed. Worker positions appear on the embedded map under <strong>Live Ops &rarr; Dispatch</strong> (the standalone Map tab folded into Dispatch). The Live Ops <strong>Overview</strong> table also lists per-device GPS coordinates, battery level, and last-seen time.</p>
-            <p><strong>Reporting cadence:</strong> every 30 seconds or 50 m of movement, whichever comes first. The device's Mumble username is used as the Traccar <code>uniqueId</code>, so Traccar devices and PTT users share identity automatically.</p>
-            <p><strong>App setting:</strong> Traccar server URL &mdash; <code>http://voice.harro.ch:5055</code> (plain HTTP because the OsmAnd protocol doesn't speak TLS; cleartext is whitelisted for that host only).</p>
+            <p>GPS reporting is built into the openPTT app — no extra installs on the radio. Worker positions appear on the embedded map under <strong>Live Ops &rarr; Dispatch</strong>. The <strong>Overview</strong> table also lists per-device GPS coordinates, battery level, and last-seen time.</p>
+            <p><strong>Reporting cadence:</strong> every 30 seconds or 50 m of movement, whichever comes first. The radio's username is the same identifier used for tracking, so voice and location stay tied together automatically.</p>
         </div>
 
         <h2 id="sos"><span class="num">04</span> Emergency SOS</h2>
@@ -401,104 +399,94 @@
                 <li><strong>Webhook / email notification</strong> sent to configured admin contacts</li>
                 <li>Everyone can hear the person in distress, regardless of which channel they were in</li>
             </ol>
-            <p><strong>Acknowledge:</strong> An admin can acknowledge from the dashboard or type "OK" in the Emergency channel chat. All users are moved back to their original channels.</p>
-            <p><strong>Trigger methods:</strong> API call (<code>POST /api/sos</code>) and Traccar event forwarding to <code>POST /api/sos/traccar/event</code> (man-down / panic button events generated on the device route through Traccar and into the admin service automatically).</p>
+            <p><strong>Acknowledge:</strong> an admin can acknowledge from the dashboard or by typing "OK" in the Emergency channel chat. All users are then moved back to their original channels.</p>
+            <p><strong>How it triggers:</strong> from the dashboard, from the radio (man-down / panic button events on supported hardware route in automatically), or from any external system via webhook.</p>
         </div>
 
         <h2 id="weather"><span class="num">05</span> Weather Channel (ATIS)</h2>
         <div class="feature">
             <h3><span class="badge badge-ops">Ops</span> Spoken weather reports</h3>
-            <p>Aviation-style weather reporting. Join the <strong>Weather</strong> channel and press PTT twice quickly (within 10 seconds). The system:</p>
-            <ol>
-                <li>Looks up your GPS position from Traccar</li>
-                <li>Fetches current weather and a 6-hour hourly forecast from Open-Meteo (free, no API key)</li>
-                <li>Generates a spoken report using <strong>Piper TTS</strong> (<code>en_US-lessac-medium</code>, baked into the admin image)</li>
-                <li>Plays the audio in the Weather channel</li>
-            </ol>
-            <p><strong>Report includes:</strong> temperature, wind speed and direction, cloud cover, current conditions, plus a 6-hour outlook mentioning expected rain and wind gusts when above threshold (&ge; 0.5 mm total / &ge; 50 % probability / &ge; 40 km/h gust).</p>
-            <p><strong>Rate limit:</strong> one request per user per 60 s.</p>
-            <p><strong>Also available via API:</strong> <code>POST /api/weather</code> with <code>{"location": "Paris, France"}</code></p>
+            <p>Aviation-style weather reporting. Join the <strong>Weather</strong> channel and press PTT twice quickly (within 10 seconds). The system reads your GPS position, fetches the current conditions plus a 6-hour outlook, and plays a spoken report in the channel.</p>
+            <p><strong>Report includes:</strong> temperature, wind speed and direction, cloud cover, current conditions, plus a 6-hour outlook mentioning expected rain and wind gusts when above a usable threshold.</p>
+            <p><strong>Rate limit:</strong> one request per user per minute.</p>
         </div>
 
         <h2 id="dispatch"><span class="num">06</span> Dispatch</h2>
         <div class="feature">
             <h3><span class="badge badge-ops">Ops</span> Single-page dispatch workbench</h3>
-            <p>The <strong>Live Ops &rarr; Dispatch</strong> page is the operator's whole workbench: quick-pick chips, search, embedded Leaflet map with live worker markers, ranked nearest-worker list, and recent-dispatch log — top to bottom on one screen.</p>
-            <p><strong>Pick a target</strong> three ways, all routed through the same code path:</p>
+            <p>The <strong>Live Ops &rarr; Dispatch</strong> page is the operator's whole workbench: quick-pick chips, search, an embedded map with live worker positions, the ranked nearest-worker list, and the recent-dispatch log — top to bottom on one screen.</p>
+            <p><strong>Pick a target</strong> three ways:</p>
             <ul>
                 <li>Click a saved-location chip at the top.</li>
-                <li>Type a place name or <code>lat, lng</code> in the search box and hit <strong>Find Nearest</strong> (place names are geocoded via Open-Meteo).</li>
-                <li>Click anywhere on the embedded map.</li>
+                <li>Type a place name or <code>lat, lng</code> in the search box and hit <strong>Find Nearest</strong>.</li>
+                <li>Click anywhere on the map.</li>
             </ul>
-            <p>An amber target pin drops on the map and the <strong>Nearest Workers</strong> table populates with up to <em>max_workers</em> closest results, filtered by the optional <em>search radius</em> (both configurable on Dispatch Setup &mdash; see below). Distance is haversine straight-line in metres.</p>
+            <p>An amber target pin drops on the map and the <strong>Nearest Workers</strong> table populates with the closest workers — capped and optionally radius-filtered per the limits set in Dispatch Setup. Distance is shown as straight-line metres.</p>
         </div>
         <div class="feature">
             <h3><span class="badge badge-ops">Ops</span> Sending a dispatch</h3>
             <p>Click <strong>Dispatch</strong> on a worker row to open the send modal. Pick a canned message from the dropdown (auto-fills the textarea, still editable) or type free-text. Press <strong>Send</strong>.</p>
-            <p>Dispatch uses Piper TTS whispered directly to the target user's Mumble session &mdash; only they hear it, regardless of which channel they're in. The message is prefixed with throwaway words (<em>"Attention. Dispatch for {user}."</em>) so the receiver's Opus decoder has time to wake up before the real content arrives.</p>
-            <p><strong>Fallback:</strong> if TTS or the whisper fails, dispatch falls back to a text message in the target user's current channel. The API response includes a <code>delivery</code> field (<code>tts_whisper</code> / <code>text</code> / <code>none</code>).</p>
-            <p><strong>Recent Dispatches</strong> log at the bottom of the page shows the last 50 dispatches (newest first) with timestamp, target, message, and coords. Updates live after each send.</p>
+            <p>The message is delivered as a private spoken message directly to that worker — only they hear it, regardless of which channel they're in. If voice delivery fails for any reason, the message falls back to a text message in the worker's current channel.</p>
+            <p>The <strong>Recent Dispatches</strong> log at the bottom of the page shows the last 50 dispatches (newest first) with timestamp, target, message, and coordinates. Updates live after each send.</p>
         </div>
         <div class="feature">
             <h3><span class="badge badge-admin">Admin</span> Dispatch Setup</h3>
             <p>All dispatch configuration lives at <strong>System &rarr; Dispatch Setup</strong> on a separate page so the operational view stays uncluttered:</p>
             <ul>
-                <li><strong>Map Home</strong> &mdash; default centre (lat / lng) and zoom level the embedded map opens at. Defaults to Lisbon (38.72, -9.14, zoom 11).</li>
-                <li><strong>Search Behaviour</strong> &mdash; <em>max workers</em> (1&ndash;50, default 10) caps the nearest-list length; <em>search radius</em> in metres (0 = unlimited) filters out workers further than that from the target.</li>
-                <li><strong>Saved Locations</strong> &mdash; add / delete the quick-pick chips. Coords accepted as <code>lat, lng</code> or as a place name (geocoded on save).</li>
-                <li><strong>Canned Messages</strong> &mdash; pre-written dispatch text the operator picks from the modal dropdown. Sort order controls display order.</li>
+                <li><strong>Map Home</strong> &mdash; default map centre (latitude, longitude) and zoom level.</li>
+                <li><strong>Search Behaviour</strong> &mdash; <em>max workers</em> (1&ndash;50) caps the nearest-list length; <em>search radius</em> in metres (0 = unlimited) filters out workers further than that from the target.</li>
+                <li><strong>Saved Locations</strong> &mdash; add / delete the quick-pick chips. Accepts <code>lat, lng</code> or a place name.</li>
+                <li><strong>Canned Messages</strong> &mdash; pre-written dispatch text the operator picks from the dropdown. Lower <em>Sort order</em> values appear first.</li>
             </ul>
-            <p>Both the operational page and Setup page disappear from the dashboard when the <em>dispatch</em> feature is disabled in Features.</p>
+            <p>Both the operational page and Setup page disappear from the dashboard when the <em>dispatch</em> module is turned off in Features.</p>
         </div>
 
         <h2 id="loneworker"><span class="num">07</span> Lone Worker Safety</h2>
         <div class="feature">
             <h3><span class="badge badge-safety">Safety</span> Shift-based monitoring</h3>
-            <p>Lone-worker check-ins are scoped to explicit <strong>shifts</strong>. When a user starts a shift they're monitored; when the shift ends (manually or by auto-expiry), the checker ignores them. No 24/7 pings.</p>
-            <p><strong>Start / stop a shift from the device:</strong> triple-tap the PTT button (3 presses within 1.2 s). The openPTT app fires <code>POST /api/loneworker/shift/start</code> or <code>/stop</code> and confirms via Android TTS:</p>
+            <p>Lone-worker check-ins are scoped to explicit <strong>shifts</strong>. When a user starts a shift they're monitored; when the shift ends (manually or at the planned end time), monitoring stops. No 24/7 pings.</p>
+            <p><strong>Start / stop a shift from the radio:</strong> triple-tap the PTT button (three presses within 1.2 s). The radio confirms by voice:</p>
             <p>&bull; First triple-tap: <em>"Shift started. Ends at HH:MM."</em></p>
-            <p>&bull; Second triple-tap: <em>"Ending shift. Long press again to cancel."</em> &mdash; 3-second grace window; triple-tap again to cancel, or let it elapse to commit the end.</p>
-            <p><strong>Shift duration:</strong> per-user field on the user edit form (1&ndash;24 h). Blank uses the global default from the Lone Worker config.</p>
+            <p>&bull; Second triple-tap: <em>"Ending shift. Long press again to cancel."</em> &mdash; three-second grace window; triple-tap again to cancel, or let it elapse to commit the end.</p>
+            <p><strong>Shift duration</strong> is set per user on the user edit form (1&ndash;24 h). Leave it blank to use the deployment-wide default.</p>
             <p><strong>While a shift is active:</strong></p>
-            <p>&bull; The checker runs every 60 s, pinging users with missed check-ins via a TTS voice reminder: <em>"Automated check-in for {name}, please respond."</em></p>
-            <p>&bull; Shifts past their <code>planned_end_at</code> are auto-closed with <code>end_reason=auto_expired</code></p>
-            <p>&bull; Status shown on the Users tab: <span style="color:var(--green)">OK</span> / <span style="color:var(--amber)">Due soon</span> / <span style="color:var(--coral)">OVERDUE</span></p>
-            <p><strong>Why triple-tap PTT, not F3 long-press:</strong> the P50's ROM owns F3 long-press and can't be intercepted by apps. The device-settings "Lone Worker" option on F3 is the ROM's own implementation and is disabled here; our shift system runs independently on the admin server.</p>
+            <p>&bull; A check-in reminder fires every minute when overdue: <em>"Automated check-in for {name}, please respond."</em></p>
+            <p>&bull; Shifts past their planned end time auto-close.</p>
+            <p>&bull; Status badge on the Users tab: <span style="color:var(--green)">OK</span> / <span style="color:var(--amber)">Due soon</span> / <span style="color:var(--coral)">OVERDUE</span></p>
         </div>
 
         <h2 id="sip"><span class="num">08</span> SIP Phone Gateway</h2>
         <div class="feature">
-            <h3><span class="badge badge-ops">Ops</span> Inbound calls &rarr; Mumble</h3>
-            <p>A DIDWW SIP trunk terminates inbound calls into the Asterisk-backed <code>sip-bridge</code> container. Each call lands in a dedicated <code>Phone/Call-N</code> sub-channel (up to <code>PHONE_MAX_CALLS</code> concurrent, default 3). Beyond that, callers get 486 Busy.</p>
-            <p><strong>Flow:</strong> INVITE &rarr; Answer &rarr; Piper greeting &rarr; AudioSocket bridge to a per-call <code>PTTPhone-N</code> Mumble bot. Ringback plays to the caller while no radio user has joined the sub-channel.</p>
-            <p><strong>Who can answer:</strong> users with <code>can_answer_calls = true</code> are eligible. Non-eligible users who walk into Phone or any Call-N sub-channel get bounced back with a whispered "Phone channel requires call-answer permission."</p>
-            <p><strong>Notification:</strong> every eligible user gets a whispered 880 Hz + 1175 Hz ding (re-pinged every 3 s) and a structured <code>INCOMING_CALL|caller|Call-N</code> text-whisper that the openPTT app intercepts to raise a full-screen <strong>incoming-call overlay</strong> with Answer / Decline buttons. Tapping Answer moves the user straight into <code>Phone/Call-N</code>; the Phone parent channel is intentionally hidden from the device's channel carousel since manually parking there has no effect.</p>
-            <p><strong>Radio-side call control</strong> (while the user is in a <code>Phone/Call-N</code> sub-channel):</p>
-            <p>&bull; <strong>Green button</strong> (<code>KEYCODE_CALL</code>) &mdash; toggle caller-mute. Radios still hear each other; caller hears silence. Press again to restore bidirectional audio. TTS confirms each toggle.</p>
-            <p>&bull; <strong>MENU key</strong> (<code>KEYCODE_MENU</code>) &mdash; radio-initiated hangup. TTS confirms "call ended."</p>
-            <p>&bull; The channel knob (F5/F6) is locked during an active call so a stray rotation can't move the user out of the call mid-conversation.</p>
-            <p><strong>Editable greeting:</strong> the Piper TTS greeting is stored per-trunk in <code>sip_trunks.greeting_text</code>. Edit on <strong>System &rarr; SIP Gateway</strong>; a Save &amp; Regenerate button re-renders the WAV and hot-pushes it to the sip-bridge container.</p>
+            <h3><span class="badge badge-ops">Ops</span> Inbound phone calls on the radio</h3>
+            <p>Inbound phone calls land on the radio fleet via the SIP gateway. Each concurrent call gets its own dedicated sub-channel; the configured concurrency cap is the maximum number of simultaneous calls (callers beyond the cap get a busy tone).</p>
+            <p><strong>Who can answer:</strong> users with the <em>Can answer SIP calls</em> permission. Non-eligible users can't enter the call sub-channels.</p>
+            <p><strong>Notification:</strong> every eligible user hears a private ringing tone and sees a full-screen <strong>incoming-call overlay</strong> on their radio with <em>Answer</em> and <em>Decline</em> buttons. Tapping <em>Answer</em> moves the user straight into the live call.</p>
+            <p><strong>Radio-side call control while in an active call:</strong></p>
+            <p>&bull; <strong>Green button</strong> &mdash; toggle caller-mute. Other radios on the call still hear each other; the caller hears silence. Press again to restore audio.</p>
+            <p>&bull; <strong>MENU key</strong> &mdash; hang up. The radio confirms with a spoken "call ended."</p>
+            <p>&bull; The channel knob is locked during an active call so a stray rotation can't move you out mid-conversation.</p>
+            <p><strong>Editable greeting:</strong> the spoken greeting played to callers before they're connected is editable per trunk on <strong>System &rarr; SIP Gateway</strong>. Save &amp; Regenerate updates it live.</p>
         </div>
 
         <h2 id="users"><span class="num">09</span> User Management</h2>
         <div class="feature">
             <h3><span class="badge badge-admin">Admin</span> Device user accounts</h3>
-            <p>Create users for each device from the <strong>Users</strong> tab. Each user gets a username, password, and optional display name. The admin server auto-creates a matching Traccar device on user creation with <code>uniqueId=&lt;username&gt;</code> so GPS and voice identity stay unified.</p>
-            <p><strong>QR code:</strong> Click QR to generate a QR code for quick manual device enrollment. Scan with the device camera to auto-configure the openPTT app.</p>
-            <p><strong>Roles and flags:</strong></p>
+            <p>Create users for each device from the <strong>Directory &rarr; Users</strong> tab. Each user gets a username, password, and optional display name. Voice and GPS share the same identity automatically.</p>
+            <p><strong>QR code:</strong> click QR on a user row to generate a QR code for quick manual device enrolment. Scan with the radio's camera to auto-configure the app.</p>
+            <p><strong>Roles and permissions:</strong></p>
             <ul>
-                <li><strong>Admin</strong> &mdash; Can acknowledge SOS from the radio (type "OK" in Emergency channel)</li>
-                <li><strong>Lone Worker</strong> &mdash; Subject to shift-based check-in monitoring. When checked, also set <code>shift_duration_hours</code> (1&ndash;24) or leave blank for the global default.</li>
-                <li><strong>Can answer SIP calls</strong> &mdash; ACL for joining Phone / Call-N sub-channels.</li>
-                <li><strong>User</strong> &mdash; Standard radio user with no extra privileges</li>
+                <li><strong>Admin</strong> &mdash; can acknowledge SOS from the radio (type "OK" in the Emergency channel).</li>
+                <li><strong>Lone Worker</strong> &mdash; subject to shift-based check-in monitoring. When checked, also set the per-user shift duration (1&ndash;24 h) or leave blank for the deployment-wide default.</li>
+                <li><strong>Can answer SIP calls</strong> &mdash; permission to take inbound phone calls.</li>
+                <li><strong>User</strong> &mdash; standard radio user, no extra privileges.</li>
             </ul>
-            <p><strong>Murmur registration reset:</strong> if a user's cert has gone stale, "Reset Murmur registration" on the user edit form clears their registered row and restarts Murmur so they get the cert prompt again on next connect (~3 s disruption).</p>
+            <p><strong>Reset device registration:</strong> if a radio's identity has gone stale, the user edit form has a one-click reset that re-issues the credentials on the radio's next connection (briefly interrupts the voice server while it reloads).</p>
         </div>
 
         <h2 id="admin"><span class="num">10</span> Admin Accounts</h2>
         <div class="feature">
             <h3><span class="badge badge-admin">Admin</span> Dashboard administrators</h3>
-            <p>Manage admin dashboard accounts from the <strong>Admin</strong> tab. Passwords are hashed with bcrypt.</p>
+            <p>Manage admin dashboard accounts from <strong>System &rarr; Admins</strong>. Passwords are stored hashed using a modern slow-hash algorithm.</p>
             <p><strong>Roles:</strong> Admin (full access) or Viewer (read-only dashboard).</p>
         </div>
 
@@ -526,20 +514,17 @@ Invoke-WebRequest https://ptt.harro.ch/p/&lt;slug&gt; -OutFile setup.ps1
             </ol>
             <p><strong>What the script does, unattended:</strong></p>
             <ul>
-                <li>Verifies exactly one P50 is connected over adb</li>
-                <li>Downloads and installs the signed openPTT APK</li>
-                <li>Disables any Hytera stock PTT client (hiTalk / HM Client) when present. Uses a precise package allowlist — <strong>leaves the PTT keycode-142 input method (<code>com.poc.inputmethod.poc</code>), Hytera Market, and Hytera Factory Mode alone</strong>. Reversible via <code>pm enable</code>.</li>
-                <li>Grants <code>RECORD_AUDIO</code>, <code>ACCESS_FINE_LOCATION</code>, <code>ACCESS_COARSE_LOCATION</code> runtime perms</li>
-                <li>Adds openPTT to the Doze whitelist and grants <code>RUN_IN_BACKGROUND</code> / <code>RUN_ANY_IN_BACKGROUND</code>, so the MumlaService survives long periods of screen-off without the ROM killing it</li>
-                <li>Seeds SharedPreferences (admin URL, Traccar URL, auto-connect, PTT input method)</li>
-                <li>Seeds the Humla <code>mumble.db</code> with the user's Mumble credentials</li>
-                <li>Launches MumlaActivity so the service registers and auto-connects</li>
+                <li>Verifies exactly one radio is connected over USB.</li>
+                <li>Installs the signed openPTT app.</li>
+                <li>Disables any pre-installed manufacturer PTT client that would conflict with openPTT (reversible).</li>
+                <li>Grants the runtime permissions the app needs (microphone, location).</li>
+                <li>Whitelists the app from background-power restrictions so it stays connected with the screen off.</li>
+                <li>Seeds the radio with the operator's voice credentials and server addresses, then auto-launches the app.</li>
             </ul>
-            <p><strong>Note on our P50 fleet:</strong> the devices we ship do not come with a hiTalk client pre-installed. The Hytera packages on the stock image (<code>com.hytera.hyterafactorymode</code>, <code>com.hytera.market</code>, <code>com.poc.inputmethod.poc</code>) are intentionally left enabled — the last one is what turns the side PTT button into <code>KEYCODE 142</code> that openPTT listens for. The hiTalk disable step is there for devices sourced elsewhere.</p>
             <p><strong>Prerequisites on the laptop:</strong></p>
             <ul>
-                <li><code>adb</code> in PATH (<code>brew install --cask android-platform-tools</code> on macOS; <a href="https://developer.android.com/tools/releases/platform-tools" target="_blank" rel="noopener">Android platform-tools</a> on Windows)</li>
-                <li><code>sqlite3</code> in PATH (ships on macOS / most Linux; <code>winget install SQLite.SQLite</code> on Windows)</li>
+                <li><code>adb</code> in PATH (<code>brew install --cask android-platform-tools</code> on macOS; <a href="https://developer.android.com/tools/releases/platform-tools" target="_blank" rel="noopener">Android platform-tools</a> on Windows).</li>
+                <li><code>sqlite3</code> in PATH (ships on macOS and most Linux; <code>winget install SQLite.SQLite</code> on Windows).</li>
             </ul>
             <p><strong>Token lifetime:</strong> 24 hours, single-use. The token is marked used when the script finishes successfully. Generate a new one for each device.</p>
             <p><strong>Idempotent:</strong> if a step errors, re-run the script — every step is safe to repeat. If the error persists, capture it and ping an admin.</p>
@@ -555,8 +540,8 @@ Invoke-WebRequest https://ptt.harro.ch/p/&lt;slug&gt; -OutFile setup.ps1
         <h2 id="audit"><span class="num">13</span> Audit Log</h2>
         <div class="feature">
             <h3><span class="badge badge-admin">Admin</span> Action history</h3>
-            <p><strong>System &rarr; Audit Log</strong> shows every admin action: user creation / deletion, admin management, SOS events. Filterable by action type. Includes timestamp, admin username, and IP address.</p>
-            <p><strong>System &rarr; Call Log</strong> is the SIP equivalent — every inbound call's start, slot assignment, answer, and end with caller-id and answering operator.</p>
+            <p><strong>System &rarr; Audit Log</strong> shows every admin action: user creation and deletion, admin management, SOS events. Filterable by action type. Includes timestamp, admin username, and IP address.</p>
+            <p><strong>System &rarr; Call Log</strong> is the phone-call equivalent — every inbound call's start time, who answered (if anyone), and end time, with caller ID.</p>
         </div>
 
         <h2 id="features"><span class="num">14</span> Feature toggles</h2>
@@ -564,20 +549,21 @@ Invoke-WebRequest https://ptt.harro.ch/p/&lt;slug&gt; -OutFile setup.ps1
             <h3><span class="badge badge-admin">Admin</span> Enable / disable modules deployment-wide</h3>
             <p><strong>System &rarr; Features</strong> exposes one switch per module: <em>Lone Worker, SIP, Dispatch, Weather, SOS</em>. Disabling a module:</p>
             <ul>
-                <li>Hides the module's tabs and inline UI from the dashboard immediately (no reload).</li>
-                <li>Returns <code>503 "Feature 'X' is disabled by the administrator"</code> from any of that module's API routes.</li>
-                <li>Skips that module's background tasks at next admin restart (Weather bot, lone-worker checker, SIP poller).</li>
-                <li>Hides matching UI on the P50 app (capability cache refreshes every 10 minutes; force-refresh by restarting the app).</li>
+                <li>Hides the module's tabs and inline UI from the dashboard immediately.</li>
+                <li>Stops the module's background processes from running.</li>
+                <li>Hides the matching UI on the radios (the radios pick up the change within ten minutes; force a faster refresh by restarting the radio app).</li>
             </ul>
-            <p>Database state is preserved &mdash; re-enabling restores full behaviour. SOS shows a confirmation dialog before disabling because turning it off removes emergency response from the system.</p>
-            <p>The capability state is exposed publicly at <code>GET /api/status/capabilities</code> so the P50 app and the dashboard can both read it without authentication.</p>
+            <p>Data is preserved &mdash; re-enabling restores full behaviour. SOS shows a confirmation dialog before disabling because turning it off removes emergency response from the system.</p>
         </div>
 
         <h2 id="monitoring"><span class="num">15</span> Monitoring</h2>
         <div class="feature">
-            <h3><span class="badge badge-admin">Admin</span> Prometheus metrics</h3>
-            <p><code>GET /metrics</code> returns Prometheus-compatible metrics: uptime, Murmur connection status, users online, total users, channels, SOS events.</p>
-            <p><strong>Health check:</strong> <code>GET /api/status/health</code> returns <code>{"status": "healthy", "murmur": "connected"}</code></p>
+            <h3><span class="badge badge-admin">Admin</span> Health and metrics endpoints</h3>
+            <p>Two HTTP endpoints are exposed for external monitoring tools:</p>
+            <ul>
+                <li><code>GET /metrics</code> &mdash; Prometheus-compatible counters and gauges (uptime, voice-server status, online and total users, channels, SOS events).</li>
+                <li><code>GET /api/status/health</code> &mdash; lightweight JSON health probe.</li>
+            </ul>
         </div>
 
         <h2 id="p50setup"><span class="num">16</span> Manual Device Setup</h2>
@@ -592,20 +578,20 @@ Invoke-WebRequest https://ptt.harro.ch/p/&lt;slug&gt; -OutFile setup.ps1
             <pre>adb install -r openptt-foss-release.apk</pre>
             <p><strong>First-time settings in the app:</strong></p>
             <ul>
-                <li>Favourites &rarr; add server <code>voice.harro.ch:443</code> with the user's Mumble credentials</li>
-                <li>Settings &rarr; GPS tracking &rarr; Traccar server URL: <code>http://voice.harro.ch:5055</code></li>
-                <li>Settings &rarr; Admin API &rarr; Admin server URL: <code>https://ptt.harro.ch</code> (required for triple-tap shift control)</li>
-                <li>Grant runtime permissions: <code>ACCESS_FINE_LOCATION</code> (GPS) and <code>RECORD_AUDIO</code> (voice). Example: <code>adb shell pm grant ch.harro.openptt android.permission.ACCESS_FINE_LOCATION</code></li>
+                <li>Voice server: <code>voice.harro.ch:443</code> with the user's voice credentials.</li>
+                <li>GPS tracking server: <code>http://voice.harro.ch:5055</code>.</li>
+                <li>Admin server: <code>https://ptt.harro.ch</code> (required for triple-tap shift control).</li>
+                <li>Grant the microphone and location runtime permissions when prompted.</li>
             </ul>
-            <p><strong>Device settings:</strong> disable battery optimisation for openPTT. Enable background running. The app auto-connects on boot via its BootReceiver.</p>
-            <p><strong>Hardware-button behaviour on the Hytera P50:</strong></p>
+            <p><strong>Device settings:</strong> disable battery optimisation for openPTT and enable background running. The app then auto-connects on every boot.</p>
+            <p><strong>Hardware buttons on the Hytera P50:</strong></p>
             <ul>
-                <li>Side PTT button (keycode 142 via vendor broadcast): push to talk</li>
-                <li>Triple-tap PTT within 1.2 s: toggle lone-worker shift</li>
-                <li>Channel rotary knob (F5 / F6): previous / next channel</li>
-                <li>Green button (KEYCODE_CALL): mute toggle while in a <code>Phone/Call-N</code> sub-channel (SIP)</li>
-                <li>MENU key (KEYCODE_MENU): hangup while in a <code>Phone/Call-N</code> sub-channel (SIP)</li>
-                <li>Red / F3 / F4 keys: owned by the ROM, not intercepted</li>
+                <li>Side PTT button: push to talk.</li>
+                <li>Triple-tap PTT within 1.2 s: toggle a lone-worker shift.</li>
+                <li>Channel knob: rotate left or right to switch channels.</li>
+                <li>Green button: mute toggle during an active phone call.</li>
+                <li>MENU key: hang up during an active phone call.</li>
+                <li>Red / F3 / F4 keys: owned by the radio's firmware, not used by openPTT.</li>
             </ul>
         </div>
 
@@ -614,11 +600,11 @@ Invoke-WebRequest https://ptt.harro.ch/p/&lt;slug&gt; -OutFile setup.ps1
             <h3>Server ports</h3>
             <table>
                 <tr><th>Port</th><th>Protocol</th><th>Service</th></tr>
-                <tr><td>443</td><td>TCP</td><td>Mumble voice (via Nginx SNI) + HTTPS admin</td></tr>
+                <tr><td>443</td><td>TCP</td><td>Voice + HTTPS admin dashboard</td></tr>
                 <tr><td>80</td><td>TCP</td><td>HTTP redirect to HTTPS</td></tr>
-                <tr><td>64738</td><td>TCP + UDP</td><td>Mumble voice (direct fallback)</td></tr>
-                <tr><td>5055</td><td>TCP + UDP</td><td>Traccar GPS client</td></tr>
-                <tr><td>5060</td><td>UDP</td><td>SIP (DIDWW inbound only)</td></tr>
+                <tr><td>64738</td><td>TCP + UDP</td><td>Direct voice fallback</td></tr>
+                <tr><td>5055</td><td>TCP + UDP</td><td>GPS tracking</td></tr>
+                <tr><td>5060</td><td>UDP</td><td>Inbound SIP phone calls</td></tr>
             </table>
         </div>
 
