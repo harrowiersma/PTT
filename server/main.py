@@ -9,6 +9,7 @@ from server.api.admin import router as admin_router
 from server.api.loneworker import router as loneworker_router
 from server.api.auth import router as auth_router
 from server.api.bulk import router as bulk_router
+from server.api.call_logs import router as call_logs_router
 from server.api.metrics import router as metrics_router
 from server.api.channels import router as channels_router
 from server.api.dispatch import router as dispatch_router
@@ -228,6 +229,7 @@ app.include_router(bulk_router)
 app.include_router(loneworker_router)
 app.include_router(metrics_router)
 app.include_router(features_router)
+app.include_router(call_logs_router)
 
 # Serve dashboard static files
 dashboard_dir = Path(__file__).parent / "dashboard"

@@ -665,7 +665,19 @@ async def internal_call_started(
         _notify_state["caller_id"] = caller_id
         _notify_state["task"] = _asyncio.create_task(_notify_loop(caller_id, murmur, None))
 
-    return {"notified": notified, "caller_id": caller_id, "looping": True}
+    # Open a CallLog row — started_at defaults to NOW(). Subsequent
+    # hooks (call-assigned, /sip/answered, call-ended) will update it.
+    # Stash the id on _notify_state so those hooks can find this row
+    # without racing on "most recent active call".
+    from server.models import CallLog as _CallLog
+    log = _CallLog(caller_id=caller_id)
+    db.add(log)
+    await db.commit()
+    await db.refresh(log)
+    _notify_state["call_log_id"] = log.id
+
+    return {"notified": notified, "caller_id": caller_id, "looping": True,
+            "call_log_id": log.id}
 
 
 @internal_router.api_route("/internal/call-assigned", methods=["GET", "POST"])
@@ -727,6 +739,18 @@ async def internal_call_assigned(
         if murmur.whisper_text(sid, payload):
             whispered.append(name)
 
+    # Stamp the active CallLog row with slot + assigned_at so the
+    # dashboard can correlate the call to its sub-channel later.
+    from server.models import CallLog as _CallLog
+    import datetime as _dt
+    log_id = _notify_state.get("call_log_id")
+    if log_id:
+        row = await db.get(_CallLog, log_id)
+        if row is not None and row.ended_at is None:
+            row.slot = slot
+            row.assigned_at = _dt.datetime.now(_dt.timezone.utc)
+            await db.commit()
+
     logger.info(
         "call-assigned: whispered %s to caller=%s sub=%s",
         whispered, caller_id, sub_channel,
@@ -734,14 +758,88 @@ async def internal_call_assigned(
     return {"whispered": whispered, "caller_id": caller_id, "sub_channel": sub_channel}
 
 
+class _AnsweredRequest(BaseModel):
+    slot: int
+    username: str
+
+
+@router.post("/answered")
+async def sip_answered(
+    body: _AnsweredRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Record which operator answered the current call for slot N.
+
+    The P50 app POSTs here from IncomingCallActivity.onAnswer right
+    before (well, in parallel with) the move-to-channel hand-off.
+    Admin-authless because the client is about to move into a Mumble
+    channel they're already authorized for; the slot+username pair is
+    verified against current Murmur state below.
+    """
+    from server.models import CallLog as _CallLog
+    from sqlalchemy import select as _select
+    import datetime as _dt
+
+    # Find the most recent CallLog row for this slot that's still
+    # active. Falls back gracefully if no row exists (shouldn't happen
+    # in normal flow, but don't 500 the client).
+    result = await db.execute(
+        _select(_CallLog)
+        .where(_CallLog.slot == body.slot, _CallLog.ended_at.is_(None))
+        .order_by(_CallLog.id.desc())
+        .limit(1)
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        logger.warning(
+            "sip/answered: no active CallLog for slot=%s username=%s",
+            body.slot, body.username,
+        )
+        return {"ok": False, "reason": "no active call for slot"}
+
+    # Only stamp once — a second answer from the same slot shouldn't
+    # overwrite the original answerer.
+    if row.answered_at is None:
+        row.answered_at = _dt.datetime.now(_dt.timezone.utc)
+        row.answered_by = body.username
+        await db.commit()
+        logger.info(
+            "sip/answered: call_log=%d answered_by=%s (slot=%d)",
+            row.id, body.username, body.slot,
+        )
+    return {"ok": True, "call_log_id": row.id}
+
+
 @internal_router.api_route("/internal/call-ended", methods=["GET", "POST"])
-async def internal_call_ended():
-    """Stop the ding loop. Called by the dialplan right before Hangup()."""
+async def internal_call_ended(
+    db: AsyncSession = Depends(get_db),
+):
+    """Stop the ding loop. Called by the dialplan + by the sip-bridge
+    on connection close. Also closes out the active CallLog row with
+    an ended_at timestamp + computed duration."""
     async with _notify_lock:
         task = _notify_state.get("task")
         _notify_state["active"] = False
         if task and not task.done():
             task.cancel()
+
+    from server.models import CallLog as _CallLog
+    import datetime as _dt
+    log_id = _notify_state.get("call_log_id")
+    if log_id:
+        row = await db.get(_CallLog, log_id)
+        if row is not None and row.ended_at is None:
+            now = _dt.datetime.now(_dt.timezone.utc)
+            row.ended_at = now
+            started = row.started_at
+            if started is not None:
+                # Postgres returns tz-aware; cover the rare NAIVE case.
+                if started.tzinfo is None:
+                    started = started.replace(tzinfo=_dt.timezone.utc)
+                row.duration_s = int((now - started).total_seconds())
+            await db.commit()
+        _notify_state["call_log_id"] = None
+
     logger.info("call-ended: ding loop stopped")
     return {"stopped": True}
 

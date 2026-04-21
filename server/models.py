@@ -262,3 +262,37 @@ class FeatureFlag(Base):
         onupdate=func.now(),
     )
     updated_by: Mapped[str] = mapped_column(String(64), nullable=True)
+
+
+class CallLog(Base):
+    """One row per inbound SIP call. Lifecycle:
+
+    ``started``    (row INSERT, caller_id from Asterisk)
+    ``assigned``   (slot known — sip-bridge posted /internal/call-assigned)
+    ``answered``   (operator tapped Answer — app posted /api/sip/answered)
+    ``ended``      (sip-bridge cleanup posted /internal/call-ended)
+
+    A call without an ``answered_by`` means nobody picked it up. A call
+    without ``ended_at`` is still in flight (or the sip-bridge crashed
+    before cleanup — handle via an "orphan" sweep if that becomes real).
+    """
+
+    __tablename__ = "call_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    caller_id: Mapped[str] = mapped_column(String(64), nullable=True)
+    slot: Mapped[int] = mapped_column(Integer, nullable=True)
+    started_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    assigned_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    answered_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    answered_by: Mapped[str] = mapped_column(String(64), nullable=True)
+    ended_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    duration_s: Mapped[int] = mapped_column(Integer, nullable=True)
