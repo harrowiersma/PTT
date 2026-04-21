@@ -23,6 +23,7 @@ from server.api.sip import router as sip_router
 from server.api.sip import internal_router as sip_internal_router
 from server.api.sos import router as sos_router
 from server.api.status import router as status_router
+from server.api.user_status import router as user_status_router
 from server.api.users import router as users_router
 from server.api.weather import router as weather_router
 from server.config import settings, validate_settings
@@ -216,6 +217,9 @@ app = FastAPI(
 # API routes
 app.include_router(admin_router)
 app.include_router(auth_router)
+# user_status_router must be registered BEFORE users_router so its
+# concrete /api/users/status path wins over /api/users/{user_id}.
+app.include_router(user_status_router)
 app.include_router(users_router)
 app.include_router(channels_router)
 app.include_router(status_router)
