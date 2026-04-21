@@ -535,6 +535,16 @@
         .badge.amber { color: var(--amber); border-color: rgba(244,179,64,0.3); background: var(--amber-glow); }
         @keyframes live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.65; } }
 
+        .status-pill {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 2px 8px; border-radius: 999px;
+            background: var(--surface-sunk, rgba(0,0,0,0.05));
+            font-size: 0.8125rem; font-family: var(--font-data);
+            border: 1px solid var(--border);
+        }
+        .status-dot { width: 6px; height: 6px; border-radius: 50%; }
+        .muted-icon { font-size: 0.875rem; color: var(--color-danger, #c33); margin-left: 4px; }
+
         /* Empty states */
         .empty-state { text-align: center; padding: var(--space-xl) var(--space-md); color: var(--fg-muted); }
         .empty-state .icon { font-size: 1.75rem; margin-bottom: var(--space-sm); opacity: 0.35; }
@@ -861,9 +871,9 @@
                 </div>
                 <div class="table-wrap">
                     <table aria-label="Devices">
-                        <thead><tr><th>User</th><th>Channel</th><th>Location</th><th>Battery</th><th>Last Seen</th><th>Status</th></tr></thead>
+                        <thead><tr><th>User</th><th>Status</th><th>Channel</th><th>Location</th><th>Battery</th><th>Last Seen</th><th>Connection</th></tr></thead>
                         <tbody id="onlineTable">
-                            <tr><td colspan="6"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div></td></tr>
+                            <tr><td colspan="7"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div></td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -893,9 +903,9 @@
                 </div>
                 <div class="table-wrap">
                     <table aria-label="User list">
-                        <thead><tr><th>Username</th><th>Display Name</th><th>GPS Device</th><th>Role</th><th>Created</th><th>Actions</th></tr></thead>
+                        <thead><tr><th>Username</th><th>Display Name</th><th>Status</th><th>GPS Device</th><th>Role</th><th>Created</th><th>Actions</th></tr></thead>
                         <tbody id="usersTable">
-                            <tr><td colspan="4"><div class="skeleton skeleton-line" style="width:80%"></div></td></tr>
+                            <tr><td colspan="7"><div class="skeleton skeleton-line" style="width:80%"></div></td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -1759,7 +1769,7 @@
 
         const tbody = document.getElementById('onlineTable');
         if (allUsers.length === 0 && data.users.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><div class="icon">&#128225;</div><p>No devices yet.</p><span class="action" onclick="switchTab(\'users\')">Set up your first device in the Users tab</span></div></td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="icon">&#128225;</div><p>No devices yet.</p><span class="action" onclick="switchTab(\'users\')">Set up your first device in the Users tab</span></div></td></tr>';
         } else {
             // Merge: show all registered users, enriched with online + GPS data
             const rows = [];
@@ -1775,6 +1785,7 @@
                 const muteIcon = u.is_muted ? ' <span title="Muted" style="color:var(--color-danger)">&#128263;</span>' : '';
                 rows.push('<tr>' +
                     '<td><strong>' + esc(u.username) + '</strong>' + muteIcon + '</td>' +
+                    '<td>' + renderStatusPill(u.status_label || null, true, u.is_audible) + '</td>' +
                     '<td>' + esc(u.channel_name || 'Root') + '</td>' +
                     '<td>' + loc + '</td>' +
                     '<td>' + bat + '</td>' +
@@ -1791,6 +1802,7 @@
                     : 'Never';
                 rows.push('<tr style="opacity:0.6">' +
                     '<td>' + esc(u.username) + '</td>' +
+                    '<td>' + renderStatusPill(u.status_label || null, false, u.is_audible) + '</td>' +
                     '<td>\u2014</td>' +
                     '<td>\u2014</td>' +
                     '<td>\u2014</td>' +
@@ -1815,11 +1827,12 @@
     function renderUsers(users) {
         const tbody = document.getElementById('usersTable');
         if (users.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><div class="icon">&#128100;</div><p>No users yet. Add your first user above to get started.</p></div></td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="icon">&#128100;</div><p>No users yet. Add your first user above to get started.</p></div></td></tr>';
         } else {
             tbody.innerHTML = users.map(u => '<tr>' +
                 '<td>' + esc(u.username) + '</td>' +
                 '<td>' + esc(u.display_name || '\u2014') + '</td>' +
+                '<td>' + renderStatusPill(u.status_label || null, false, u.is_audible) + '</td>' +
                 '<td>' + (u.traccar_device_id ? '<span class="badge online">' + esc(getDeviceName(u.traccar_device_id)) + '</span>' : '<span style="color:var(--color-text-secondary)">Not linked</span>') + '</td>' +
                 '<td>' + (u.is_admin ? '<span class="badge online">Admin</span> ' : '') + (u.is_lone_worker ? '<span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning-text)">Lone Worker</span>' : (!u.is_admin ? 'User' : '')) + '</td>' +
                 '<td>' + new Date(u.created_at).toLocaleDateString() + '</td>' +
@@ -2761,6 +2774,24 @@
         const d = document.createElement('div');
         d.textContent = s;
         return d.innerHTML;
+    }
+
+    function renderStatusPill(label, connected, isAudible) {
+        // Effective-label rule: disconnected users always show Offline
+        // regardless of stored label. Null stored label also = offline.
+        const eff = !connected ? 'offline' : (label || 'offline');
+        const map = {
+            online:  { dot: 'var(--color-success)',  text: 'Online'  },
+            busy:    { dot: 'var(--amber, #FFBF00)', text: 'Busy'    },
+            offline: { dot: 'var(--color-muted, #999)', text: 'Offline' },
+        };
+        const s = map[eff] || map.offline;
+        const mutedIcon = isAudible === false
+            ? ' <span class="muted-icon" title="Device muted \u2014 TTS and ring won\'t be audible" aria-label="muted">&#128263;</span>'
+            : '';
+        return '<span class="status-pill" title="Stored: ' + (label || 'none') + '">' +
+               '<span class="status-dot" style="background:' + s.dot + '"></span>' +
+               s.text + '</span>' + mutedIcon;
     }
 
     // === SIP GATEWAY ===

@@ -38,6 +38,8 @@ class UserResponse(BaseModel):
     is_active: bool
     created_at: datetime
     last_seen: datetime | None
+    status_label: str | None = None
+    is_audible: bool | None = None
 
     model_config = {"from_attributes": True}
 
@@ -56,6 +58,8 @@ class UserOnline(BaseModel):
     gps_timestamp: str | None = None
     battery: float | None = None
     speed: float | None = None
+    status_label: str | None = None
+    is_audible: bool | None = None
 
 
 class ChannelCreate(BaseModel):

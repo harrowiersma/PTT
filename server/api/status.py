@@ -74,6 +74,19 @@ async def get_server_status(
         except Exception as e:
             logger.debug("Could not update last_seen: %s", e)
 
+    # Pull status_label + is_audible for all online users in one query.
+    status_by_username: dict[str, tuple[str | None, bool | None]] = {}
+    if online_usernames:
+        try:
+            r = await db.execute(
+                select(User.username, User.status_label, User.is_audible)
+                .where(User.username.in_(online_usernames))
+            )
+            for uname, label, audible in r.all():
+                status_by_username[uname.lower()] = (label, audible)
+        except Exception as e:
+            logger.debug("Could not load status/audibility map: %s", e)
+
     users = []
     for u in status.users:
         # Try explicit device link first, fall back to name matching
@@ -93,6 +106,8 @@ async def get_server_status(
                 gps_timestamp=gps.timestamp if gps else None,
                 battery=gps.battery_level if gps and gps.battery_level >= 0 else None,
                 speed=gps.speed if gps else None,
+                status_label=status_by_username.get(u.name.lower(), (None, None))[0],
+                is_audible=status_by_username.get(u.name.lower(), (None, None))[1],
             )
         )
 
