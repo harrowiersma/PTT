@@ -93,7 +93,7 @@ async def _load_template(name: str) -> str:
     Templates use ``{{double_brace}}`` placeholders; we substitute with
     plain .replace() to avoid pulling in Jinja for three variables.
     """
-    root = Path(__file__).resolve().parents[2] / "provisioning"
+    root = Path(__file__).resolve().parents[1] / "provisioning"
     path = root / name
     return path.read_text(encoding="utf-8")
 
