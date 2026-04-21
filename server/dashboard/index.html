@@ -1206,6 +1206,8 @@
                 <div style="display:flex;gap:var(--space-sm);margin-bottom:var(--space-md);flex-wrap:wrap">
                     <select id="auditFilter" style="padding:var(--space-sm);border:1px solid var(--color-border);border-radius:var(--radius-sm);min-height:var(--min-touch)" onchange="refreshAudit()">
                         <option value="">All Actions</option>
+                        <option value="user.status_change">Status Change</option>
+                        <option value="shift.stop">Shift Stop</option>
                         <option value="create_admin">Create Admin</option>
                         <option value="delete_admin">Delete Admin</option>
                         <option value="create_user">Create User</option>
@@ -1843,7 +1845,7 @@
             tbody.innerHTML = users.map(u => '<tr>' +
                 '<td>' + esc(u.username) + '</td>' +
                 '<td>' + esc(u.display_name || '\u2014') + '</td>' +
-                '<td>' + renderStatusPill(u.status_label || null, false, u.is_audible) + '</td>' +
+                '<td>' + renderStatusPill(u.status_label || null, true /* Directory shows stored intent, not live presence */, u.is_audible) + '</td>' +
                 '<td>' + (u.traccar_device_id ? '<span class="badge online">' + esc(getDeviceName(u.traccar_device_id)) + '</span>' : '<span style="color:var(--color-text-secondary)">Not linked</span>') + '</td>' +
                 '<td>' + (u.is_admin ? '<span class="badge online">Admin</span> ' : '') + (u.is_lone_worker ? '<span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning-text)">Lone Worker</span>' : (!u.is_admin ? 'User' : '')) + '</td>' +
                 '<td>' + new Date(u.created_at).toLocaleDateString() + '</td>' +
@@ -2682,6 +2684,40 @@
         }
     }
 
+    // Human-readable rendering for the audit-log "Details" cell. Handles the
+    // two structured actions we emit (user.status_change, shift.stop) with
+    // purpose-built chrome; falls back to a neat key:value table for other
+    // JSON payloads and to plain text for free-form strings.
+    function renderAuditDetails(action, details) {
+        if (!details) return '\u2014';
+        let parsed = null;
+        try { parsed = JSON.parse(details); } catch (_) { /* not JSON */ }
+        if (parsed === null || typeof parsed !== 'object') {
+            return esc(details);
+        }
+        if (action === 'user.status_change') {
+            const from = parsed.from || null;
+            const to = parsed.to || null;
+            const src = parsed.source || 'unknown';
+            return renderStatusPill(from, true, null) +
+                   ' <span style="color:var(--color-text-secondary, #888);margin:0 4px">\u2192</span> ' +
+                   renderStatusPill(to, true, null) +
+                   ' <span style="font-size:0.75rem;color:var(--color-text-secondary, #888);margin-left:8px">via ' + esc(src) + '</span>';
+        }
+        if (action === 'shift.stop') {
+            return '<span style="font-family:var(--font-data)">reason: <strong>' + esc(parsed.reason || 'unknown') + '</strong></span>';
+        }
+        // Generic JSON → key:value pairs.
+        const rows = Object.entries(parsed).map(([k, v]) => {
+            const valStr = (v === null || v === undefined) ? '\u2014'
+                         : (typeof v === 'object') ? JSON.stringify(v)
+                         : String(v);
+            return '<div><span style="color:var(--color-text-secondary, #888);font-family:var(--font-data);font-size:0.75rem">' +
+                   esc(k) + '</span> ' + esc(valStr) + '</div>';
+        });
+        return rows.join('');
+    }
+
     async function refreshAudit() {
         const filter = document.getElementById('auditFilter').value;
         const url = '/api/admin/audit?limit=100' + (filter ? '&action=' + filter : '');
@@ -2696,7 +2732,7 @@
                 '<td>' + esc(e.admin_username) + '</td>' +
                 '<td><span class="badge ' + (e.action.includes('delete') ? 'offline' : 'online') + '">' + esc(e.action) + '</span></td>' +
                 '<td>' + esc((e.target_type || '') + (e.target_id ? ':' + e.target_id : '')) + '</td>' +
-                '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">' + esc(e.details || '\u2014') + '</td>' +
+                '<td style="max-width:360px">' + renderAuditDetails(e.action, e.details) + '</td>' +
                 '</tr>').join('');
         }
     }
