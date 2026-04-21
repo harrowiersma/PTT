@@ -169,13 +169,16 @@ async def delete_admin(
 @router.get("/audit", response_model=list[AuditLogResponse])
 async def get_audit_log(
     limit: int = 100,
-    action: str = None,
+    action: str | None = None,
+    target_id: str | None = None,
     _admin: dict = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
     query = select(AuditLog).order_by(AuditLog.timestamp.desc()).limit(limit)
     if action:
         query = query.where(AuditLog.action == action)
+    if target_id:
+        query = query.where(AuditLog.target_id == target_id)
     result = await db.execute(query)
     return [
         AuditLogResponse(

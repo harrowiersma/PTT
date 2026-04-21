@@ -1298,6 +1298,17 @@
                     <input type="number" id="editShiftDurationHours" min="1" max="24" style="width:80px;margin-left:var(--space-xs)">
                 </label>
             </div>
+            <div id="editUserStatusRow" style="margin-bottom:var(--space-md)">
+                <label style="font-size:0.8125rem;display:block;margin-bottom:var(--space-xs)">Status
+                    <select id="editUserStatus" style="width:100%;padding:var(--space-sm);border:1px solid var(--color-border);border-radius:var(--radius-sm)">
+                        <option value="">&mdash; Unset &mdash;</option>
+                        <option value="online">Online</option>
+                        <option value="busy">Busy</option>
+                        <option value="offline">Offline</option>
+                    </select>
+                </label>
+                <div id="editUserStatusMeta" style="font-size:0.75rem;color:var(--fg-muted);margin-top:4px"></div>
+            </div>
             <div id="editCanAnswerCallsRow" style="margin-bottom:var(--space-md)" data-feature="sip">
                 <label style="font-size:0.8125rem;display:flex;align-items:center;gap:var(--space-xs)"><input type="checkbox" id="editCanAnswerCalls"> Can answer SIP calls (Phone channel access)</label>
             </div>
@@ -2058,8 +2069,38 @@
         document.getElementById('editRoleRow').style.display = 'block';
         document.getElementById('editLoneWorkerRow').style.display = 'block';
         document.getElementById('editCanAnswerCallsRow').style.display = 'block';
+        document.getElementById('editUserStatusRow').style.display = 'block';
         document.getElementById('editMurmurAdminRow').style.display = 'block';
         document.getElementById('editProvisioningRow').style.display = 'block';
+        // Populate Status dropdown + "last changed" meta from the server.
+        const statusSel = document.getElementById('editUserStatus');
+        const statusMeta = document.getElementById('editUserStatusMeta');
+        statusSel.value = '';
+        statusMeta.textContent = '';
+        fetch('/api/users/status?username=' + encodeURIComponent(username), {
+            headers: { 'Authorization': 'Bearer ' + token }
+        }).then(r => r.ok ? r.json() : null).then(data => {
+            if (!data) { statusMeta.textContent = 'Never set'; return; }
+            statusSel.value = data.label || '';
+            if (data.updated_at) {
+                statusMeta.textContent = 'Last changed ' + timeAgo(new Date(data.updated_at));
+                // Enrich with audit actor + source if available.
+                const auditUrl = '/api/admin/audit?target_id=' +
+                    encodeURIComponent(username) + '&action=user.status_change&limit=1';
+                api(auditUrl).then(audit => {
+                    if (audit && audit.length) {
+                        const a = audit[0];
+                        try {
+                            const details = JSON.parse(a.details || '{}');
+                            statusMeta.textContent = 'Last changed ' + timeAgo(new Date(a.timestamp)) +
+                                ' by ' + a.admin_username + ' (' + (details.source || 'unknown') + ')';
+                        } catch (e) { /* keep plain timestamp */ }
+                    }
+                });
+            } else {
+                statusMeta.textContent = 'Never set';
+            }
+        });
         document.getElementById('editUserModal').style.display = 'flex';
     }
 
@@ -2073,6 +2114,7 @@
         document.getElementById('editRoleRow').style.display = 'block';
         document.getElementById('editLoneWorkerRow').style.display = 'none';
         document.getElementById('editCanAnswerCallsRow').style.display = 'none';
+        document.getElementById('editUserStatusRow').style.display = 'none';
         document.getElementById('editMurmurAdminRow').style.display = 'none';
         document.getElementById('editProvisioningRow').style.display = 'none';
         document.getElementById('editTraccarDevice').parentElement.style.display = 'none';
@@ -2105,6 +2147,14 @@
                 body: JSON.stringify(body),
             });
             if (result) {
+                // Push status change as a separate PATCH — the user PATCH doesn't carry this.
+                const newStatus = document.getElementById('editUserStatus').value;
+                if (newStatus) {
+                    await api('/api/users/' + id + '/status', {
+                        method: 'PATCH',
+                        body: JSON.stringify({ label: newStatus }),
+                    });
+                }
                 showToast('User updated', 'success');
                 refreshUsers();
             }
