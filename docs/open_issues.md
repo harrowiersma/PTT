@@ -116,25 +116,9 @@ awareness (man-down, geofencing automation, dispatch video-on-demand,
 voice recording + transcription) — is captured in the design doc and
 intentionally deferred until this theme lands.
 
-### Photo + file messaging in channels (implementation TBD)
-Zello / Motorola WAVE / ESChat all ship multimedia messaging as a core
-feature. Our current text-chat path carries strings only. For
-field-to-dispatch clarity ("here's the thing I'm looking at"), this is
-the single highest-daily-value add from the research.
-
-**Shape (sketched):**
-- New `message_attachments` table keyed by a Mumble text-message id.
-- P50 app: add an attach-image button in the chat UI that uploads to
-  the admin API, receives an attachment_id, sends a Mumble text message
-  with a `[img:N]` sentinel that other clients render as a thumbnail.
-- Dashboard: chat tab per channel with inline image previews + full-size
-  modal on click.
-- Storage: `/var/openptt/attachments/` mounted into admin, similar to
-  the `/var/openptt/apk/` pattern from provisioning. Age-out policy TBD
-  (30 days default?).
-
-Effort: S-M. Dependencies: existing dashboard chat surface; Humla app
-text-message plumbing; admin container volume mount + retention job.
+### ~~Photo + file messaging in channels~~ — **Dropped 2026-04-21**
+Operator decision: not needed for the current iteration. Re-open if
+field workers start asking for it.
 
 ### User status / presence (implementation TBD)
 Zello and Motorola WAVE surface a per-user status (available / busy /
@@ -172,42 +156,50 @@ picker flow.
 
 Effort: M. Depends on answering the hardware-key UX question first.
 
-### Dynamic user-created channels (implementation TBD)
-Zello's other big idea — any user with the flag can create a channel on
-the fly ("hey let's talk in `job-site-7`"), and it auto-cleans when
-empty for N minutes. Reduces admin toil when field teams self-organize.
+### Dynamic user-created channels — **Deferred 2026-04-21**
+Operator decision: defer. Worth re-evaluating after call groups land
+(membership inheritance rule needs to be defined first) and after
+investigating whether the voice-server runtime channel-create path
+can avoid the ~3 s restart hit.
 
-**Shape:**
-- New `users.can_create_channels` boolean (admin-gated, off by default).
-- P50 app: long-press the channel switcher to prompt for a channel name.
-  Calls admin's `POST /api/channels` (which already uses admin_sqlite +
-  murmur restart from Priority 1).
-- Admin: add a "dynamic" flag on channels; a reaper runs every 5 min
-  and deletes dynamic channels empty for 15 min.
-- Interplay with call groups (the other open item): dynamic channels
-  inherit the creator's call-group membership by default.
+### Office-user access — Microsoft Teams bridge via Graph API (implementation TBD)
+Re-scoped 2026-04-21 from "build our own web/desktop client" to
+"reuse Microsoft Teams." Office staff already live in Teams; standing
+up our own browser/desktop client duplicates a tool they already pay
+for and have to learn. Instead, investigate bridging Teams calls
+into a radio channel via the Microsoft Graph API + Teams calling
+APIs so an office user can dial a channel from Teams and be heard
+on the radios.
 
-Effort: M. Depends on call groups being specced (so the membership
-inheritance rule is clear) and on accepting the ~3 s Murmur-restart
-hit on every channel create (acceptable at the hoped-for cadence of
-a few per week).
+**To investigate (in this order):**
+- Which Teams API surface fits: Cloud Communications (Graph
+  `/communications/calls`), Teams Phone (PSTN), or a bot
+  identity that joins as a participant.
+- Auth model: app-only with admin consent vs. delegated user
+  consent. Tenant-level configuration cost.
+- Audio path: real-time audio access requires registering as a
+  Communications-API-enabled bot. Latency target: comparable to
+  the SIP gateway today (sub-second).
+- Bidirectional vs. listen-only: do we want office users to also
+  hear the radio channel back into Teams, or is one-way
+  (Teams→radio) enough for v1?
+- Licensing: which Microsoft 365 / Teams Phone SKUs the operator's
+  tenant already has; whether we need additional ones.
+- Compare effort + dependency footprint against the original
+  "build our own client" path before committing.
 
-### Web / desktop client for office users (implementation TBD)
-Today, joining Mumble requires the P50 app or a desktop Mumble client
-(separate install). Zello and Motorola WAVE ship web and Windows
-clients so office staff can participate without dedicated hardware. A
-browser PWA that connects to Mumble via a websocket proxy lets
-dispatchers and managers listen and text-chat from any browser.
+**Shape (sketched, pending the investigation above):**
+- Admin: a "Teams bridge" config card with the tenant ID, app
+  registration credentials, and per-channel mapping (which Teams
+  meeting / call queue routes to which radio channel).
+- Bridge service: small container that authenticates via Graph,
+  joins Teams calls as a bot, and pipes audio to/from a per-bridge
+  Mumble user (same pattern as the existing SIP bridge).
+- Dashboard: a "Bridges" sub-tab under System listing live bridges.
 
-**Shape (two variants, decision needed):**
-- **Slim path:** admin API already exposes channels + chat; build a
-  React/Preact page that renders channel tree + text chat + user list.
-  No voice. Talks only to admin, not Murmur directly.
-- **Full path:** WebRTC or websocket proxy in front of Murmur, full
-  Opus decode in browser (via mumble-web or similar), voice + text.
-
-Effort: L (slim) to XL (full). Defer to after the first four items
-land; pick variant based on actual demand from office users.
+Effort: M-L (depending on investigation outcome). Lower than
+maintaining a custom voice client if Graph supports the audio path
+cleanly.
 
 ### Call groups — per-user channel-access scoping (implementation TBD)
 Today every user can see and join every channel the Mumble server
