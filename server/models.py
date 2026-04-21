@@ -194,6 +194,19 @@ class DispatchLocation(Base):
     )
 
 
+class DispatchCannedMessage(Base):
+    """Admin-managed canned messages for the dispatch modal dropdown."""
+    __tablename__ = "dispatch_canned_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    label: Mapped[str] = mapped_column(String(64), nullable=False)
+    message: Mapped[str] = mapped_column(String(500), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class DispatchSettings(Base):
     """Singleton config row for the dispatch feature.
 
