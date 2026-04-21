@@ -271,6 +271,15 @@ async def shift_start(
         "Shift started for %s: id=%d duration=%dh",
         user.username, shift.id, duration_hours,
     )
+
+    # Status coupling (design §Decisions #5): if user is a lone worker, the
+    # shift start force-sets status to Online. The feature-enabled gate is
+    # implicit — requires_feature("lone_worker") on the router already 503s
+    # when disabled.
+    if user.is_lone_worker:
+        from server.api.user_status import set_status
+        await set_status(db, user, "online", actor="system", source="shift_start")
+
     return _shift_dict(shift, user)
 
 
