@@ -37,7 +37,12 @@ async def find_nearest(
     _admin: dict = Depends(get_current_admin),
 ):
     """Find nearest workers to a given GPS location.
-    Uses explicit user-device links where available, falls back to name matching."""
+    Uses explicit user-device links where available, falls back to name matching.
+    Honours dispatch_settings.max_workers and search_radius_m.
+    """
+    from server.api.dispatch_settings import get_cached as _settings
+
+    settings = await _settings(db)
     client = TraccarClient()
     positions = await client.get_positions()
 
@@ -45,6 +50,7 @@ async def find_nearest(
     result = await db.execute(select(User).where(User.traccar_device_id.isnot(None)))
     device_to_user = {u.traccar_device_id: u.username for u in result.scalars().all()}
 
+    radius = settings["search_radius_m"]
     results = []
     for p in positions:
         if p.latitude == 0 and p.longitude == 0:
@@ -52,6 +58,8 @@ async def find_nearest(
         # Resolve username: explicit link first, then device name fallback
         username = device_to_user.get(p.device_id, p.device_name)
         distance = TraccarClient.haversine_distance(lat, lng, p.latitude, p.longitude)
+        if radius is not None and distance > radius:
+            continue
         results.append({
             "username": username,
             "distance_m": round(distance),
@@ -60,7 +68,7 @@ async def find_nearest(
             "timestamp": p.timestamp,
         })
     results.sort(key=lambda x: x["distance_m"])
-    return results[:10]
+    return results[: settings["max_workers"]]
 
 
 @router.post("")
