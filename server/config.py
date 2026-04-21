@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     sos_smtp_password: str = ""
     sos_email_to: str = ""
 
-    model_config = {"env_prefix": "PTT_", "env_file": ".env"}
+    model_config = {"env_prefix": "PTT_", "env_file": ".env", "extra": "ignore"}
 
 
 settings = Settings()

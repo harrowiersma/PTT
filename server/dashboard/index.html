@@ -1660,6 +1660,7 @@
         if (name === 'dispatch') {
             setTimeout(function() { initMap(); if (map) map.invalidateSize(); }, 100);
             refreshSavedLocations();
+            loadRecentDispatches();
         }
         if (name === 'admin') { refreshAdmins(); loadLoneWorkerConfig(); }
         if (name === 'audit') refreshAudit();
@@ -2387,6 +2388,28 @@
             document.getElementById('newLocCoords').value = '';
             refreshSavedLocations();
         }
+    }
+
+    async function loadRecentDispatches() {
+        const data = await api('/api/dispatch/recent?limit=50');
+        const tbody = document.getElementById('recentDispatchTable');
+        if (!tbody) return;
+        if (!data || data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state"><p>No dispatches yet.</p></div></td></tr>';
+            return;
+        }
+        tbody.innerHTML = data.map(e => {
+            const when = e.created_at ? new Date(e.created_at).toLocaleString() : 'Unknown';
+            const loc = (e.latitude || e.longitude)
+                ? e.latitude.toFixed(4) + ', ' + e.longitude.toFixed(4)
+                : '\u2014';
+            return '<tr>' +
+                '<td style="white-space:nowrap">' + esc(when) + '</td>' +
+                '<td><strong>' + esc(e.target_username) + '</strong></td>' +
+                '<td>' + esc(e.message) + '</td>' +
+                '<td style="font-family:monospace;font-size:0.8rem">' + loc + '</td>' +
+                '</tr>';
+        }).join('');
     }
 
     async function deleteSavedLocation(id, name) {

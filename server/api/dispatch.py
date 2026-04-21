@@ -2,7 +2,7 @@ import logging
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.auth import get_current_admin
@@ -27,6 +27,32 @@ class DispatchRequest(BaseModel):
     message: str
     latitude: float = 0
     longitude: float = 0
+
+
+@router.get("/recent")
+async def list_recent(
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+    _admin: dict = Depends(get_current_admin),
+):
+    """Return the N most recent dispatch events for the operational page log."""
+    limit = max(1, min(limit, 200))
+    result = await db.execute(
+        select(DispatchEvent)
+        .order_by(desc(DispatchEvent.created_at), desc(DispatchEvent.id))
+        .limit(limit)
+    )
+    return [
+        {
+            "id": e.id,
+            "target_username": e.target_username,
+            "message": e.message,
+            "latitude": e.latitude,
+            "longitude": e.longitude,
+            "created_at": e.created_at,
+        }
+        for e in result.scalars().all()
+    ]
 
 
 @router.get("/nearest")
