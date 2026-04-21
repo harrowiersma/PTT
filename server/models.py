@@ -63,6 +63,19 @@ class User(Base):
     last_seen: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Presence intent. NULL = never-set (treated as 'offline').
+    # Values: 'online' | 'busy' | 'offline'.
+    status_label: Mapped[str] = mapped_column(String(16), nullable=True)
+    status_updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Device audibility — piggy-backs on status POSTs from the app.
+    # True = ringer normal + voice-call stream volume > 0; False = muted/silent;
+    # NULL = never reported.
+    is_audible: Mapped[bool] = mapped_column(Boolean, nullable=True)
+    is_audible_updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class SipTrunk(Base):
