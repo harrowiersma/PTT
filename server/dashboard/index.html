@@ -1231,6 +1231,23 @@
         </div>
     </div>
 
+    <!-- Dispatch modal -->
+    <div class="modal-overlay" id="dispatchModal" style="display:none" onclick="if(event.target===this)closeDispatchModal()" role="dialog" aria-label="Dispatch worker">
+        <div class="modal-content" style="text-align:left;max-width:480px">
+            <h2 id="dispatchModalTitle" style="font-size:1rem;margin-bottom:var(--space-md)">Dispatch</h2>
+            <label style="font-size:0.8125rem;display:block;margin-bottom:var(--space-xs)">Pick a canned message</label>
+            <select id="dispatchModalCanned" onchange="onCannedPicked()" style="width:100%;padding:var(--space-sm);border:1px solid var(--color-border);border-radius:var(--radius-sm);margin-bottom:var(--space-md)">
+                <option value="">— Custom message —</option>
+            </select>
+            <label style="font-size:0.8125rem;display:block;margin-bottom:var(--space-xs)">Message</label>
+            <textarea id="dispatchModalMessage" rows="3" style="width:100%;padding:var(--space-sm);border:1px solid var(--color-border);border-radius:var(--radius-sm);margin-bottom:var(--space-md);font-family:inherit"></textarea>
+            <div class="modal-actions">
+                <button class="btn" onclick="closeDispatchModal()">Cancel</button>
+                <button class="btn primary" onclick="confirmDispatch()">Send</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Delete confirmation modal -->
     <div class="modal-overlay confirm-modal" id="confirmModal" style="display:none" onclick="if(event.target===this)closeModal('confirmModal')" role="dialog" aria-label="Confirm delete">
         <div class="modal-content">
@@ -2526,21 +2543,48 @@
         ).join('');
     }
 
-    async function sendDispatch(username, lat, lng) {
-        const message = prompt('Dispatch message for ' + username + ':');
-        if (!message) return;
+    // ────── Dispatch modal ──────
+    let _dispatchTarget = null;
 
+    async function sendDispatch(username, lat, lng) {
+        _dispatchTarget = { username: username, lat: lat, lng: lng };
+        document.getElementById('dispatchModalTitle').textContent = 'Dispatch ' + username;
+        document.getElementById('dispatchModalMessage').value = '';
+        const sel = document.getElementById('dispatchModalCanned');
+        sel.value = '';
+        const messages = await api('/api/dispatch/messages') || [];
+        window._cannedMessages = messages;
+        sel.innerHTML = '<option value="">— Custom message —</option>' +
+            messages.map(m => '<option value="' + m.id + '">' + esc(m.label) + '</option>').join('');
+        document.getElementById('dispatchModal').style.display = 'flex';
+    }
+
+    function closeDispatchModal() {
+        document.getElementById('dispatchModal').style.display = 'none';
+        _dispatchTarget = null;
+    }
+
+    function onCannedPicked() {
+        const id = parseInt(document.getElementById('dispatchModalCanned').value, 10);
+        const msg = (window._cannedMessages || []).find(m => m.id === id);
+        if (msg) document.getElementById('dispatchModalMessage').value = msg.message;
+    }
+
+    async function confirmDispatch() {
+        const message = document.getElementById('dispatchModalMessage').value.trim();
+        if (!message) { showToast('Message is required', 'error'); return; }
+        const t = _dispatchTarget;
+        closeDispatchModal();
         const result = await api('/api/dispatch', {
             method: 'POST',
             body: JSON.stringify({
-                target_username: username,
-                message: message,
-                latitude: lat,
-                longitude: lng,
+                target_username: t.username, message: message,
+                latitude: t.lat, longitude: t.lng,
             }),
         });
         if (result) {
-            showToast('Dispatched ' + username + ': ' + message, 'success');
+            showToast('Dispatched ' + t.username + ': ' + message, 'success');
+            if (typeof loadRecentDispatches === 'function') loadRecentDispatches();
         }
     }
 
