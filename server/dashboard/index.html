@@ -806,15 +806,13 @@
         <!-- Alert banner for server issues -->
         <div class="alert-banner" id="alertBanner" role="alert"></div>
 
-        <!-- Primary nav — four grouped modes of operation. -->
+        <!-- Primary nav — three grouped modes of operation. -->
         <nav class="tabs" role="tablist" aria-label="Dashboard sections">
             <div class="tab active" data-group="live" data-numeral="01" role="tab" tabindex="0" aria-selected="true"
                 onclick="switchGroup('live')" onkeydown="if(event.key==='Enter')switchGroup('live')">Live Ops</div>
             <div class="tab" data-group="directory" data-numeral="02" role="tab" tabindex="0" aria-selected="false"
                 onclick="switchGroup('directory')" onkeydown="if(event.key==='Enter')switchGroup('directory')">Directory</div>
-            <div class="tab" data-group="sip" data-numeral="03" role="tab" tabindex="0" aria-selected="false"
-                onclick="switchGroup('sip')" onkeydown="if(event.key==='Enter')switchGroup('sip')" data-feature="sip">SIP Gateway</div>
-            <div class="tab" data-group="system" data-numeral="04" role="tab" tabindex="0" aria-selected="false"
+            <div class="tab" data-group="system" data-numeral="03" role="tab" tabindex="0" aria-selected="false"
                 onclick="switchGroup('system')" onkeydown="if(event.key==='Enter')switchGroup('system')">System</div>
             <a href="help.html" class="tab" style="text-decoration:none;margin-left:auto" target="_blank">⤤ Help</a>
         </nav>
@@ -829,15 +827,13 @@
                 <div class="sub-tab active" data-tab="users" onclick="switchTab('users')">Users</div>
                 <div class="sub-tab" data-tab="channels" onclick="switchTab('channels')">Channels</div>
             </div>
-            <div class="sub-tabs" id="subTabsSip" style="display:none" data-feature="sip">
-                <div class="sub-tab active" data-tab="sip" onclick="switchTab('sip')">Trunks · Numbers · Greeting</div>
-                <div class="sub-tab" data-tab="call-log" onclick="switchTab('call-log')">Call Log</div>
-            </div>
             <div class="sub-tabs" id="subTabsSystem" style="display:none">
+                <div class="sub-tab" data-tab="sip" onclick="switchTab('sip')" data-feature="sip">SIP Gateway</div>
+                <div class="sub-tab" data-tab="dispatch-setup" onclick="switchTab('dispatch-setup')" data-feature="dispatch">Dispatch Setup</div>
+                <div class="sub-tab" data-tab="features" onclick="switchTab('features')">Features</div>
                 <div class="sub-tab active" data-tab="admin" onclick="switchTab('admin')">Admins</div>
                 <div class="sub-tab" data-tab="audit" onclick="switchTab('audit')">Audit Log</div>
-                <div class="sub-tab" data-tab="features" onclick="switchTab('features')">Features</div>
-                <div class="sub-tab" data-tab="dispatch-setup" onclick="switchTab('dispatch-setup')" data-feature="dispatch">Dispatch Setup</div>
+                <div class="sub-tab" data-tab="call-log" onclick="switchTab('call-log')" data-feature="sip">Call Log</div>
             </div>
         </div>
 
@@ -1627,11 +1623,11 @@
     const _tabGroupOf = {
         overview: 'live', dispatch: 'live',
         users: 'directory', channels: 'directory',
-        sip: 'sip', 'call-log': 'sip',
+        sip: 'system', 'call-log': 'system',
         admin: 'system', audit: 'system', features: 'system',
         'dispatch-setup': 'system',
     };
-    const _groupDefaults = { live: 'overview', directory: 'users', sip: 'sip', system: 'admin' };
+    const _groupDefaults = { live: 'overview', directory: 'users', system: 'admin' };
 
     function switchTab(name) {
         // highlight sub-tab
@@ -1646,7 +1642,7 @@
             t.setAttribute('aria-selected', isActive);
         });
         // show the right sub-tabs bar
-        ['Live','Directory','Sip','System'].forEach(g => {
+        ['Live','Directory','System'].forEach(g => {
             const el = document.getElementById('subTabs' + g);
             if (el) el.style.display = (g.toLowerCase() === group) ? 'flex' : 'none';
         });
