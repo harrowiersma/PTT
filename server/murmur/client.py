@@ -6,10 +6,12 @@ compile on python:3.11-slim).
 """
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +116,10 @@ class MurmurClient:
             self._mumble.callbacks.set_callback(
                 pymumble.constants.PYMUMBLE_CLBK_USERUPDATED,
                 self._on_user_updated,
+            )
+            self._mumble.callbacks.set_callback(
+                pymumble.constants.PYMUMBLE_CLBK_USERCREATED,
+                lambda user: _on_user_created_sync(user),
             )
             self._mumble.start()
             self._mumble.is_ready()
@@ -596,3 +602,48 @@ class MurmurClient:
                 pass
             self._mumble = None
             self._connected = False
+
+
+def _on_user_created_sync(event) -> None:
+    """PYMUMBLE_CLBK_USERCREATED fires on pymumble's sync thread whenever a
+    user joins the server (including reconnects). Promote the matching DB
+    user to status_label='online'. Bots are skipped; unknown usernames no-op.
+
+    Uses a short-lived sync engine so we don't fight the async main loop
+    (same pattern as loneworker._run_shift_cycle).
+    """
+    try:
+        name = event.get("name") if isinstance(event, dict) else getattr(event, "name", None)
+    except Exception:
+        return
+    if not name or _is_bot_username(name):
+        return
+
+    try:
+        from sqlalchemy import create_engine, select as _select
+        from sqlalchemy.orm import sessionmaker
+        from server.config import settings
+        from server.models import AuditLog, User
+
+        engine = create_engine(settings.database_url_sync, echo=False)
+        Session = sessionmaker(engine, expire_on_commit=False)
+        with Session() as db:
+            user = db.execute(_select(User).where(User.username == name)).scalar_one_or_none()
+            if user is None:
+                return
+            if user.status_label == "online":
+                return
+            old = user.status_label
+            user.status_label = "online"
+            user.status_updated_at = datetime.now(timezone.utc)
+            db.add(AuditLog(
+                admin_username="system",
+                action="user.status_change",
+                target_type="user", target_id=user.username,
+                details=json.dumps({"from": old, "to": "online", "source": "auto_connect"}),
+            ))
+            db.commit()
+            logger.info("status: %s auto-online on connect", user.username)
+        engine.dispose()
+    except Exception as e:
+        logger.error("auto-online hook failed for %s: %s", name, e)
