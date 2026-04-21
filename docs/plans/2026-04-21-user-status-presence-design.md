@@ -28,6 +28,7 @@ Today the dashboard shows whether someone's Mumble-connected, but not whether th
 7. **Default on user creation.** `status_label=NULL` (effective Offline). First successful Mumble connect promotes to Online.
 8. **P50 trigger is the orange top button.** Empirically confirmed: single press emits `KEYCODE_F4` (and `KEYCODE_F2` as a paired event we ignore) and the ROM's `LoneWorkerManagerService` responds "loneworker is disabled", letting the event reach `MumlaActivity.dispatchKeyEvent` as an unhandled key. Cycle is Online → Busy → Offline → Online.
 9. **TTS confirms every state change** — same path already used for shift toggle / SIP hangup / mute.
+10. **Device audibility piggy-backs on status.** Same endpoint carries an `is_audible` flag derived from `AudioManager` (ringer mode + voice-call stream volume). Dashboard surfaces a muted icon next to the pill when false. Captured on every status POST (orange press + connect hydrate) — no separate heartbeat for v1.
 
 ---
 
@@ -38,14 +39,16 @@ Today the dashboard shows whether someone's Mumble-connected, but not whether th
 `server/alembic/versions/f2a9c3b7e4d1_user_status.py`
 - `down_revision = "e1c4f8a3b5d6"` (dispatch settings head).
 
-Two columns added to `users`:
+Four columns added to `users`:
 
 | column | type | notes |
 |---|---|---|
 | `status_label` | varchar(16) nullable | values ∈ {`online`,`busy`,`offline`} or NULL |
-| `status_updated_at` | timestamptz nullable | set on every write |
+| `status_updated_at` | timestamptz nullable | set on every status write |
+| `is_audible` | bool nullable | device can play sound; NULL = unknown |
+| `is_audible_updated_at` | timestamptz nullable | set when audibility is reported |
 
-No separate seed. Existing rows get NULL; first Mumble connect promotes.
+No separate seed. Existing rows get NULL on all four; first Mumble connect promotes `status_label` to `'online'` and the app's hydrate call populates `is_audible`.
 
 ### Endpoints
 
@@ -54,14 +57,15 @@ Pattern matches `/api/loneworker/shift/*` — device-trusted for self operations
 | method | path | auth | body / query | purpose |
 |---|---|---|---|---|
 | `GET` | `/api/users/status?username=X` | none | — | Read a user's stored + effective status. |
-| `POST` | `/api/users/status` | none (device-trusted) | `{username, label}` | Self set. Radio client uses this. |
-| `PATCH` | `/api/users/{id}/status` | admin | `{label}` | Admin override. Dashboard user-edit modal. |
+| `POST` | `/api/users/status` | none (device-trusted) | `{username, label?, is_audible?}` | Self set. Either field may be sent alone; at least one is required. |
+| `PATCH` | `/api/users/{id}/status` | admin | `{label}` | Admin override. Dashboard user-edit modal. (Admins don't set audibility — that's a device-local signal.) |
 
 All three:
-- Validate `label ∈ {'online','busy','offline'}`.
-- Persist `(status_label, status_updated_at=now)`.
-- Write an `AuditLog` row — `action='user.status_change'`, `payload={username, from, to, source}` where `source ∈ {'self','admin','auto_connect','shift_start','shift_stop_offline'}`.
-- Return `{label, updated_at, effective_label}`.
+- Validate `label ∈ {'online','busy','offline'}` when supplied.
+- Persist `(status_label, status_updated_at=now)` when label is present.
+- Persist `(is_audible, is_audible_updated_at=now)` when audibility is present (POST only).
+- Write an `AuditLog` row for label changes — `action='user.status_change'`, `payload={username, from, to, source}` where `source ∈ {'self','admin','auto_connect','shift_start','shift_stop_offline'}`. Audibility updates are not audited (high-churn, low-value).
+- Return `{label, updated_at, effective_label, is_audible, is_audible_updated_at}`.
 
 `effective_label` = `'offline'` if the user is not Mumble-connected, otherwise `status_label` (with NULL mapping to `'offline'`).
 
@@ -116,6 +120,8 @@ The online-users table currently has columns `Username | Channel | Location | Ba
 - `busy`   → amber
 - `offline` → grey
 - NULL / never-set → em dash
+
+When `is_audible === false`, a small 🔇 icon sits to the right of the pill (title: "Device muted — TTS / ring won't be audible"). When `is_audible === null` (not yet reported), no icon — same as "unknown".
 
 Offline rows (Mumble-disconnected registered users) are already rendered at `opacity:0.6` and always show the pill as Offline regardless of stored label — this is the "effective" rule applied client-side.
 
@@ -178,8 +184,19 @@ Capture from `R259060623` on 2026-04-21:
 
 ### Hydration
 
-- On `MumlaService` connection established → `GET /api/users/status?username=me` — this catches the server-side auto-Online promote.
-- On `MumlaActivity.onResume` → same call. Catches admin overrides and shift-coupling effects that happened while the app was backgrounded.
+- On `MumlaService` connection established → `GET /api/users/status?username=me` — this catches the server-side auto-Online promote. Also immediately follow with a `POST /api/users/status` carrying only `{username, is_audible: computeAudible()}` so the server records the device's audibility from first connect.
+- On `MumlaActivity.onResume` → same GET. Catches admin overrides and shift-coupling effects that happened while the app was backgrounded.
+- On orange-button cycle → `POST` always includes both `label` and the freshly-computed `is_audible`, so audibility stays reasonably current without a separate poll.
+
+### Audibility computation
+
+```java
+AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+boolean audible = am.getRingerMode() == AudioManager.RINGER_MODE_NORMAL
+        && am.getStreamVolume(AudioManager.STREAM_VOICE_CALL) > 0;
+```
+
+Silent + vibrate both count as not-audible — TTS and ring tones won't reach the operator. The voice-call stream is checked because the app's TTS + Humla playback route through that stream on the P50.
 
 ---
 
