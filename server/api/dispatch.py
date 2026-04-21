@@ -55,16 +55,35 @@ async def list_recent(
     ]
 
 
+def _connected_usernames(murmur) -> set[str]:
+    """Lowercased set of Mumble-connected human usernames.
+    Patchable in tests via patch('server.api.dispatch._connected_usernames').
+    """
+    if not murmur or not getattr(murmur, "has_mumble", False):
+        return set()
+    try:
+        from server.murmur.client import BOT_USERNAMES
+        return {
+            u["name"].lower()
+            for u in murmur._mumble.users.values()
+            if u["name"] not in BOT_USERNAMES
+        }
+    except Exception:
+        return set()
+
+
 @router.get("/nearest")
 async def find_nearest(
     lat: float,
     lng: float,
     db: AsyncSession = Depends(get_db),
     _admin: dict = Depends(get_current_admin),
+    murmur: MurmurClient | None = Depends(get_murmur_client),
 ):
     """Find nearest workers to a given GPS location.
     Uses explicit user-device links where available, falls back to name matching.
     Honours dispatch_settings.max_workers and search_radius_m.
+    Requires worker to have status_label='online' AND be Mumble-connected.
     """
     from server.api.dispatch_settings import get_cached as _settings
 
@@ -72,17 +91,24 @@ async def find_nearest(
     client = TraccarClient()
     positions = await client.get_positions()
 
-    # Build device_id -> username map from DB
-    result = await db.execute(select(User).where(User.traccar_device_id.isnot(None)))
-    device_to_user = {u.traccar_device_id: u.username for u in result.scalars().all()}
+    # Pull usernames + status_label; both paths feed the same filter below.
+    result = await db.execute(select(User))
+    db_users = result.scalars().all()
+    device_to_username = {u.traccar_device_id: u.username for u in db_users if u.traccar_device_id}
+    status_by_username = {u.username.lower(): u.status_label for u in db_users}
 
+    connected = _connected_usernames(murmur)
     radius = settings["search_radius_m"]
     results = []
     for p in positions:
         if p.latitude == 0 and p.longitude == 0:
             continue
-        # Resolve username: explicit link first, then device name fallback
-        username = device_to_user.get(p.device_id, p.device_name)
+        username = device_to_username.get(p.device_id, p.device_name)
+        # Online + connected predicate (design §Dispatch filter).
+        if username.lower() not in connected:
+            continue
+        if status_by_username.get(username.lower()) != "online":
+            continue
         distance = TraccarClient.haversine_distance(lat, lng, p.latitude, p.longitude)
         if radius is not None and distance > radius:
             continue
