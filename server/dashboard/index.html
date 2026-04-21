@@ -1041,10 +1041,16 @@
                 <h2>Map Home</h2>
                 <p style="font-size:0.875rem;color:var(--fg-muted);margin-bottom:var(--space-md)">Default map centre + zoom for the Dispatch page.</p>
                 <div class="form-row">
-                    <input type="number" step="0.0001" id="mapHomeLat" placeholder="Latitude" style="flex:1">
-                    <input type="number" step="0.0001" id="mapHomeLng" placeholder="Longitude" style="flex:1">
-                    <input type="number" id="mapHomeZoom" placeholder="Zoom (1-19)" min="1" max="19" style="flex:1">
-                    <button class="btn primary" onclick="saveMapHome()">Save</button>
+                    <label style="flex:1">Latitude
+                        <input type="number" step="0.0001" id="mapHomeLat" placeholder="e.g. 38.72">
+                    </label>
+                    <label style="flex:1">Longitude
+                        <input type="number" step="0.0001" id="mapHomeLng" placeholder="e.g. -9.14">
+                    </label>
+                    <label style="flex:1">Zoom level <small style="color:var(--fg-muted);font-weight:normal">(1 = world, 19 = street)</small>
+                        <input type="number" id="mapHomeZoom" min="1" max="19" placeholder="11">
+                    </label>
+                    <button class="btn primary" onclick="saveMapHome()" style="align-self:end">Save</button>
                 </div>
             </div>
 
@@ -1082,16 +1088,22 @@
 
             <div class="card">
                 <h2>Canned Messages</h2>
-                <p style="font-size:0.875rem;color:var(--fg-muted);margin-bottom:var(--space-md)">Pre-written dispatch messages, picked from a dropdown when sending.</p>
+                <p style="font-size:0.875rem;color:var(--fg-muted);margin-bottom:var(--space-md)">Pre-written dispatch messages, picked from a dropdown when sending. Lower <em>Sort order</em> numbers appear higher in the dropdown.</p>
                 <div class="form-row" style="margin-bottom:var(--space-md)">
-                    <input type="text" id="newCannedLabel" placeholder="Label (e.g. Pickup ready)" style="flex:1">
-                    <input type="text" id="newCannedMessage" placeholder="Message text" style="flex:2">
-                    <input type="number" id="newCannedOrder" placeholder="Order" value="0" style="width:80px">
-                    <button class="btn primary" onclick="addCannedMessage()">Add</button>
+                    <label style="flex:1">Label <small style="color:var(--fg-muted);font-weight:normal">(shown in dropdown)</small>
+                        <input type="text" id="newCannedLabel" placeholder="e.g. Pickup ready">
+                    </label>
+                    <label style="flex:2">Message <small style="color:var(--fg-muted);font-weight:normal">(sent to the worker)</small>
+                        <input type="text" id="newCannedMessage" placeholder="e.g. Pickup ready at the gate">
+                    </label>
+                    <label style="width:110px">Sort order <small style="color:var(--fg-muted);font-weight:normal">(low = first)</small>
+                        <input type="number" id="newCannedOrder" min="0" value="0" title="Lower numbers appear higher in the dropdown.">
+                    </label>
+                    <button class="btn primary" onclick="addCannedMessage()" style="align-self:end">Add</button>
                 </div>
                 <div class="table-wrap">
                     <table>
-                        <thead><tr><th>Label</th><th>Message</th><th>Order</th><th>Actions</th></tr></thead>
+                        <thead><tr><th>Label</th><th>Message</th><th>Sort order</th><th>Actions</th></tr></thead>
                         <tbody id="cannedMessagesTable">
                             <tr><td colspan="4"><div class="empty-state"><p>No canned messages yet.</p></div></td></tr>
                         </tbody>
