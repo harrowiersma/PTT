@@ -1648,6 +1648,7 @@
         if (name === 'audit') refreshAudit();
         if (name === 'sip') refreshSipConfig();
         if (name === 'features') renderFeatures();
+        if (name === 'dispatch-setup') renderDispatchSetup();
         if (name === 'call-log') refreshCallLog();
     }
 
@@ -2376,6 +2377,91 @@
         await api('/api/dispatch/locations/' + id, { method: 'DELETE' });
         showToast('Deleted: ' + name, 'success');
         refreshSavedLocations();
+    }
+
+    // ────── Dispatch Setup tab ──────
+
+    async function renderDispatchSetup() {
+        const s = await api('/api/dispatch/settings');
+        if (s) {
+            document.getElementById('mapHomeLat').value = s.map_home_lat;
+            document.getElementById('mapHomeLng').value = s.map_home_lng;
+            document.getElementById('mapHomeZoom').value = s.map_home_zoom;
+            document.getElementById('maxWorkers').value = s.max_workers;
+            document.getElementById('searchRadius').value = s.search_radius_m == null ? 0 : s.search_radius_m;
+        }
+        refreshSavedLocations();
+        refreshCannedMessages();
+    }
+
+    async function saveMapHome() {
+        const body = {
+            map_home_lat: parseFloat(document.getElementById('mapHomeLat').value),
+            map_home_lng: parseFloat(document.getElementById('mapHomeLng').value),
+            map_home_zoom: parseInt(document.getElementById('mapHomeZoom').value, 10),
+        };
+        const r = await api('/api/dispatch/settings', { method: 'PUT', body: JSON.stringify(body) });
+        if (r) {
+            _dispatchSettings = r;
+            showToast('Map home saved', 'success');
+        }
+    }
+
+    async function saveSearchBehaviour() {
+        const radiusVal = parseInt(document.getElementById('searchRadius').value, 10) || 0;
+        const body = {
+            max_workers: parseInt(document.getElementById('maxWorkers').value, 10),
+            search_radius_m: radiusVal === 0 ? null : radiusVal,
+        };
+        const r = await api('/api/dispatch/settings', { method: 'PUT', body: JSON.stringify(body) });
+        if (r) {
+            _dispatchSettings = r;
+            showToast('Search behaviour saved', 'success');
+        }
+    }
+
+    async function refreshCannedMessages() {
+        const data = await api('/api/dispatch/messages');
+        if (!data) return;
+        window._cannedMessages = data;
+        const tbody = document.getElementById('cannedMessagesTable');
+        if (!tbody) return;
+        if (data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state"><p>No canned messages yet.</p></div></td></tr>';
+            return;
+        }
+        tbody.innerHTML = data.map(m =>
+            '<tr>' +
+            '<td><strong>' + esc(m.label) + '</strong></td>' +
+            '<td>' + esc(m.message) + '</td>' +
+            '<td style="font-family:monospace">' + m.sort_order + '</td>' +
+            '<td><button class="btn" onclick="deleteCannedMessage(' + m.id + ')" style="font-size:0.75rem;color:var(--color-danger)">Delete</button></td>' +
+            '</tr>'
+        ).join('');
+    }
+
+    async function addCannedMessage() {
+        const label = document.getElementById('newCannedLabel').value.trim();
+        const message = document.getElementById('newCannedMessage').value.trim();
+        const sort_order = parseInt(document.getElementById('newCannedOrder').value, 10) || 0;
+        if (!label || !message) { showToast('Label and message are required', 'error'); return; }
+        const r = await api('/api/dispatch/messages', {
+            method: 'POST',
+            body: JSON.stringify({ label, message, sort_order }),
+        });
+        if (r) {
+            showToast('Canned message added', 'success');
+            document.getElementById('newCannedLabel').value = '';
+            document.getElementById('newCannedMessage').value = '';
+            document.getElementById('newCannedOrder').value = '0';
+            refreshCannedMessages();
+        }
+    }
+
+    async function deleteCannedMessage(id) {
+        if (!confirm('Delete this canned message?')) return;
+        await api('/api/dispatch/messages/' + id, { method: 'DELETE' });
+        refreshCannedMessages();
     }
 
     async function searchDispatchLocation(overrideName) {
