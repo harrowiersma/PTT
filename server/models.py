@@ -194,6 +194,27 @@ class DispatchLocation(Base):
     )
 
 
+class DispatchSettings(Base):
+    """Singleton config row for the dispatch feature.
+
+    Always exactly one row with id=1 (seeded by migration). Holds the map
+    default, the per-request worker cap, and the optional radius filter
+    applied by /api/dispatch/nearest.
+    """
+    __tablename__ = "dispatch_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    map_home_lat: Mapped[float] = mapped_column(Float, nullable=False)
+    map_home_lng: Mapped[float] = mapped_column(Float, nullable=False)
+    map_home_zoom: Mapped[int] = mapped_column(Integer, nullable=False, default=11)
+    max_workers: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
+    search_radius_m: Mapped[int] = mapped_column(Integer, nullable=True)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[str] = mapped_column(String(64), nullable=True)
+
+
 class DeviceProvisioningToken(Base):
     """One-click provisioning short-link for a P50 handset.
 

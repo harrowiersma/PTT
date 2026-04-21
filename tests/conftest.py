@@ -44,6 +44,18 @@ async def setup_db():
     except ImportError:
         # Model not added yet — early TDD iterations run without seed.
         pass
+    # Match the e1c4f8a3b5d6 migration: seed the singleton dispatch_settings row.
+    try:
+        from server.models import DispatchSettings
+
+        async with async_session() as _seed:
+            _seed.add(DispatchSettings(
+                id=1, map_home_lat=38.72, map_home_lng=-9.14,
+                map_home_zoom=11, max_workers=10, search_radius_m=None,
+            ))
+            await _seed.commit()
+    except ImportError:
+        pass
     yield
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
