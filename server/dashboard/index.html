@@ -711,6 +711,15 @@
         .dispatch-card.selected { background: var(--amber-glow); border-color: var(--amber); }
         .dispatch-distance { font-family: var(--ff-mono); font-size: 0.6875rem; color: var(--cyan); }
 
+        /* Dispatch target pin — drops on search/click/chip-pick */
+        .target-marker {
+            width: 20px; height: 20px;
+            background: var(--amber);
+            border: 2px solid var(--bg);
+            border-radius: 50%;
+            box-shadow: 0 0 0 4px rgba(255, 191, 0, 0.3);
+        }
+
         /* SOS marker & banner */
         .sos-marker {
             background: var(--coral);
@@ -1003,6 +1012,9 @@
                     <input type="text" id="dispatchLocation" placeholder="Or type a location (e.g., Amsterdam, Warehouse A, 52.37 4.89)" aria-label="Dispatch location" style="flex:3">
                     <button class="btn primary" onclick="searchDispatchLocation()">Find Nearest</button>
                 </div>
+            </div>
+            <div class="card" style="padding:0;overflow:hidden">
+                <div id="mapContainer" style="height:500px;width:100%"></div>
             </div>
             <div class="card" id="dispatchResults" style="display:none">
                 <h2>Nearest Workers</h2>
@@ -1427,6 +1439,20 @@
         }
     }
 
+    // Dispatch settings — read once after login so initMap() can centre
+    // the map on the operator's configured home. PUTs in the Setup page
+    // refresh this in-memory copy too so the next map open picks up.
+    let _dispatchSettings = null;
+
+    async function fetchDispatchSettings() {
+        try {
+            const r = await fetch('/api/dispatch/settings');
+            if (r.ok) _dispatchSettings = await r.json();
+        } catch (e) {
+            console.warn('dispatch settings fetch failed:', e);
+        }
+    }
+
     function hasFeature(key) {
         return !!(_capabilities && _capabilities.features && _capabilities.features[key]);
     }
@@ -1506,6 +1532,7 @@
         document.getElementById('loginPage').style.display = 'none';
         document.getElementById('appPage').classList.add('active');
         await fetchCapabilities();
+        await fetchDispatchSettings();
         applyCapabilityVisibility();
         refreshAll();
         refreshTimer = setInterval(refreshStatus, 10000);
@@ -1881,6 +1908,7 @@
     let mapMarkers = {};
     let sosMarkers = {};
     let mapInitialized = false;
+    let targetMarker = null;
 
     // === LONE WORKER CHECK-IN ===
     async function refreshLoneWorker() {
@@ -2381,6 +2409,15 @@
             }
         }
 
+        // Drop a target pin on the map so the operator sees where they're searching.
+        if (map) {
+            if (targetMarker) map.removeLayer(targetMarker);
+            targetMarker = L.marker([lat, lng], {
+                icon: L.divIcon({ className: 'target-marker', iconSize: [20, 20] })
+            }).addTo(map).bindTooltip(locationName, { permanent: true, direction: 'top', offset: [0, -10] });
+            map.setView([lat, lng], Math.max(map.getZoom(), 13));
+        }
+
         // Find nearest workers
         const data = await api('/api/dispatch/nearest?lat=' + lat + '&lng=' + lng);
         const resultsDiv = document.getElementById('dispatchResults');
@@ -2442,15 +2479,20 @@
 
     function initMap() {
         if (mapInitialized) return;
-        map = L.map('mapContainer').setView([52.37, 4.89], 10); // Default: Netherlands
+        const home = _dispatchSettings || { map_home_lat: 38.72, map_home_lng: -9.14, map_home_zoom: 11 };
+        map = L.map('mapContainer').setView([home.map_home_lat, home.map_home_lng], home.map_home_zoom);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '&copy; OpenStreetMap',
             maxZoom: 19,
         }).addTo(map);
 
-        // Click map to dispatch
+        // Click map to dispatch — drives the same path as the search box
+        // and the saved-location chips so all three flows share rendering.
         map.on('click', function(e) {
-            showDispatchPanel(e.latlng.lat, e.latlng.lng);
+            const lat = e.latlng.lat, lng = e.latlng.lng;
+            document.getElementById('dispatchLocation').value =
+                lat.toFixed(5) + ', ' + lng.toFixed(5);
+            searchDispatchLocation('Map click');
         });
 
         mapInitialized = true;
@@ -2538,36 +2580,6 @@
         });
         showToast('SOS acknowledged', 'success');
         checkSOS();
-    }
-
-    async function showDispatchPanel(lat, lng) {
-        const panel = document.getElementById('dispatchPanel');
-        document.getElementById('dispatchLocation').textContent = 'Location: ' + lat.toFixed(5) + ', ' + lng.toFixed(5);
-        panel.style.display = 'block';
-
-        const data = await api('/api/dispatch/nearest?lat=' + lat + '&lng=' + lng);
-        if (!data || data.length === 0) {
-            document.getElementById('nearestList').innerHTML = '<p style="color:var(--color-text-secondary)">No devices with GPS data</p>';
-            return;
-        }
-
-        document.getElementById('nearestList').innerHTML = data.map(d =>
-            '<div class="dispatch-card">' +
-            '<div><strong>' + esc(d.username) + '</strong><span class="dispatch-distance">' + formatDistance(d.distance_m) + ' away</span></div>' +
-            '<button class="btn primary" onclick="dispatchWorker(\'' + esc(d.username) + '\',' + lat + ',' + lng + ')">Dispatch</button>' +
-            '</div>'
-        ).join('');
-    }
-
-    async function dispatchWorker(username, lat, lng) {
-        const message = prompt('Message for ' + username + ':');
-        if (!message) return;
-        await api('/api/dispatch', {
-            method: 'POST',
-            body: JSON.stringify({ target_username: username, message: message, latitude: lat, longitude: lng })
-        });
-        showToast('Dispatched ' + username, 'success');
-        document.getElementById('dispatchPanel').style.display = 'none';
     }
 
     function timeAgo(date) {
