@@ -1,6 +1,6 @@
 # openPTT TRX — Open Issues
 
-Last updated: 2026-04-17
+Last updated: 2026-04-21
 
 This document is the rolling ledger of outstanding work. Items move from
 "Open" to "Resolved" with their resolution commit so history is auditable.
@@ -120,20 +120,28 @@ intentionally deferred until this theme lands.
 Operator decision: not needed for the current iteration. Re-open if
 field workers start asking for it.
 
-### User status / presence (implementation TBD)
-Zello and Motorola WAVE surface a per-user status (available / busy /
-off-shift). Today the dashboard shows channel membership but no intent.
-A status field lets dispatchers see "Sarah is at lunch" before
-whispering a dispatch to her.
+### ~~User status / presence~~ — **Resolved 2026-04-21**
+Shipped as 11 tasks across server + dashboard + openPTT-app. Three-state
+presence (`online | busy | offline`) set from the P50's orange top
+button (`KEYCODE_F4`) with TTS confirmation; auto-Online on every Mumble
+connect (`PYMUMBLE_CLBK_USERCREATED` hook); shift coupling gated on
+`features.lone_worker + is_lone_worker` (shift start force-sets Online,
+Offline ends active shift); dispatch `find_nearest` filters to
+online-AND-connected; dashboard pills in Live Ops + Directory with a
+🔇 icon when device is not audible (ringer silent or voice-stream
+volume 0); user-edit modal has a Status dropdown with an audit-sourced
+"Last changed" line; audit log renders each change as
+`[pill] → [pill] via <source>`.
 
-**Shape:**
-- New `users.status_label` + `users.status_updated_at` columns.
-- P50 app: status picker in the drawer (3-4 fixed options + custom).
-- Dashboard: status badge next to the username in Live Ops + user list.
-- Interplay with lone-worker shift: "off-shift" status auto-stops any
-  active shift; starting a shift auto-sets "on-duty."
-
-Effort: S. Smallest item of the five — good warm-up.
+Commits (server): `54a04162` (schema) → `50422f8a` (endpoints) →
+`c389a36a` (shift start Online) → `2c8a00d6` (Offline ends shift) →
+`b754511d` (auto-Online hook) → `0684aeb` (dispatch filter) →
+`771517b` (dashboard pills) → `636dbd2` (edit modal) → `76fab7d`
+(audit polish + directory pill fix).
+Commits (app): `0210ef5` (orange-button cycle) → `5a26fff` (carousel
+pill + hydration). Both P50s flashed with `3.7.3-44-g5a26fff-debug`.
+Design: `docs/plans/2026-04-21-user-status-presence-design.md`.
+Plan: `docs/plans/2026-04-21-user-status-presence.md`.
 
 ### Private 1:1 PTT (not channel-based) (implementation TBD)
 Zello's signature feature. User picks a target from their contact list

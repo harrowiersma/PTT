@@ -39,3 +39,9 @@ logs/
 
 # gstack design artifacts
 harrowiersma-*.md
+
+# Test artifacts
+test.db
+
+# Local-only draft plans (rendered plans live under docs/plans/)
+docs/plans/2026-04-20-feature-toggles-app-rebuild.md

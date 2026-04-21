@@ -346,17 +346,18 @@
             <a href="#sos">04 &middot; Emergency SOS</a>
             <a href="#weather">05 &middot; Weather channel</a>
             <a href="#dispatch">06 &middot; Dispatch</a>
-            <a href="#loneworker">07 &middot; Lone worker safety</a>
-            <a href="#sip">08 &middot; SIP phone gateway</a>
-            <a href="#users">09 &middot; User management</a>
-            <a href="#admin">10 &middot; Admin accounts</a>
-            <a href="#provisioning">11 &middot; Device provisioning</a>
-            <a href="#enrollment">12 &middot; Bulk enrollment</a>
-            <a href="#audit">13 &middot; Audit log</a>
-            <a href="#features">14 &middot; Feature toggles</a>
-            <a href="#monitoring">15 &middot; Monitoring</a>
-            <a href="#p50setup">16 &middot; Manual device setup</a>
-            <a href="#ports">17 &middot; Network &amp; ports</a>
+            <a href="#presence">07 &middot; Presence &amp; audibility</a>
+            <a href="#loneworker">08 &middot; Lone worker safety</a>
+            <a href="#sip">09 &middot; SIP phone gateway</a>
+            <a href="#users">10 &middot; User management</a>
+            <a href="#admin">11 &middot; Admin accounts</a>
+            <a href="#provisioning">12 &middot; Device provisioning</a>
+            <a href="#enrollment">13 &middot; Bulk enrollment</a>
+            <a href="#audit">14 &middot; Audit log</a>
+            <a href="#features">15 &middot; Feature toggles</a>
+            <a href="#monitoring">16 &middot; Monitoring</a>
+            <a href="#p50setup">17 &middot; Manual device setup</a>
+            <a href="#ports">18 &middot; Network &amp; ports</a>
         </nav>
 
         <h2 id="voice"><span class="num">01</span> Voice Communication (PTT)</h2>
@@ -370,6 +371,7 @@
             <p>Three quick PTT presses within 1.2 seconds trigger a special action. Currently:</p>
             <p>&bull; <strong>Triple-tap PTT</strong> &rarr; toggle lone-worker shift start/stop (see <a href="#loneworker">Lone Worker Safety</a>).</p>
             <p>Normal single-press PTT behaviour is unaffected — you can still talk normally.</p>
+            <p>&bull; <strong>Orange top button</strong> &rarr; cycle presence (see <a href="#presence">Presence &amp; Audibility</a>). Not a PTT gesture, but it's the other common hardware action.</p>
         </div>
 
         <h2 id="channels"><span class="num">02</span> Channels</h2>
@@ -439,9 +441,36 @@
                 <li><strong>Canned Messages</strong> &mdash; pre-written dispatch text the operator picks from the dropdown. Lower <em>Sort order</em> values appear first.</li>
             </ul>
             <p>Both the operational page and Setup page disappear from the dashboard when the <em>dispatch</em> module is turned off in Features.</p>
+            <p><strong>Nearest-workers filter:</strong> only workers whose presence is <em>Online</em> <strong>and</strong> who are currently connected to the voice server are candidates. Busy, Offline, and never-set statuses are excluded &mdash; see <a href="#presence">Presence &amp; Audibility</a>.</p>
         </div>
 
-        <h2 id="loneworker"><span class="num">07</span> Lone Worker Safety</h2>
+        <h2 id="presence"><span class="num">07</span> Presence &amp; Audibility</h2>
+        <div class="feature">
+            <h3><span class="badge badge-voice">Voice</span> Three-state presence on every radio</h3>
+            <p>Every radio user has a presence state that operators can see at a glance and dispatch respects:</p>
+            <p>&bull; <span style="display:inline-flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block"></span><strong>Online</strong></span> &mdash; available for dispatch and calls.</p>
+            <p>&bull; <span style="display:inline-flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:var(--amber);display:inline-block"></span><strong>Busy</strong></span> &mdash; still on duty but do not dispatch right now.</p>
+            <p>&bull; <span style="display:inline-flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:#9E9E9E;display:inline-block"></span><strong>Offline</strong></span> &mdash; off-duty. Dispatch skips them.</p>
+            <p><strong>Setting status from the radio:</strong> short-press the <strong>orange button on top of the P50</strong>. The state cycles <em>Online &rarr; Busy &rarr; Offline &rarr; Online</em>; the radio confirms each change by voice (<em>"Busy"</em> etc.) and the status pill under the active-channel name updates immediately.</p>
+            <p><strong>Setting status from the dashboard:</strong> <em>Directory &rarr; Users &rarr; Edit &rarr; Status</em> drops a user to any of the three states. Useful when a worker goes home without signing off. Each change is recorded in the audit log with who set it and why.</p>
+            <p><strong>Auto-Online on connect:</strong> when a radio first connects to the voice server (or reconnects after a dropout), the server promotes its user to <em>Online</em> automatically. Any prior Busy or Offline pick is replaced &mdash; re-pick it if you want it to stick.</p>
+        </div>
+        <div class="feature">
+            <h3><span class="badge badge-safety">Safety</span> Shift interplay (lone-worker only)</h3>
+            <p>When the <em>Lone Worker</em> feature is on <strong>and</strong> the user is marked as a lone worker:</p>
+            <p>&bull; <strong>Starting a shift</strong> (triple-tap PTT) force-sets the user's status to Online, overriding Busy.</p>
+            <p>&bull; <strong>Setting Offline</strong> (orange button or dashboard) ends the active shift with reason <em>user_offline</em> and is recorded in the audit trail.</p>
+            <p>Outside lone-worker mode, presence is a pure intent signal &mdash; no shift side-effects.</p>
+        </div>
+        <div class="feature">
+            <h3><span class="badge badge-ops">Ops</span> Device audibility</h3>
+            <p>The radio also reports whether its device is <em>audible</em> &mdash; ringer on normal and voice-call stream volume above zero. If the device is silent, in vibrate mode, or has voice volume at 0:</p>
+            <p>&bull; A muted icon 🔇 shows next to the user's pill in <em>Live Ops &rarr; Overview</em> and <em>Directory &rarr; Users</em>.</p>
+            <p>&bull; TTS dispatches and ring signals won't be heard &mdash; the operator can spot this before sending a whisper.</p>
+            <p>Audibility is captured every time the user presses the orange button and on each Mumble reconnect. Quick mute/unmute that isn't followed by an orange-press may take up to the next status cycle to refresh.</p>
+        </div>
+
+        <h2 id="loneworker"><span class="num">08</span> Lone Worker Safety</h2>
         <div class="feature">
             <h3><span class="badge badge-safety">Safety</span> Shift-based monitoring</h3>
             <p>Lone-worker check-ins are scoped to explicit <strong>shifts</strong>. When a user starts a shift they're monitored; when the shift ends (manually or at the planned end time), monitoring stops. No 24/7 pings.</p>
@@ -455,7 +484,7 @@
             <p>&bull; Status badge on the Users tab: <span style="color:var(--green)">OK</span> / <span style="color:var(--amber)">Due soon</span> / <span style="color:var(--coral)">OVERDUE</span></p>
         </div>
 
-        <h2 id="sip"><span class="num">08</span> SIP Phone Gateway</h2>
+        <h2 id="sip"><span class="num">09</span> SIP Phone Gateway</h2>
         <div class="feature">
             <h3><span class="badge badge-ops">Ops</span> Inbound phone calls on the radio</h3>
             <p>Inbound phone calls land on the radio fleet via the SIP gateway. Each concurrent call gets its own dedicated sub-channel; the configured concurrency cap is the maximum number of simultaneous calls (callers beyond the cap get a busy tone).</p>
@@ -468,7 +497,7 @@
             <p><strong>Editable greeting:</strong> the spoken greeting played to callers before they're connected is editable per trunk on <strong>System &rarr; SIP Gateway</strong>. Save &amp; Regenerate updates it live.</p>
         </div>
 
-        <h2 id="users"><span class="num">09</span> User Management</h2>
+        <h2 id="users"><span class="num">10</span> User Management</h2>
         <div class="feature">
             <h3><span class="badge badge-admin">Admin</span> Device user accounts</h3>
             <p>Create users for each device from the <strong>Directory &rarr; Users</strong> tab. Each user gets a username, password, and optional display name. Voice and GPS share the same identity automatically.</p>
@@ -483,14 +512,14 @@
             <p><strong>Reset device registration:</strong> if a radio's identity has gone stale, the user edit form has a one-click reset that re-issues the credentials on the radio's next connection (briefly interrupts the voice server while it reloads).</p>
         </div>
 
-        <h2 id="admin"><span class="num">10</span> Admin Accounts</h2>
+        <h2 id="admin"><span class="num">11</span> Admin Accounts</h2>
         <div class="feature">
             <h3><span class="badge badge-admin">Admin</span> Dashboard administrators</h3>
             <p>Manage admin dashboard accounts from <strong>System &rarr; Admins</strong>. Passwords are stored hashed using a modern slow-hash algorithm.</p>
             <p><strong>Roles:</strong> Admin (full access) or Viewer (read-only dashboard).</p>
         </div>
 
-        <h2 id="provisioning"><span class="num">11</span> Device Provisioning</h2>
+        <h2 id="provisioning"><span class="num">12</span> Device Provisioning</h2>
         <div class="callout">
             <div class="label">Important &mdash; where to run</div>
             <h3>The provisioning link runs on your laptop, <em>not</em> on the P50.</h3>
@@ -530,21 +559,21 @@ Invoke-WebRequest https://ptt.harro.ch/p/&lt;slug&gt; -OutFile setup.ps1
             <p><strong>Idempotent:</strong> if a step errors, re-run the script — every step is safe to repeat. If the error persists, capture it and ping an admin.</p>
         </div>
 
-        <h2 id="enrollment"><span class="num">12</span> Bulk Enrollment</h2>
+        <h2 id="enrollment"><span class="num">13</span> Bulk Enrollment</h2>
         <div class="feature">
             <h3><span class="badge badge-admin">Admin</span> CSV upload</h3>
             <p>From the <strong>Admin</strong> tab, upload a CSV file to create multiple users at once. Download the template, fill in usernames and passwords, upload. Returns a ZIP file with QR codes for each device.</p>
             <p>For unattended provisioning of new devices, prefer the <a href="#provisioning">per-device provisioning link</a> flow — it seeds credentials and launches the app without the tech having to type anything into the P50.</p>
         </div>
 
-        <h2 id="audit"><span class="num">13</span> Audit Log</h2>
+        <h2 id="audit"><span class="num">14</span> Audit Log</h2>
         <div class="feature">
             <h3><span class="badge badge-admin">Admin</span> Action history</h3>
-            <p><strong>System &rarr; Audit Log</strong> shows every admin action: user creation and deletion, admin management, SOS events. Filterable by action type. Includes timestamp, admin username, and IP address.</p>
+            <p><strong>System &rarr; Audit Log</strong> shows every admin action: user creation and deletion, admin management, SOS events, <strong>presence changes</strong> (with before/after pills and source — self / admin / auto_connect / shift_start / shift_stop_offline), and shift stops. Filterable by action type. Includes timestamp, admin username, and IP address.</p>
             <p><strong>System &rarr; Call Log</strong> is the phone-call equivalent — every inbound call's start time, who answered (if anyone), and end time, with caller ID.</p>
         </div>
 
-        <h2 id="features"><span class="num">14</span> Feature toggles</h2>
+        <h2 id="features"><span class="num">15</span> Feature toggles</h2>
         <div class="feature">
             <h3><span class="badge badge-admin">Admin</span> Enable / disable modules deployment-wide</h3>
             <p><strong>System &rarr; Features</strong> exposes one switch per module: <em>Lone Worker, SIP, Dispatch, Weather, SOS</em>. Disabling a module:</p>
@@ -556,7 +585,7 @@ Invoke-WebRequest https://ptt.harro.ch/p/&lt;slug&gt; -OutFile setup.ps1
             <p>Data is preserved &mdash; re-enabling restores full behaviour. SOS shows a confirmation dialog before disabling because turning it off removes emergency response from the system.</p>
         </div>
 
-        <h2 id="monitoring"><span class="num">15</span> Monitoring</h2>
+        <h2 id="monitoring"><span class="num">16</span> Monitoring</h2>
         <div class="feature">
             <h3><span class="badge badge-admin">Admin</span> Health and metrics endpoints</h3>
             <p>Two HTTP endpoints are exposed for external monitoring tools:</p>
@@ -566,7 +595,7 @@ Invoke-WebRequest https://ptt.harro.ch/p/&lt;slug&gt; -OutFile setup.ps1
             </ul>
         </div>
 
-        <h2 id="p50setup"><span class="num">16</span> Manual Device Setup</h2>
+        <h2 id="p50setup"><span class="num">17</span> Manual Device Setup</h2>
         <div class="feature">
             <h3>When the provisioning link isn't available</h3>
             <p>For most devices, use the <a href="#provisioning">one-click provisioning link</a>. The manual path below is only for first-of-its-kind testing or recovery.</p>
@@ -589,13 +618,14 @@ Invoke-WebRequest https://ptt.harro.ch/p/&lt;slug&gt; -OutFile setup.ps1
                 <li>Side PTT button: push to talk.</li>
                 <li>Triple-tap PTT within 1.2 s: toggle a lone-worker shift.</li>
                 <li>Channel knob: rotate left or right to switch channels.</li>
+                <li>Orange top button: cycle presence (Online &rarr; Busy &rarr; Offline &rarr; Online) &mdash; see <a href="#presence">Presence &amp; Audibility</a>.</li>
                 <li>Green button: mute toggle during an active phone call.</li>
                 <li>MENU key: hang up during an active phone call.</li>
-                <li>Red / F3 / F4 keys: owned by the radio's firmware, not used by openPTT.</li>
+                <li>Red / F3 keys: owned by the radio's firmware, not used by openPTT.</li>
             </ul>
         </div>
 
-        <h2 id="ports"><span class="num">17</span> Network &amp; Ports</h2>
+        <h2 id="ports"><span class="num">18</span> Network &amp; Ports</h2>
         <div class="feature">
             <h3>Server ports</h3>
             <table>
