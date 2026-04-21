@@ -143,6 +143,44 @@ pill + hydration). Both P50s flashed with `3.7.3-44-g5a26fff-debug`.
 Design: `docs/plans/2026-04-21-user-status-presence-design.md`.
 Plan: `docs/plans/2026-04-21-user-status-presence.md`.
 
+### Hide offline-status users from P50 channel user list (app-side work)
+Surfaced 2026-04-21 once presence landed. Today the channel user list on
+the radio is rendered from Humla's live Mumble users map, which doesn't
+know about our `status_label`. A user who presses the orange button to
+go Offline is still Mumble-connected, so they stay visible in the list
+on every other radio — noisy when operators are trying to see who's
+actually reachable.
+
+**Shape (sketched, not committed):**
+- Server: `GET /api/users/status-map` returning
+  `{username -> {status_label, is_audible}}`. No auth; small payload.
+  (Or extend `/api/users/status` to accept a comma-separated `usernames=`
+  query; either works, the map endpoint is less chatty.)
+- App: `MumlaService` polls the map every 15–30 s and caches
+  `Map<String, String>` keyed by lowercased username. A presence-aware
+  filter (mirror of `BotUsers.isBot(u)` at
+  `ChannelCardFragment.java:104` + `UserRowAdapter.java:35` +
+  `ChannelCarouselFragment.java:291`) drops rows whose status is
+  `offline`. Single helper `PresenceFilter.isVisible(user, statusMap)`
+  so every call-site shares the predicate — same pattern we used for
+  `HumanChannels.isVisible` in the carousel-filter refactor (app PR #1).
+- App: small softkey / carousel eye-icon toggle to temporarily show
+  everyone, for dispatch debugging ("where did Sarah go?"). Default
+  state hides offline.
+
+**Open questions to answer at brainstorm time:**
+- Should Busy users also be hidden, visually dimmed, or rendered with a
+  Busy badge? (Default: show with the pill so dispatcher sees intent.)
+- Poll every 15 s vs server-push (pymumble text message piggy-back)?
+  Polling is simpler; push is crisper. Pick at brainstorm.
+- Where does the "show everyone" toggle live — a drawer item, a
+  carousel softkey, or just a debug setting in app preferences?
+
+Effort estimate: S-M. One new server endpoint (~20 LOC), one new app
+helper + three call-site wirings, optional UI toggle. No schema
+changes. Good follow-up after presence warm-up, pairs naturally with
+the Private 1:1 PTT item below (both need the status-aware user list).
+
 ### Private 1:1 PTT (not channel-based) (implementation TBD)
 Zello's signature feature. User picks a target from their contact list
 and presses PTT; only the target hears it. We have a server-side whisper
