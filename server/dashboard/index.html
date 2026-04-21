@@ -814,7 +814,6 @@
         <div style="padding:var(--space-md) var(--space-lg) 0;max-width:1440px;margin:0 auto">
             <div class="sub-tabs" id="subTabsLive" style="display:flex">
                 <div class="sub-tab active" data-tab="overview" onclick="switchTab('overview')">Overview</div>
-                <div class="sub-tab" data-tab="map" onclick="switchTab('map')">Map</div>
                 <div class="sub-tab" data-tab="dispatch" onclick="switchTab('dispatch')" data-feature="dispatch">Dispatch</div>
             </div>
             <div class="sub-tabs" id="subTabsDirectory" style="display:none">
@@ -829,11 +828,12 @@
                 <div class="sub-tab active" data-tab="admin" onclick="switchTab('admin')">Admins</div>
                 <div class="sub-tab" data-tab="audit" onclick="switchTab('audit')">Audit Log</div>
                 <div class="sub-tab" data-tab="features" onclick="switchTab('features')">Features</div>
+                <div class="sub-tab" data-tab="dispatch-setup" onclick="switchTab('dispatch-setup')" data-feature="dispatch">Dispatch Setup</div>
             </div>
         </div>
 
         <!-- SOS Alert Banner -->
-        <div class="alert-banner error" id="sosBanner" style="display:none;cursor:pointer" onclick="switchTab('map')" data-feature="sos">
+        <div class="alert-banner error" id="sosBanner" style="display:none;cursor:pointer" onclick="switchTab('dispatch')" data-feature="sos">
             <strong>SOS ALERT</strong> <span id="sosInfo"></span> — click to view on map
         </div>
 
@@ -925,18 +925,6 @@
                 </div>
             </div>
         </div>
-        <!-- Map Tab -->
-        <div class="content tab-content" id="tab-map" style="display:none" role="tabpanel" aria-label="Map">
-            <div class="card" style="padding:0;overflow:hidden">
-                <div id="mapContainer" style="height:500px;width:100%"></div>
-            </div>
-            <div class="card" id="dispatchPanel" style="display:none" data-feature="dispatch">
-                <h2>Dispatch Worker</h2>
-                <p style="font-size:0.875rem;color:var(--color-text-secondary);margin-bottom:var(--space-md)" id="dispatchLocation"></p>
-                <div id="nearestList"></div>
-            </div>
-        </div>
-
         <!-- Admin Tab -->
         <div class="content tab-content" id="tab-admin" style="display:none" role="tabpanel" aria-label="Admin">
             <div class="card" data-feature="lone_worker">
@@ -1037,12 +1025,41 @@
                     </table>
                 </div>
             </div>
+        </div>
+
+        <!-- Dispatch Setup Tab -->
+        <div class="content tab-content" id="tab-dispatch-setup" style="display:none" role="tabpanel" aria-label="Dispatch Setup" data-feature="dispatch">
+            <div class="card">
+                <h2>Map Home</h2>
+                <p style="font-size:0.875rem;color:var(--fg-muted);margin-bottom:var(--space-md)">Default map centre + zoom for the Dispatch page.</p>
+                <div class="form-row">
+                    <input type="number" step="0.0001" id="mapHomeLat" placeholder="Latitude" style="flex:1">
+                    <input type="number" step="0.0001" id="mapHomeLng" placeholder="Longitude" style="flex:1">
+                    <input type="number" id="mapHomeZoom" placeholder="Zoom (1-19)" min="1" max="19" style="flex:1">
+                    <button class="btn primary" onclick="saveMapHome()">Save</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Search Behaviour</h2>
+                <p style="font-size:0.875rem;color:var(--fg-muted);margin-bottom:var(--space-md)">How many workers to return per dispatch search, and the optional radius filter (0 = no limit).</p>
+                <div class="form-row">
+                    <label style="flex:1">Max workers
+                        <input type="number" id="maxWorkers" min="1" max="50">
+                    </label>
+                    <label style="flex:1">Search radius (m)
+                        <input type="number" id="searchRadius" min="0" placeholder="0 = unlimited">
+                    </label>
+                    <button class="btn primary" onclick="saveSearchBehaviour()">Save</button>
+                </div>
+            </div>
+
             <div class="card">
                 <h2>Saved Locations</h2>
-                <p style="font-size:0.8125rem;color:var(--color-text-secondary);margin-bottom:var(--space-md)">Pre-configure common dispatch locations for one-click access.</p>
+                <p style="font-size:0.875rem;color:var(--fg-muted);margin-bottom:var(--space-md)">Pre-configure common dispatch locations for one-click access from the Dispatch page.</p>
                 <div class="form-row" style="margin-bottom:var(--space-md)">
                     <input type="text" id="newLocName" placeholder="Location name" style="flex:2">
-                    <input type="text" id="newLocCoords" placeholder="Lat, Lng (e.g., 52.37, 4.89)" style="flex:2">
+                    <input type="text" id="newLocCoords" placeholder="Lat, Lng (e.g., 38.72, -9.14)" style="flex:2">
                     <button class="btn primary" onclick="addSavedLocation()">Add Location</button>
                 </div>
                 <div class="table-wrap">
@@ -1050,6 +1067,25 @@
                         <thead><tr><th>Name</th><th>Coordinates</th><th>Description</th><th>Actions</th></tr></thead>
                         <tbody id="savedLocationsTable">
                             <tr><td colspan="4"><div class="empty-state"><p>No saved locations yet.</p></div></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Canned Messages</h2>
+                <p style="font-size:0.875rem;color:var(--fg-muted);margin-bottom:var(--space-md)">Pre-written dispatch messages, picked from a dropdown when sending.</p>
+                <div class="form-row" style="margin-bottom:var(--space-md)">
+                    <input type="text" id="newCannedLabel" placeholder="Label (e.g. Pickup ready)" style="flex:1">
+                    <input type="text" id="newCannedMessage" placeholder="Message text" style="flex:2">
+                    <input type="number" id="newCannedOrder" placeholder="Order" value="0" style="width:80px">
+                    <button class="btn primary" onclick="addCannedMessage()">Add</button>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Label</th><th>Message</th><th>Order</th><th>Actions</th></tr></thead>
+                        <tbody id="cannedMessagesTable">
+                            <tr><td colspan="4"><div class="empty-state"><p>No canned messages yet.</p></div></td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -1545,10 +1581,11 @@
     // Map each sub-tab to its parent group so sub-tab clicks keep the
     // primary nav in sync.
     const _tabGroupOf = {
-        overview: 'live', map: 'live', dispatch: 'live',
+        overview: 'live', dispatch: 'live',
         users: 'directory', channels: 'directory',
         sip: 'sip', 'call-log': 'sip',
         admin: 'system', audit: 'system', features: 'system',
+        'dispatch-setup': 'system',
     };
     const _groupDefaults = { live: 'overview', directory: 'users', sip: 'sip', system: 'admin' };
 
@@ -1576,8 +1613,10 @@
         // per-tab data refreshes
         if (name === 'users') { refreshUsers(); refreshLoneWorker(); }
         if (name === 'channels') refreshChannels();
-        if (name === 'map') { setTimeout(function() { initMap(); if (map) map.invalidateSize(); }, 100); }
-        if (name === 'dispatch') { refreshSavedLocations(); }
+        if (name === 'dispatch') {
+            setTimeout(function() { initMap(); if (map) map.invalidateSize(); }, 100);
+            refreshSavedLocations();
+        }
         if (name === 'admin') { refreshAdmins(); loadLoneWorkerConfig(); }
         if (name === 'audit') refreshAudit();
         if (name === 'sip') refreshSipConfig();
