@@ -115,6 +115,36 @@ async def get_status(
     )
 
 
+async def _maybe_end_shift_on_offline(db: AsyncSession, user: User) -> None:
+    """If lone-worker feature is enabled AND this user is a lone worker AND
+    they have an active shift, end it with reason='user_offline'. No-op otherwise."""
+    if not user.is_lone_worker:
+        return
+    from server.models import FeatureFlag, LoneWorkerShift
+    flag = (await db.execute(
+        select(FeatureFlag).where(FeatureFlag.key == "lone_worker")
+    )).scalar_one_or_none()
+    if flag is None or not flag.enabled:
+        return
+    shift = (await db.execute(
+        select(LoneWorkerShift).where(
+            LoneWorkerShift.user_id == user.id,
+            LoneWorkerShift.ended_at.is_(None),
+        )
+    )).scalar_one_or_none()
+    if shift is None:
+        return
+    shift.ended_at = datetime.now(timezone.utc)
+    shift.end_reason = "user_offline"
+    await log_audit(
+        db, user.username, "shift.stop",
+        target_type="user", target_id=user.username,
+        details=json.dumps({"reason": "user_offline"}),
+    )
+    await db.commit()
+    await db.refresh(shift)
+
+
 @router.post("/status", response_model=StatusResponse)
 async def post_status(
     body: StatusBody,
@@ -134,7 +164,8 @@ async def post_status(
         row.is_audible_updated_at = datetime.now(timezone.utc)
         await db.commit()
         await db.refresh(row)
-    # Shift coupling on Offline — handled in Task 4.
+    if row.status_label == "offline":
+        await _maybe_end_shift_on_offline(db, row)
     return StatusResponse(
         username=row.username,
         label=row.status_label,
@@ -156,6 +187,8 @@ async def patch_status(
     if not row:
         raise HTTPException(status_code=404, detail="User not found")
     row = await set_status(db, row, body.label, actor=admin["sub"], source="admin")
+    if row.status_label == "offline":
+        await _maybe_end_shift_on_offline(db, row)
     return StatusResponse(
         username=row.username,
         label=row.status_label,
