@@ -849,15 +849,15 @@
                 <span class="meta" id="overviewClock">— · —</span>
             </div>
             <div class="stats" id="statsContainer">
-                <div class="stat highlight"><div class="value" id="statOnline"><span class="skeleton skeleton-stat"></span></div><div class="label">Online</div></div>
-                <div class="stat"><div class="value" id="statTotal"><span class="skeleton skeleton-stat"></span></div><div class="label">Total users</div></div>
-                <div class="stat"><div class="value" id="statChannels"><span class="skeleton skeleton-stat"></span></div><div class="label">Channels</div></div>
+                <div class="stat highlight" onclick="switchTab('users')" style="cursor:pointer" title="Open Users tab"><div class="value" id="statOnline"><span class="skeleton skeleton-stat"></span></div><div class="label">Online</div></div>
+                <div class="stat" onclick="switchTab('users')" style="cursor:pointer" title="Open Users tab"><div class="value" id="statTotal"><span class="skeleton skeleton-stat"></span></div><div class="label">Total users</div></div>
+                <div class="stat" onclick="switchTab('channels')" style="cursor:pointer" title="Open Channels tab — add or remove channels"><div class="value" id="statChannels"><span class="skeleton skeleton-stat"></span></div><div class="label">Channels</div></div>
                 <div class="stat"><div class="value" id="statServer"><span class="skeleton skeleton-stat"></span></div><div class="label">Server</div></div>
             </div>
             <div class="card">
                 <div class="card-header">
                     <h2>Devices</h2>
-                    <span class="meta" style="font-family:var(--ff-mono);font-size:0.6875rem;color:var(--fg-dim);letter-spacing:0.1em;text-transform:uppercase">Open Map or Dispatch for spatial ops</span>
+                    <span class="meta" style="font-family:var(--ff-mono);font-size:0.6875rem;color:var(--fg-dim);letter-spacing:0.1em;text-transform:uppercase">Open Dispatch for spatial ops</span>
                 </div>
                 <div class="table-wrap">
                     <table aria-label="Devices">
