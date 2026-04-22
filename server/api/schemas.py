@@ -13,6 +13,7 @@ class UserCreate(BaseModel):
     shift_duration_hours: int | None = Field(default=None, ge=1, le=24)
     can_answer_calls: bool = False
     traccar_device_id: int | None = None
+    call_group_ids: list[int] | None = None
 
 
 class UserUpdate(BaseModel):
@@ -23,6 +24,7 @@ class UserUpdate(BaseModel):
     shift_duration_hours: int | None = Field(default=None, ge=1, le=24)
     can_answer_calls: bool | None = None
     traccar_device_id: int | None = None
+    call_group_ids: list[int] | None = None
 
 
 class UserResponse(BaseModel):
@@ -40,6 +42,7 @@ class UserResponse(BaseModel):
     last_seen: datetime | None
     status_label: str | None = None
     is_audible: bool | None = None
+    call_group_ids: list[int] = []
 
     model_config = {"from_attributes": True}
 
@@ -66,6 +69,13 @@ class ChannelCreate(BaseModel):
     name: str = Field(min_length=1, max_length=128, pattern=r'^[a-zA-Z0-9_ -]+$')
     description: str | None = Field(default=None, max_length=512)
     max_users: int = 0
+    call_group_id: int | None = None
+
+
+class ChannelUpdate(BaseModel):
+    description: str | None = Field(default=None, max_length=512)
+    max_users: int | None = None
+    call_group_id: int | None = None
 
 
 class ChannelResponse(BaseModel):
@@ -74,6 +84,7 @@ class ChannelResponse(BaseModel):
     name: str
     description: str | None
     max_users: int
+    call_group_id: int | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
