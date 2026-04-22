@@ -486,10 +486,57 @@ class MurmurClient:
         channel_groups: dict[int, int | None],
         user_admin: dict[str, bool],
     ) -> None:
-        """Refresh the in-memory call-group state. Atomic swap."""
+        """Refresh the in-memory call-group state. Atomic swap.
+
+        Also triggers a one-shot sweep so any user currently sitting in a
+        channel they shouldn't be in (because they were already there when
+        the bridge started, or because the channel was just tagged with a
+        group) gets bounced out immediately — not only on their next move.
+        """
         self._user_call_groups = user_groups
         self._channel_call_group = channel_groups
         self._user_is_admin = user_admin
+        self._sweep_call_group_violators()
+
+    def _sweep_call_group_violators(self) -> None:
+        """Evict users who are currently in a channel their groups don't
+        permit. Called after every state refresh so grandfathered
+        occupants (there before the bridge bot connected, or before the
+        channel was tagged) are caught within one refresh cycle.
+
+        Bounces to Root (0) because we don't have a 'previous channel'
+        for these sightings.
+        """
+        mm = self._mumble
+        if not mm:
+            return
+        try:
+            # Snapshot the user dict — pymumble mutates it from its own
+            # thread as events arrive.
+            snapshot = list(mm.users.items())
+        except Exception as e:
+            logger.error("call-group sweep: users snapshot failed: %s", e)
+            return
+        for session_id, user in snapshot:
+            try:
+                name = user.get("name") if isinstance(user, dict) else getattr(user, "name", None)
+                chan = user.get("channel_id") if isinstance(user, dict) else getattr(user, "channel_id", None)
+                if not name or chan is None:
+                    continue
+                if _is_bot_username(name):
+                    continue
+                if self._call_group_check(name, chan):
+                    continue
+                logger.info(
+                    "call-group: sweep bouncing '%s' (session=%s) out of channel %d",
+                    name, session_id, chan,
+                )
+                self._bounce_from_channel(
+                    session_id, 0, self._get_call_group_deny_pcm(),
+                )
+            except Exception as e:
+                logger.error("call-group sweep: per-user bounce failed for session %s: %s",
+                             session_id, e)
 
     def _call_group_check(self, name: str, new_channel_id: int) -> bool:
         """True if `name` may join `new_channel_id` per call-group rules."""
