@@ -836,7 +836,6 @@
             <div class="sub-tabs" id="subTabsDirectory" style="display:none">
                 <div class="sub-tab active" data-tab="users" onclick="switchTab('users')">Users</div>
                 <div class="sub-tab" data-tab="channels" onclick="switchTab('channels')">Channels</div>
-                <div class="sub-tab" data-tab="call-groups" onclick="switchTab('call-groups')">Call Groups</div>
             </div>
             <div class="sub-tabs" id="subTabsSystem" style="display:none">
                 <div class="sub-tab" data-tab="sip" onclick="switchTab('sip')" data-feature="sip">SIP Gateway</div>
@@ -926,9 +925,6 @@
                 <div class="form-row">
                     <input type="text" id="newChannelName" placeholder="Channel Name" aria-label="Channel name">
                     <input type="text" id="newChannelDesc" placeholder="Description" aria-label="Channel description">
-                    <select id="newChannelCallGroup" aria-label="Call group" style="min-width:160px">
-                        <option value="">&mdash; Visible to all &mdash;</option>
-                    </select>
                     <button class="btn primary" onclick="createChannel()">Add</button>
                 </div>
             </div>
@@ -936,35 +932,9 @@
                 <h2>All Channels</h2>
                 <div class="table-wrap">
                     <table aria-label="Channel list">
-                        <thead><tr><th>Name</th><th>Description</th><th>Call Group</th><th>Created</th><th>Actions</th></tr></thead>
+                        <thead><tr><th>Name</th><th>Description</th><th>Created</th><th>Actions</th></tr></thead>
                         <tbody id="channelsTable">
-                            <tr><td colspan="5"><div class="skeleton skeleton-line" style="width:80%"></div></td></tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
-        <!-- Call Groups Tab -->
-        <div class="content tab-content" id="tab-call-groups" style="display:none" role="tabpanel" aria-label="Call Groups">
-            <div class="card">
-                <h2>Call Groups</h2>
-                <p style="font-size:0.875rem;color:var(--fg-muted);margin-bottom:var(--space-md)">
-                    Restrict which channels each user can join. A channel with no
-                    group is visible to everyone; a channel assigned to a group is
-                    joinable only by its members. Users with the Admin role bypass
-                    this restriction.
-                </p>
-                <div class="form-row" style="margin-bottom:var(--space-md)">
-                    <input type="text" id="newCallGroupName" placeholder="Group name" aria-label="New call group name" style="flex:1">
-                    <input type="text" id="newCallGroupDesc" placeholder="Description (optional)" aria-label="New call group description" style="flex:2">
-                    <button class="btn primary" onclick="addCallGroup()">Add Group</button>
-                </div>
-                <div class="table-wrap">
-                    <table aria-label="Call groups">
-                        <thead><tr><th>Name</th><th>Description</th><th>Members</th><th>Channels</th><th>Actions</th></tr></thead>
-                        <tbody id="callGroupsTable">
-                            <tr><td colspan="5"><div class="empty-state"><p>No call groups yet.</p></div></td></tr>
+                            <tr><td colspan="4"><div class="skeleton skeleton-line" style="width:80%"></div></td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -1344,12 +1314,6 @@
             <div id="editCanAnswerCallsRow" style="margin-bottom:var(--space-md)" data-feature="sip">
                 <label style="font-size:0.8125rem;display:flex;align-items:center;gap:var(--space-xs)"><input type="checkbox" id="editCanAnswerCalls"> Can answer SIP calls (Phone channel access)</label>
             </div>
-            <div id="editCallGroupsRow" style="margin-bottom:var(--space-md)">
-                <div style="font-size:0.8125rem;margin-bottom:var(--space-xs)">Call Groups</div>
-                <div id="editUserCallGroups" style="max-height:160px;overflow:auto;border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:var(--space-sm);font-size:0.8125rem">
-                    <div style="color:var(--fg-muted)">No call groups defined.</div>
-                </div>
-            </div>
             <div id="editProvisioningRow" style="margin-bottom:var(--space-md);padding:var(--space-sm);border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-alt)">
                 <div style="font-size:0.75rem;color:var(--fg-muted);margin-bottom:var(--space-xs)">Device provisioning</div>
                 <button class="btn" style="font-size:0.8125rem" onclick="openProvisioningModal()">Generate provisioning link</button>
@@ -1363,25 +1327,6 @@
             <div style="display:flex;gap:var(--space-sm);justify-content:flex-end">
                 <button class="btn" onclick="closeModal('editUserModal')">Cancel</button>
                 <button class="btn primary" onclick="saveUserEdit()">Save</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Call Group edit modal -->
-    <div class="modal-overlay" id="callGroupModal" style="display:none" onclick="if(event.target===this)closeCallGroupModal()" role="dialog" aria-label="Edit call group">
-        <div class="modal-content" style="text-align:left;max-width:520px">
-            <h2 id="callGroupModalTitle" style="font-size:1rem;margin-bottom:var(--space-md)">Edit Call Group</h2>
-            <label style="font-size:0.8125rem;display:block;margin-bottom:var(--space-xs)">Name
-                <input type="text" id="editCallGroupName" style="width:100%;padding:var(--space-sm);border:1px solid var(--color-border);border-radius:var(--radius-sm);margin-top:var(--space-xs)">
-            </label>
-            <label style="font-size:0.8125rem;display:block;margin-top:var(--space-md);margin-bottom:var(--space-xs)">Description
-                <input type="text" id="editCallGroupDesc" style="width:100%;padding:var(--space-sm);border:1px solid var(--color-border);border-radius:var(--radius-sm);margin-top:var(--space-xs)">
-            </label>
-            <div style="font-size:0.8125rem;margin-top:var(--space-md);margin-bottom:var(--space-xs)">Members</div>
-            <div id="callGroupMembersList" style="max-height:280px;overflow:auto;border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:var(--space-sm);font-size:0.8125rem"></div>
-            <div style="display:flex;gap:var(--space-sm);justify-content:flex-end;margin-top:var(--space-md)">
-                <button class="btn" onclick="closeCallGroupModal()">Cancel</button>
-                <button class="btn primary" onclick="saveCallGroup()">Save</button>
             </div>
         </div>
     </div>
@@ -1712,7 +1657,7 @@
     // primary nav in sync.
     const _tabGroupOf = {
         overview: 'live', dispatch: 'live',
-        users: 'directory', channels: 'directory', 'call-groups': 'directory',
+        users: 'directory', channels: 'directory',
         sip: 'system', 'call-log': 'system',
         admin: 'system', audit: 'system', features: 'system',
         'dispatch-setup': 'system',
@@ -1743,7 +1688,6 @@
         // per-tab data refreshes
         if (name === 'users') { refreshUsers(); refreshLoneWorker(); }
         if (name === 'channels') refreshChannels();
-        if (name === 'call-groups') refreshCallGroups();
         if (name === 'dispatch') {
             setTimeout(function() { initMap(); if (map) map.invalidateSize(); }, 100);
             refreshSavedLocations();
@@ -1922,64 +1866,21 @@
         renderUsers(filtered);
     }
 
-    // Cache of call groups keyed by id so renderChannels can label rows
-    // without a second network round-trip per refresh.
-    let _callGroupsById = {};
-
     async function refreshChannels() {
         const data = await api('/api/channels');
         if (!data) return;
         document.getElementById('statChannels').textContent = data.length;
-        // Parallel-load call groups to populate the create dropdown and
-        // render the Call Group column.
-        const groups = (await api('/api/call-groups')) || [];
-        _callGroupsById = {};
-        groups.forEach(g => { _callGroupsById[g.id] = g; });
-        const sel = document.getElementById('newChannelCallGroup');
-        if (sel) {
-            sel.innerHTML = '<option value="">\u2014 Visible to all \u2014</option>' +
-                groups.map(g => '<option value="' + g.id + '">' + esc(g.name) + '</option>').join('');
-        }
         const tbody = document.getElementById('channelsTable');
         if (data.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="icon">&#128227;</div><p>No channels yet. Create your first channel to organize PTT groups.</p></div></td></tr>';
+            tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state"><div class="icon">&#128227;</div><p>No channels yet. Create your first channel to organize PTT groups.</p></div></td></tr>';
         } else {
-            tbody.innerHTML = data.map(c => {
-                const group = c.call_group_id && _callGroupsById[c.call_group_id]
-                    ? _callGroupsById[c.call_group_id].name
-                    : '';
-                const groupCell = group
-                    ? '<span class="badge">' + esc(group) + '</span>'
-                    : '<span style="color:var(--fg-muted)">All</span>';
-                const editOpts = groups.map(g =>
-                    '<option value="' + g.id + '"' +
-                    (c.call_group_id === g.id ? ' selected' : '') +
-                    '>' + esc(g.name) + '</option>'
-                ).join('');
-                return '<tr>' +
-                    '<td>' + esc(c.name) + '</td>' +
-                    '<td>' + esc(c.description || '\u2014') + '</td>' +
-                    '<td>' + groupCell +
-                        ' <select style="font-size:0.75rem;margin-left:4px" ' +
-                        'onchange="setChannelCallGroup(' + c.id + ', this.value)">' +
-                        '<option value=""' + (c.call_group_id ? '' : ' selected') +
-                        '>\u2014 All \u2014</option>' + editOpts + '</select></td>' +
-                    '<td>' + new Date(c.created_at).toLocaleDateString() + '</td>' +
-                    '<td class="actions">' +
-                    '<button class="btn danger" onclick="confirmDelete(\'channel\',' + c.id + ',\'' + esc(c.name) + '\')">Delete</button>' +
-                    '</td></tr>';
-            }).join('');
-        }
-    }
-
-    async function setChannelCallGroup(channelId, val) {
-        const body = { call_group_id: val === '' ? null : parseInt(val, 10) };
-        const r = await api('/api/channels/' + channelId, {
-            method: 'PATCH', body: JSON.stringify(body),
-        });
-        if (r) {
-            showToast('Channel call-group updated', 'success');
-            refreshChannels();
+            tbody.innerHTML = data.map(c => '<tr>' +
+                '<td>' + esc(c.name) + '</td>' +
+                '<td>' + esc(c.description || '\u2014') + '</td>' +
+                '<td>' + new Date(c.created_at).toLocaleDateString() + '</td>' +
+                '<td class="actions">' +
+                '<button class="btn danger" onclick="confirmDelete(\'channel\',' + c.id + ',\'' + esc(c.name) + '\')">Delete</button>' +
+                '</td></tr>').join('');
         }
     }
 
@@ -2022,121 +1923,17 @@
     async function createChannel() {
         const name = document.getElementById('newChannelName').value.trim();
         const desc = document.getElementById('newChannelDesc').value.trim();
-        const cgVal = document.getElementById('newChannelCallGroup').value;
         if (!name) { showToast('Channel name required', 'error'); return; }
         const result = await api('/api/channels', {
             method: 'POST',
-            body: JSON.stringify({
-                name: name,
-                description: desc || null,
-                call_group_id: cgVal ? parseInt(cgVal, 10) : null,
-            })
+            body: JSON.stringify({ name: name, description: desc || null })
         });
         if (result) {
             document.getElementById('newChannelName').value = '';
             document.getElementById('newChannelDesc').value = '';
-            document.getElementById('newChannelCallGroup').value = '';
             showToast('Channel "' + name + '" created', 'success');
             refreshChannels();
         }
-    }
-
-    // ─── Call Groups ──────────────────────────────────────────────────
-    let _editingCallGroupId = null;
-
-    async function refreshCallGroups() {
-        const data = await api('/api/call-groups');
-        if (!data) return;
-        const tbody = document.getElementById('callGroupsTable');
-        if (data.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><p>No call groups yet. Create one to scope channel access per user.</p></div></td></tr>';
-            return;
-        }
-        tbody.innerHTML = data.map(g => '<tr>' +
-            '<td><strong>' + esc(g.name) + '</strong></td>' +
-            '<td>' + esc(g.description || '\u2014') + '</td>' +
-            '<td style="font-family:var(--ff-mono,monospace)">' + g.member_count + '</td>' +
-            '<td style="font-family:var(--ff-mono,monospace)">' + g.channel_count + '</td>' +
-            '<td class="actions">' +
-                '<button class="btn" onclick="openCallGroupModal(' + g.id + ')">Edit</button>' +
-                '<button class="btn danger" onclick="deleteCallGroup(' + g.id + ',\'' + esc(g.name) + '\')">Delete</button>' +
-            '</td></tr>').join('');
-    }
-
-    async function addCallGroup() {
-        const name = document.getElementById('newCallGroupName').value.trim();
-        const description = document.getElementById('newCallGroupDesc').value.trim();
-        if (!name) { showToast('Group name is required', 'error'); return; }
-        const r = await api('/api/call-groups', {
-            method: 'POST',
-            body: JSON.stringify({ name: name, description: description || null }),
-        });
-        if (r) {
-            showToast('Created call group "' + name + '"', 'success');
-            document.getElementById('newCallGroupName').value = '';
-            document.getElementById('newCallGroupDesc').value = '';
-            refreshCallGroups();
-        }
-    }
-
-    async function openCallGroupModal(groupId) {
-        _editingCallGroupId = groupId;
-        const detail = await api('/api/call-groups/' + groupId);
-        if (!detail) return;
-        document.getElementById('editCallGroupName').value = detail.name;
-        document.getElementById('editCallGroupDesc').value = detail.description || '';
-
-        const allUsers = (await api('/api/users')) || [];
-        const memberIds = new Set((detail.members || []).map(m => m.id));
-        const list = document.getElementById('callGroupMembersList');
-        if (allUsers.length === 0) {
-            list.innerHTML = '<div style="color:var(--fg-muted);padding:var(--space-sm)">No users yet — create one first.</div>';
-        } else {
-            list.innerHTML = allUsers.map(u =>
-                '<label style="display:block;padding:2px 0">' +
-                '<input type="checkbox" data-user-id="' + u.id + '"' +
-                    (memberIds.has(u.id) ? ' checked' : '') + ' style="margin-right:6px">' +
-                esc(u.username) + (u.display_name ? ' (' + esc(u.display_name) + ')' : '') +
-                '</label>'
-            ).join('');
-        }
-
-        document.getElementById('callGroupModalTitle').textContent = 'Edit "' + detail.name + '"';
-        document.getElementById('callGroupModal').style.display = 'flex';
-    }
-
-    function closeCallGroupModal() {
-        document.getElementById('callGroupModal').style.display = 'none';
-        _editingCallGroupId = null;
-    }
-
-    async function saveCallGroup() {
-        if (_editingCallGroupId == null) return;
-        const name = document.getElementById('editCallGroupName').value.trim();
-        const description = document.getElementById('editCallGroupDesc').value.trim();
-        const userIds = Array.from(
-            document.querySelectorAll('#callGroupMembersList input[type=checkbox]:checked')
-        ).map(cb => parseInt(cb.dataset.userId, 10));
-
-        await api('/api/call-groups/' + _editingCallGroupId, {
-            method: 'PATCH',
-            body: JSON.stringify({ name: name, description: description || null }),
-        });
-        await api('/api/call-groups/' + _editingCallGroupId + '/members', {
-            method: 'PUT',
-            body: JSON.stringify({ user_ids: userIds }),
-        });
-        showToast('Saved call group "' + name + '"', 'success');
-        closeCallGroupModal();
-        refreshCallGroups();
-    }
-
-    async function deleteCallGroup(groupId, name) {
-        if (!confirm('Delete call group "' + name + '"? Channels assigned to it will become visible to all users.')) return;
-        await api('/api/call-groups/' + groupId, { method: 'DELETE' });
-        showToast('Deleted "' + name + '"', 'success');
-        refreshCallGroups();
-        refreshChannels();
     }
 
     async function showQR(userId) {
@@ -2306,28 +2103,6 @@
                 statusMeta.textContent = 'Never set';
             }
         });
-        // Populate call-group checkbox list (user-type modals only).
-        const cgRow = document.getElementById('editCallGroupsRow');
-        if (cgRow) cgRow.style.display = 'block';
-        (async () => {
-            const [allGroups, userDetail] = await Promise.all([
-                api('/api/call-groups'),
-                api('/api/users/' + id),
-            ]);
-            const memberIds = new Set(((userDetail || {}).call_group_ids) || []);
-            const host = document.getElementById('editUserCallGroups');
-            if (!allGroups || allGroups.length === 0) {
-                host.innerHTML = '<div style="color:var(--fg-muted)">No call groups defined. Create one in Directory &rarr; Call Groups.</div>';
-                return;
-            }
-            host.innerHTML = allGroups.map(g =>
-                '<label style="display:block;padding:2px 0">' +
-                '<input type="checkbox" data-cg-id="' + g.id + '"' +
-                    (memberIds.has(g.id) ? ' checked' : '') + ' style="margin-right:6px">' +
-                esc(g.name) +
-                '</label>'
-            ).join('');
-        })();
         document.getElementById('editUserModal').style.display = 'flex';
     }
 
@@ -2344,8 +2119,6 @@
         document.getElementById('editUserStatusRow').style.display = 'none';
         document.getElementById('editMurmurAdminRow').style.display = 'none';
         document.getElementById('editProvisioningRow').style.display = 'none';
-        const cgRow = document.getElementById('editCallGroupsRow');
-        if (cgRow) cgRow.style.display = 'none';
         document.getElementById('editTraccarDevice').parentElement.style.display = 'none';
         document.getElementById('editTraccarDevice').previousElementSibling.style.display = 'none';
         document.getElementById('editDisplayName').parentElement.previousElementSibling.style.display = 'none';
@@ -2370,13 +2143,6 @@
             body.can_answer_calls = document.getElementById('editCanAnswerCalls').checked;
             const deviceVal = document.getElementById('editTraccarDevice').value;
             body.traccar_device_id = deviceVal ? parseInt(deviceVal) : 0;
-            // Send call_group_ids only when the row is visible (user-type modal).
-            const cgHost = document.getElementById('editUserCallGroups');
-            if (cgHost) {
-                body.call_group_ids = Array.from(
-                    cgHost.querySelectorAll('input[type=checkbox]:checked')
-                ).map(cb => parseInt(cb.dataset.cgId, 10));
-            }
 
             const result = await api('/api/users/' + id, {
                 method: 'PATCH',
