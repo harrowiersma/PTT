@@ -17,6 +17,7 @@ async def test_list_features_admin_ok(admin_client: AsyncClient):
     data = r.json()
     assert {f["key"] for f in data} == {
         "lone_worker", "sip", "dispatch", "weather", "sos",
+        "call_groups_hiding",
     }
     assert all("enabled" in f and "updated_at" in f for f in data)
 

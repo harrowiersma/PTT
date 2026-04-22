@@ -236,6 +236,21 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("Call-group poller failed to start: %s", e)
 
+    # Auto-registration scheduler for call-groups-hiding. Runs every
+    # minute, no-ops when the feature flag is off (so cert-hash capture
+    # runs freely on prod while the restart-per-user pass stays dormant
+    # until ops flips the flag).
+    registration_task = None
+    if connected and client.has_mumble:
+        import asyncio
+        from server.murmur.registration import scheduler_loop
+        try:
+            registration_task = asyncio.create_task(scheduler_loop())
+            app.state.registration_task = registration_task
+            logger.info("Call-group auto-registration scheduler started (60 s)")
+        except Exception as e:
+            logger.warning("Auto-registration scheduler failed to start: %s", e)
+
     if connected:
         logger.info("Connected to Murmur via pymumble")
     else:
@@ -257,6 +272,9 @@ async def lifespan(app: FastAPI):
     call_group_task = getattr(app.state, "call_group_task", None)
     if call_group_task is not None:
         call_group_task.cancel()
+    registration_task = getattr(app.state, "registration_task", None)
+    if registration_task is not None:
+        registration_task.cancel()
     if app.state.murmur_client:
         app.state.murmur_client.disconnect()
     logger.info("openPTT TRX-Server stopped")

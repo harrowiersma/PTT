@@ -17,6 +17,7 @@ async def test_capabilities_shape(client: AsyncClient):
     assert "features" in data
     assert set(data["features"].keys()) == {
         "lone_worker", "sip", "dispatch", "weather", "sos",
+        "call_groups_hiding",
     }
     assert all(isinstance(v, bool) for v in data["features"].values())
     assert "server_version" in data

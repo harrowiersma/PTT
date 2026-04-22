@@ -40,6 +40,8 @@ async def setup_db():
         async with async_session() as _seed:
             for key in ("lone_worker", "sip", "dispatch", "weather", "sos"):
                 _seed.add(FeatureFlag(key=key, enabled=True))
+            # call_groups_hiding ships disabled — ACL hiding is opt-in.
+            _seed.add(FeatureFlag(key="call_groups_hiding", enabled=False))
             await _seed.commit()
     except ImportError:
         # Model not added yet — early TDD iterations run without seed.

@@ -31,4 +31,7 @@ async def test_disabling_propagates_after_refresh(db_session):
 
 
 def test_feature_keys_canonical():
-    assert FEATURE_KEYS == ("lone_worker", "sip", "dispatch", "weather", "sos")
+    assert FEATURE_KEYS == (
+        "lone_worker", "sip", "dispatch", "weather", "sos",
+        "call_groups_hiding",
+    )

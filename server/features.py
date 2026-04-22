@@ -18,12 +18,21 @@ from server.models import FeatureFlag
 
 logger = logging.getLogger(__name__)
 
-FEATURE_KEYS: Final[tuple[str, ...]] = (
-    "lone_worker", "sip", "dispatch", "weather", "sos",
-)
+# Per-key defaults — applied when the DB row is missing (fresh deploy
+# before seed migration) or when a new flag is added before its
+# migration lands. Most flags default on; call_groups_hiding is the
+# exception — it's opt-in so deploying the code doesn't flip the ACL.
+FEATURE_DEFAULTS: Final[dict[str, bool]] = {
+    "lone_worker": True,
+    "sip": True,
+    "dispatch": True,
+    "weather": True,
+    "sos": True,
+    "call_groups_hiding": False,
+}
+FEATURE_KEYS: Final[tuple[str, ...]] = tuple(FEATURE_DEFAULTS.keys())
 
-# Default to enabled so a fresh deploy without the migration still works.
-_cache: dict[str, bool] = {k: True for k in FEATURE_KEYS}
+_cache: dict[str, bool] = dict(FEATURE_DEFAULTS)
 
 
 def is_enabled(key: str) -> bool:
@@ -36,10 +45,10 @@ async def refresh_cache(db: AsyncSession) -> dict[str, bool]:
     global _cache
     result = await db.execute(select(FeatureFlag.key, FeatureFlag.enabled))
     fresh = {row[0]: bool(row[1]) for row in result.all()}
-    # Preserve defaults for any key missing from the DB (shouldn't happen
-    # after the seed migration, but defensive).
-    for k in FEATURE_KEYS:
-        fresh.setdefault(k, True)
+    # Fall back to per-key defaults when a DB row is missing (defensive;
+    # the seed migration covers every key in practice).
+    for k, default in FEATURE_DEFAULTS.items():
+        fresh.setdefault(k, default)
     _cache = fresh
     logger.info("feature-cache refreshed: %s", fresh)
     return fresh

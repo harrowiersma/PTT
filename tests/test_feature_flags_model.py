@@ -12,7 +12,10 @@ async def test_feature_flags_seeded(db_session):
         select(FeatureFlag.key).order_by(FeatureFlag.key)
     )
     keys = [row[0] for row in result.all()]
-    assert keys == ["dispatch", "lone_worker", "sip", "sos", "weather"]
+    assert keys == [
+        "call_groups_hiding", "dispatch", "lone_worker",
+        "sip", "sos", "weather",
+    ]
 
 
 @pytest.mark.asyncio
