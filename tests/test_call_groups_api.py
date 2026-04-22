@@ -106,6 +106,64 @@ async def test_put_members_replaces_wholesale(admin_client: AsyncClient, db_sess
 
 
 @pytest.mark.asyncio
+async def test_put_channels_replaces_wholesale(admin_client: AsyncClient, db_session):
+    """PUT /channels assigns the listed channels to the group and clears
+    any previously-assigned channels that were dropped from the list.
+    Channels never in the list are untouched (stay NULL = visible-to-all)."""
+    from server.models import Channel
+    r = await admin_client.post("/api/call-groups", json={"name": "Sales"})
+    gid = r.json()["id"]
+
+    c1 = Channel(name="Chan1")
+    c2 = Channel(name="Chan2")
+    c3 = Channel(name="Chan3")
+    db_session.add_all([c1, c2, c3])
+    await db_session.commit()
+    for c in (c1, c2, c3):
+        await db_session.refresh(c)
+
+    # Initial: Chan1 + Chan2 assigned.
+    r = await admin_client.put(f"/api/call-groups/{gid}/channels",
+                                json={"channel_ids": [c1.id, c2.id]})
+    assert r.status_code == 200
+    assert r.json()["channel_count"] == 2
+
+    # Replace with Chan2 + Chan3 — Chan1 should be cleared back to NULL.
+    r = await admin_client.put(f"/api/call-groups/{gid}/channels",
+                                json={"channel_ids": [c2.id, c3.id]})
+    assert r.status_code == 200
+    assert r.json()["channel_count"] == 2
+
+    from sqlalchemy import select
+    rows = (await db_session.execute(
+        select(Channel).where(Channel.call_group_id == gid)
+    )).scalars().all()
+    names = {c.name for c in rows}
+    assert names == {"Chan2", "Chan3"}
+
+    # Chan1 is now NULL — visible to all again.
+    chan1 = (await db_session.execute(
+        select(Channel).where(Channel.name == "Chan1")
+    )).scalar_one()
+    assert chan1.call_group_id is None
+
+
+@pytest.mark.asyncio
+async def test_put_channels_empty_list_clears_all(admin_client: AsyncClient, db_session):
+    from server.models import Channel
+    r = await admin_client.post("/api/call-groups", json={"name": "Sales"})
+    gid = r.json()["id"]
+    c = Channel(name="TempChan", call_group_id=gid)
+    db_session.add(c)
+    await db_session.commit()
+
+    r = await admin_client.put(f"/api/call-groups/{gid}/channels",
+                                json={"channel_ids": []})
+    assert r.status_code == 200
+    assert r.json()["channel_count"] == 0
+
+
+@pytest.mark.asyncio
 async def test_get_detail_includes_members_and_channels(
     admin_client: AsyncClient, db_session,
 ):
