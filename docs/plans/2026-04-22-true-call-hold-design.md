@@ -175,30 +175,32 @@ Update `phone_call_knob_blocked` text? Today's *"Press MENU to hang up"* still a
 
 ## Hold-music asset
 
-Synthesized in Python at bridge startup, no external WAV. Code:
+Operator provided `Opus1.mp3` (5.4 MB, 5 min 38 s, 128 kbps stereo @ 44.1 kHz). Pre-transcoded once locally to **`sip_bridge/assets/hold-music.slin8`** — 8 kHz mono int16 PCM, ~5.16 MB, 16,912 slin8 frames (20 ms each = 338 s of audio). Committed binary; no runtime decode, no ffmpeg dependency in the container.
 
-```python
-def _get_hold_frames() -> list[bytes]:
-    sr = 8000
-    notes = [262, 330, 392, 330]  # C4, E4, G4, E4
-    note_n = sr * 3 // 2  # 1.5 s per note
-    amp = 0.15
-    samples = []
-    for f in notes:
-        t = np.arange(note_n) / sr
-        wave = (amp * np.sin(2 * np.pi * f * t) * 32767).astype(np.int16)
-        # Light fade in/out so notes blend without clicks.
-        fade = sr // 20  # 50 ms
-        wave[:fade] = (wave[:fade] * np.linspace(0, 1, fade)).astype(np.int16)
-        wave[-fade:] = (wave[-fade:] * np.linspace(1, 0, fade)).astype(np.int16)
-        samples.append(wave)
-    loop = np.concatenate(samples).tobytes()
-    return [loop[i:i + SLIN8_FRAME_BYTES]
-            for i in range(0, len(loop), SLIN8_FRAME_BYTES)
-            if len(loop[i:i + SLIN8_FRAME_BYTES]) == SLIN8_FRAME_BYTES]
+A small `sip_bridge/assets/render-hold-music.sh` script regenerates the .slin8 from any source MP3 path:
+
+```bash
+ffmpeg -y -i "$1" -ac 1 -ar 8000 -f s16le sip_bridge/assets/hold-music.slin8
 ```
 
-~6 s loop, soft, recognisable as "hold music." Tunable in field testing.
+Bridge load path:
+
+```python
+HOLD_FRAMES_PATH = Path(__file__).parent / "assets" / "hold-music.slin8"
+SLIN8_FRAME_BYTES = 320  # 20 ms at 8 kHz mono int16
+
+def _get_hold_frames() -> list[bytes]:
+    """Load the pre-transcoded hold-music asset and slice into 20 ms slin8
+    frames. Same shape as _get_ringback_frames; cached at startup."""
+    raw = HOLD_FRAMES_PATH.read_bytes()
+    return [raw[i:i + SLIN8_FRAME_BYTES]
+            for i in range(0, len(raw), SLIN8_FRAME_BYTES)
+            if len(raw[i:i + SLIN8_FRAME_BYTES]) == SLIN8_FRAME_BYTES]
+```
+
+The hold timeout (180 s default) means a single hold session plays the first ~9,000 frames. The loop only wraps if the operator pushes past timeout (which auto-hangs-up the call anyway). Fine for v1.
+
+To rotate the music: replace the source MP3 anywhere on disk, run `bash sip_bridge/assets/render-hold-music.sh /path/to/new.mp3`, commit the regenerated `.slin8` + push.
 
 ---
 
