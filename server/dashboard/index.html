@@ -1378,11 +1378,7 @@
                 <input type="text" id="editCallGroupDesc" style="width:100%;padding:var(--space-sm);border:1px solid var(--color-border);border-radius:var(--radius-sm);margin-top:var(--space-xs)">
             </label>
             <div style="font-size:0.8125rem;margin-top:var(--space-md);margin-bottom:var(--space-xs)">Members</div>
-            <div id="callGroupMembersList" style="max-height:200px;overflow:auto;border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:var(--space-sm);font-size:0.8125rem"></div>
-            <div style="font-size:0.8125rem;margin-top:var(--space-md);margin-bottom:var(--space-xs)">Channels
-                <span style="color:var(--fg-muted);font-weight:normal">&mdash; tick the channels this group can join. Channels not ticked here stay visible to everyone (unless assigned to a different group).</span>
-            </div>
-            <div id="callGroupChannelsList" style="max-height:200px;overflow:auto;border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:var(--space-sm);font-size:0.8125rem"></div>
+            <div id="callGroupMembersList" style="max-height:280px;overflow:auto;border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:var(--space-sm);font-size:0.8125rem"></div>
             <div style="display:flex;gap:var(--space-sm);justify-content:flex-end;margin-top:var(--space-md)">
                 <button class="btn" onclick="closeCallGroupModal()">Cancel</button>
                 <button class="btn primary" onclick="saveCallGroup()">Save</button>
@@ -1955,15 +1951,35 @@
                 const groupCell = group
                     ? '<span class="badge">' + esc(group) + '</span>'
                     : '<span style="color:var(--fg-muted)">All</span>';
+                const editOpts = groups.map(g =>
+                    '<option value="' + g.id + '"' +
+                    (c.call_group_id === g.id ? ' selected' : '') +
+                    '>' + esc(g.name) + '</option>'
+                ).join('');
                 return '<tr>' +
                     '<td>' + esc(c.name) + '</td>' +
                     '<td>' + esc(c.description || '\u2014') + '</td>' +
-                    '<td>' + groupCell + '</td>' +
+                    '<td>' + groupCell +
+                        ' <select style="font-size:0.75rem;margin-left:4px" ' +
+                        'onchange="setChannelCallGroup(' + c.id + ', this.value)">' +
+                        '<option value=""' + (c.call_group_id ? '' : ' selected') +
+                        '>\u2014 All \u2014</option>' + editOpts + '</select></td>' +
                     '<td>' + new Date(c.created_at).toLocaleDateString() + '</td>' +
                     '<td class="actions">' +
                     '<button class="btn danger" onclick="confirmDelete(\'channel\',' + c.id + ',\'' + esc(c.name) + '\')">Delete</button>' +
                     '</td></tr>';
             }).join('');
+        }
+    }
+
+    async function setChannelCallGroup(channelId, val) {
+        const body = { call_group_id: val === '' ? null : parseInt(val, 10) };
+        const r = await api('/api/channels/' + channelId, {
+            method: 'PATCH', body: JSON.stringify(body),
+        });
+        if (r) {
+            showToast('Channel call-group updated', 'success');
+            refreshChannels();
         }
     }
 
@@ -2065,50 +2081,24 @@
 
     async function openCallGroupModal(groupId) {
         _editingCallGroupId = groupId;
-        const [detail, allUsers, allChannels] = await Promise.all([
-            api('/api/call-groups/' + groupId),
-            api('/api/users'),
-            api('/api/channels'),
-        ]);
+        const detail = await api('/api/call-groups/' + groupId);
         if (!detail) return;
         document.getElementById('editCallGroupName').value = detail.name;
         document.getElementById('editCallGroupDesc').value = detail.description || '';
 
-        // Members checkbox list.
+        const allUsers = (await api('/api/users')) || [];
         const memberIds = new Set((detail.members || []).map(m => m.id));
-        const memberHost = document.getElementById('callGroupMembersList');
-        if (!allUsers || allUsers.length === 0) {
-            memberHost.innerHTML = '<div style="color:var(--fg-muted);padding:var(--space-sm)">No users yet — create one first.</div>';
+        const list = document.getElementById('callGroupMembersList');
+        if (allUsers.length === 0) {
+            list.innerHTML = '<div style="color:var(--fg-muted);padding:var(--space-sm)">No users yet — create one first.</div>';
         } else {
-            memberHost.innerHTML = allUsers.map(u =>
+            list.innerHTML = allUsers.map(u =>
                 '<label style="display:block;padding:2px 0">' +
                 '<input type="checkbox" data-user-id="' + u.id + '"' +
                     (memberIds.has(u.id) ? ' checked' : '') + ' style="margin-right:6px">' +
                 esc(u.username) + (u.display_name ? ' (' + esc(u.display_name) + ')' : '') +
                 '</label>'
             ).join('');
-        }
-
-        // Channels checkbox list. Show every channel; grey-label the ones
-        // currently in a *different* group so the admin knows saving will
-        // steal it. (Backend allows it — the update sets call_group_id to
-        // this group for everything ticked.)
-        const assignedHere = new Set((detail.channels || []).map(c => c.id));
-        const chanHost = document.getElementById('callGroupChannelsList');
-        if (!allChannels || allChannels.length === 0) {
-            chanHost.innerHTML = '<div style="color:var(--fg-muted);padding:var(--space-sm)">No channels yet — create one first.</div>';
-        } else {
-            chanHost.innerHTML = allChannels.map(c => {
-                const inAnother = c.call_group_id && c.call_group_id !== groupId;
-                const note = inAnother
-                    ? ' <span style="color:var(--fg-muted);font-size:0.75rem">(currently in another group — ticking will reassign)</span>'
-                    : '';
-                return '<label style="display:block;padding:2px 0">' +
-                    '<input type="checkbox" data-channel-id="' + c.id + '"' +
-                    (assignedHere.has(c.id) ? ' checked' : '') + ' style="margin-right:6px">' +
-                    esc(c.name) + note +
-                    '</label>';
-            }).join('');
         }
 
         document.getElementById('callGroupModalTitle').textContent = 'Edit "' + detail.name + '"';
@@ -2127,9 +2117,6 @@
         const userIds = Array.from(
             document.querySelectorAll('#callGroupMembersList input[type=checkbox]:checked')
         ).map(cb => parseInt(cb.dataset.userId, 10));
-        const channelIds = Array.from(
-            document.querySelectorAll('#callGroupChannelsList input[type=checkbox]:checked')
-        ).map(cb => parseInt(cb.dataset.channelId, 10));
 
         await api('/api/call-groups/' + _editingCallGroupId, {
             method: 'PATCH',
@@ -2139,14 +2126,9 @@
             method: 'PUT',
             body: JSON.stringify({ user_ids: userIds }),
         });
-        await api('/api/call-groups/' + _editingCallGroupId + '/channels', {
-            method: 'PUT',
-            body: JSON.stringify({ channel_ids: channelIds }),
-        });
         showToast('Saved call group "' + name + '"', 'success');
         closeCallGroupModal();
         refreshCallGroups();
-        refreshChannels();
     }
 
     async function deleteCallGroup(groupId, name) {
