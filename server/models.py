@@ -76,6 +76,12 @@ class User(Base):
     is_audible_updated_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Mumble cert SHA-1 hash, captured by the bridge on first connect.
+    # Unique when set — one hash per device/cert.
+    mumble_cert_hash: Mapped[str] = mapped_column(String(128), nullable=True, unique=True)
+    # The user_id assigned in mumble-server.sqlite after registration.
+    # Populated by admin_sqlite.register_user; NULL means "not yet registered".
+    mumble_registered_user_id: Mapped[int] = mapped_column(Integer, nullable=True, unique=True)
 
 
 class SipTrunk(Base):
