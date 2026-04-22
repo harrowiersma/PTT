@@ -12,6 +12,8 @@ handling; not worth the API surface for typically-low-N membership.
 """
 from __future__ import annotations
 
+import asyncio
+import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -19,10 +21,69 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from server import features as _features
 from server.api.admin import log_audit
 from server.auth import get_current_admin
 from server.database import get_db
 from server.models import CallGroup, Channel, User, UserCallGroup
+
+logger = logging.getLogger(__name__)
+
+
+async def _collect_member_uids(db: AsyncSession, group_id: int) -> list[int]:
+    """Registered Mumble user_ids for every member of the group.
+
+    Members without a mumble_registered_user_id are skipped — the ACL
+    can only reference users Murmur knows about. They stay locked out
+    until the scheduler registers them and the ACL gets re-applied on
+    the next membership save.
+    """
+    rows = (await db.execute(
+        select(User.mumble_registered_user_id)
+        .join(UserCallGroup, UserCallGroup.user_id == User.id)
+        .where(
+            UserCallGroup.call_group_id == group_id,
+            User.mumble_registered_user_id.is_not(None),
+        )
+    )).all()
+    return [row[0] for row in rows]
+
+
+async def _tagged_channel_mumble_ids(
+    db: AsyncSession, group_id: int,
+) -> list[int]:
+    """Mumble channel ids for every channel tagged with this group.
+
+    Channels not yet mirrored to Murmur (mumble_id IS NULL) are dropped
+    — nothing to enforce on them.
+    """
+    rows = (await db.execute(
+        select(Channel.mumble_id).where(
+            Channel.call_group_id == group_id,
+            Channel.mumble_id.is_not(None),
+        )
+    )).all()
+    return [row[0] for row in rows]
+
+
+async def _apply_acl_for_group(db: AsyncSession, group_id: int) -> None:
+    """Recompute + apply ACL for every channel currently tagged with
+    this group. No-op when the `call_groups_hiding` feature flag is off."""
+    if not _features.is_enabled("call_groups_hiding"):
+        return
+    from server.murmur import admin_sqlite
+
+    chan_mumble_ids = await _tagged_channel_mumble_ids(db, group_id)
+    if not chan_mumble_ids:
+        return  # nothing to enforce — skip the murmur restart
+    members = await _collect_member_uids(db, group_id)
+    changes: list[tuple[int, list[int] | None]] = [
+        (cid, list(members)) for cid in chan_mumble_ids
+    ]
+    try:
+        await asyncio.to_thread(admin_sqlite.batched_acl_apply, changes)
+    except Exception as e:
+        logger.error("ACL apply for group %d failed: %s", group_id, e)
 
 router = APIRouter(prefix="/api/call-groups", tags=["call-groups"])
 
@@ -182,6 +243,9 @@ async def delete_call_group(
     )).scalar_one_or_none()
     if group is None:
         raise HTTPException(status_code=404, detail="Call group not found")
+    # Snapshot the tagged channels BEFORE delete — after ON DELETE SET
+    # NULL fires, we can't tell them apart from always-visible channels.
+    affected_mumble_ids = await _tagged_channel_mumble_ids(db, group_id)
     # Explicit join-row delete so SQLite (no FK-cascade by default) matches
     # Postgres. Redundant on prod because the migration has ON DELETE CASCADE.
     await db.execute(
@@ -191,6 +255,20 @@ async def delete_call_group(
                      target_type="call_group", target_id=str(group.id))
     await db.delete(group)
     await db.commit()
+
+    # After the DB transaction commits, clear ACL on every previously-
+    # tagged channel so they revert to visible-to-all. Flag-gated —
+    # when hiding is off, there's no ACL to clean up.
+    if _features.is_enabled("call_groups_hiding") and affected_mumble_ids:
+        from server.murmur import admin_sqlite
+        changes: list[tuple[int, list[int] | None]] = [
+            (cid, None) for cid in affected_mumble_ids
+        ]
+        try:
+            await asyncio.to_thread(admin_sqlite.batched_acl_apply, changes)
+        except Exception as e:
+            logger.error("ACL clear after delete of group %d failed: %s",
+                         group_id, e)
 
 
 @router.put("/{group_id}/members", response_model=CallGroupResponse)
@@ -212,6 +290,9 @@ async def replace_members(
     await log_audit(db, admin["sub"], "call_group.members_replace",
                      target_type="call_group", target_id=str(group.id))
     await db.commit()
+    # Recompute ACL on every channel tagged with this group so the new
+    # member set takes effect in Murmur.
+    await _apply_acl_for_group(db, group_id)
     return await _to_response(db, group)
 
 
@@ -235,6 +316,11 @@ async def replace_channels(
     if group is None:
         raise HTTPException(status_code=404, detail="Call group not found")
 
+    # Snapshot the current set BEFORE mutating so we can diff afterwards.
+    # Channels dropped from the group get their ACL cleared; channels
+    # newly added get ACL applied with the current member set.
+    prev_mumble_ids = set(await _tagged_channel_mumble_ids(db, group_id))
+
     # Clear the ones currently assigned but dropped from the new list.
     await db.execute(
         update(Channel)
@@ -253,4 +339,26 @@ async def replace_channels(
     await log_audit(db, admin["sub"], "call_group.channels_replace",
                      target_type="call_group", target_id=str(group.id))
     await db.commit()
+
+    if _features.is_enabled("call_groups_hiding"):
+        from server.murmur import admin_sqlite
+        new_mumble_ids = set(await _tagged_channel_mumble_ids(db, group_id))
+        removed = prev_mumble_ids - new_mumble_ids
+        members = await _collect_member_uids(db, group_id)
+        changes: list[tuple[int, list[int] | None]] = []
+        # Cleared channels revert to visible-to-all.
+        changes.extend((cid, None) for cid in removed)
+        # Everything in the new set gets the current member list. We
+        # apply to the whole set (not just newly-added) so an overlap
+        # channel with a stale ACL from a prior group gets refreshed.
+        changes.extend((cid, list(members)) for cid in new_mumble_ids)
+        if changes:
+            try:
+                await asyncio.to_thread(
+                    admin_sqlite.batched_acl_apply, changes,
+                )
+            except Exception as e:
+                logger.error("ACL apply for group %d channels failed: %s",
+                             group_id, e)
+
     return await _to_response(db, group)
