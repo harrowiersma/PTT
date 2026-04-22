@@ -125,9 +125,23 @@ class MurmurClient:
                 pymumble.constants.PYMUMBLE_CLBK_USERUPDATED,
                 self._on_user_updated,
             )
+            # USERCREATED fires on every connect (incl. reconnect). We run
+            # _on_user_created_sync (status→online) and _capture_cert_hash_sync
+            # (persist the cert hash for later ACL registration) back-to-back.
+            # Both are idempotent + cheap; failure in one must not swallow
+            # the other.
+            def _on_created(user):
+                try:
+                    _on_user_created_sync(user)
+                except Exception as e:
+                    logger.error("auto-online hook error: %s", e)
+                try:
+                    _capture_cert_hash_sync(user)
+                except Exception as e:
+                    logger.error("cert-hash capture error: %s", e)
             self._mumble.callbacks.set_callback(
                 pymumble.constants.PYMUMBLE_CLBK_USERCREATED,
-                lambda user: _on_user_created_sync(user),
+                _on_created,
             )
             self._mumble.start()
             self._mumble.is_ready()
@@ -634,6 +648,15 @@ class MurmurClient:
             if _is_bot_username(name):
                 return
 
+            # Pick up cert-hash changes mid-session (cert rotation). The
+            # helper is a no-op when the hash matches the stored one, so
+            # calling it unconditionally here is cheap.
+            if isinstance(actions, dict) and "hash" in actions:
+                try:
+                    _capture_cert_hash_sync(user)
+                except Exception as e:
+                    logger.error("cert-hash capture (updated) error: %s", e)
+
             prev_channel_id = self._user_last_channel.get(session_id)
             # Always update the record first so subsequent ticks compare
             # against the most recent observation.
@@ -707,6 +730,56 @@ class MurmurClient:
                 pass
             self._mumble = None
             self._connected = False
+
+
+def _capture_cert_hash_sync(event) -> None:
+    """Extract cert hash from a pymumble user dict/object and persist it
+    to users.mumble_cert_hash. Runs on pymumble's sync thread via a
+    short-lived engine (same pattern as _on_user_created_sync).
+
+    Idempotent: no-op when the hash is missing, matches the stored one,
+    or the username is a bot / unknown. On hash change, the stored
+    mumble_registered_user_id is cleared so the next auto-registration
+    tick re-registers with the new cert.
+    """
+    try:
+        name = event.get("name") if isinstance(event, dict) else getattr(event, "name", None)
+        hash_ = event.get("hash") if isinstance(event, dict) else getattr(event, "hash", None)
+    except Exception:
+        return
+    if not name or not hash_ or _is_bot_username(name):
+        return
+
+    try:
+        from sqlalchemy import create_engine, select as _select
+        from sqlalchemy.orm import sessionmaker
+        from server.config import settings
+        from server.models import User
+
+        engine = create_engine(settings.database_url_sync, echo=False)
+        Session = sessionmaker(engine, expire_on_commit=False)
+        with Session() as db:
+            user = db.execute(
+                _select(User).where(User.username == name)
+            ).scalar_one_or_none()
+            if user is None:
+                return
+            if user.mumble_cert_hash == hash_:
+                return  # no change
+            was_set = user.mumble_cert_hash is not None
+            user.mumble_cert_hash = hash_
+            # Hash changed (or first capture) — invalidate any prior
+            # registration so the scheduler re-registers with the new
+            # hash. When was_set is False this is already NULL.
+            user.mumble_registered_user_id = None
+            db.commit()
+            logger.info(
+                "cert-hash: captured for %s (rotated=%s)",
+                name, was_set,
+            )
+        engine.dispose()
+    except Exception as e:
+        logger.error("cert-hash capture failed for %s: %s", name, e)
 
 
 def _on_user_created_sync(event) -> None:
