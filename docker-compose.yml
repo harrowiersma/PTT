@@ -7,6 +7,13 @@ services:
       # Port 443 is now handled by Nginx SNI routing -> murmur:64738
       # Direct 64738 still available as fallback
     environment:
+      # Pin the sqlite path explicitly. The mumble-server image's
+      # generated ini has defaulted to /data/murmur.sqlite in some
+      # versions and /data/mumble-server.sqlite in others — an image
+      # refresh silently switched the path mid-deploy once and Mumble
+      # started a fresh empty DB, losing the live channel tree. Pinning
+      # here keeps the channels stable across future image bumps.
+      MUMBLE_CONFIG_DATABASE: "/data/mumble-server.sqlite"
       MUMBLE_CONFIG_ICE: "tcp -h 0.0.0.0 -p 6502"
       MUMBLE_CONFIG_WELCOMETEXT: "<br/>Welcome to the openPTT TRX server.<br/>Use your PTT button to transmit."
       MUMBLE_CONFIG_BANDWIDTH: "24000"
