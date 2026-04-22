@@ -42,6 +42,11 @@ class UserResponse(BaseModel):
     last_seen: datetime | None
     status_label: str | None = None
     is_audible: bool | None = None
+    # Mumble cert + registration state. Populated by the bridge's
+    # _capture_cert_hash_sync and the auto-registration scheduler.
+    # The dashboard renders pending/registered pills from these.
+    mumble_cert_hash: str | None = None
+    mumble_registered_user_id: int | None = None
     call_group_ids: list[int] = []
 
     model_config = {"from_attributes": True}

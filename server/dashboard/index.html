@@ -960,6 +960,10 @@
                     <input type="text" id="newCallGroupDesc" placeholder="Description (optional)" aria-label="New call group description" style="flex:2">
                     <button class="btn primary" onclick="addCallGroup()">Add Group</button>
                 </div>
+                <div style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:var(--space-md);padding:var(--space-sm);border:1px solid var(--color-border);border-radius:var(--radius-sm);background:var(--bg-alt)">
+                    <button class="btn" onclick="forceReconnectAll()" style="font-size:0.8125rem">Force all reconnect</button>
+                    <span style="font-size:0.75rem;color:var(--fg-muted)">Restarts Murmur (~3 s downtime) so every client re-reads the ACL. Use when "Call Groups — Hide restricted channels" is on and ACL state drifts.</span>
+                </div>
                 <div class="table-wrap">
                     <table aria-label="Call groups">
                         <thead><tr><th>Name</th><th>Description</th><th>Members</th><th>Channels</th><th>Actions</th></tr></thead>
@@ -1531,7 +1535,11 @@
     // feature-flag save. Defaults to all-enabled so UI isn't accidentally
     // blank on a transient fetch failure.
     let _capabilities = {
-        features: { lone_worker: true, sip: true, dispatch: true, weather: true, sos: true },
+        features: {
+            lone_worker: true, sip: true, dispatch: true,
+            weather: true, sos: true,
+            call_groups_hiding: false,
+        },
         server_version: "unknown",
     };
 
@@ -1579,6 +1587,7 @@
         dispatch:    { name: "Dispatch / Taxi", desc: "Closest-driver TTS, busy state, OSM routing." },
         weather:     { name: "Weather ATIS", desc: "Double-PTT weather report from Piper TTS on GPS position." },
         sos:         { name: "Emergency SOS", desc: "SOS trigger moves everyone to Emergency channel. DISABLE WITH CAUTION." },
+        call_groups_hiding: { name: "Call Groups — Hide restricted channels", desc: "Apply Murmur ACL so non-members can't see a tagged channel at all (enterprise-style hiding). Requires every user to have a captured Mumble cert hash; pending users are locked out until they reconnect." },
     };
 
     async function renderFeatures() {
@@ -2063,6 +2072,12 @@
         }
     }
 
+    async function forceReconnectAll() {
+        if (!confirm('Restart Murmur and disconnect every client? They\'ll reconnect automatically in a few seconds.')) return;
+        const r = await api('/api/call-groups/force-reconnect', { method: 'POST' });
+        if (r) showToast('Murmur restarted — clients are reconnecting', 'success');
+    }
+
     async function openCallGroupModal(groupId) {
         _editingCallGroupId = groupId;
         const [detail, allUsers, allChannels] = await Promise.all([
@@ -2074,19 +2089,31 @@
         document.getElementById('editCallGroupName').value = detail.name;
         document.getElementById('editCallGroupDesc').value = detail.description || '';
 
-        // Members checkbox list.
+        // Members checkbox list. Pills indicate Mumble registration state —
+        // matters when call_groups_hiding is on: members without a
+        // captured cert hash get locked out by the ACL until they
+        // reconnect and the scheduler registers them.
         const memberIds = new Set((detail.members || []).map(m => m.id));
         const memberHost = document.getElementById('callGroupMembersList');
         if (!allUsers || allUsers.length === 0) {
             memberHost.innerHTML = '<div style="color:var(--fg-muted);padding:var(--space-sm)">No users yet — create one first.</div>';
         } else {
-            memberHost.innerHTML = allUsers.map(u =>
-                '<label style="display:block;padding:2px 0">' +
-                '<input type="checkbox" data-user-id="' + u.id + '"' +
+            memberHost.innerHTML = allUsers.map(u => {
+                let pill = '';
+                if (!u.mumble_cert_hash) {
+                    pill = ' <span style="font-size:0.7rem;padding:1px 6px;border-radius:6px;background:#fee;color:#933;margin-left:4px">pending cert</span>';
+                } else if (!u.mumble_registered_user_id) {
+                    pill = ' <span style="font-size:0.7rem;padding:1px 6px;border-radius:6px;background:#ffe;color:#763;margin-left:4px">pending registration</span>';
+                } else {
+                    pill = ' <span style="font-size:0.7rem;padding:1px 6px;border-radius:6px;background:#efe;color:#363;margin-left:4px">registered</span>';
+                }
+                return '<label style="display:block;padding:2px 0">' +
+                    '<input type="checkbox" data-user-id="' + u.id + '"' +
                     (memberIds.has(u.id) ? ' checked' : '') + ' style="margin-right:6px">' +
-                esc(u.username) + (u.display_name ? ' (' + esc(u.display_name) + ')' : '') +
-                '</label>'
-            ).join('');
+                    esc(u.username) + (u.display_name ? ' (' + esc(u.display_name) + ')' : '') +
+                    pill +
+                    '</label>';
+            }).join('');
         }
 
         // Channels checkbox list. Show every channel; grey-label the ones

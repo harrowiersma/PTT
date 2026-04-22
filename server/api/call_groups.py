@@ -149,6 +149,27 @@ async def _to_response(db: AsyncSession, group: CallGroup) -> CallGroupResponse:
     )
 
 
+@router.post("/force-reconnect", status_code=status.HTTP_200_OK)
+async def force_reconnect(
+    admin: dict = Depends(get_current_admin),
+):
+    """Restart the Murmur container — every connected client reconnects
+    within a couple of seconds. Used as the operator escape hatch when
+    ACL state drifts (e.g., a user registered mid-session but their
+    group's ACL was computed before they had a user_id). After the
+    restart, clients re-read Murmur's acl table fresh.
+    """
+    from server.murmur import admin_sqlite
+    try:
+        await asyncio.to_thread(admin_sqlite.restart_murmur)
+    except Exception as e:
+        logger.error("force-reconnect restart failed: %s", e)
+        raise HTTPException(
+            status_code=500, detail=f"Murmur restart failed: {e}",
+        )
+    return {"ok": True}
+
+
 @router.get("", response_model=list[CallGroupResponse])
 async def list_call_groups(
     db: AsyncSession = Depends(get_db),
