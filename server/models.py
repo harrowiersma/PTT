@@ -156,9 +156,34 @@ class Channel(Base):
     name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
     description: Mapped[str] = mapped_column(String(512), nullable=True)
     max_users: Mapped[int] = mapped_column(Integer, default=0)
+    # Optional FK to call_groups.id. NULL = unrestricted (any user can join).
+    # ON DELETE SET NULL handled in the migration.
+    call_group_id: Mapped[int] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class CallGroup(Base):
+    """Per-user channel-access scoping. Channels with call_group_id set
+    are joinable only by users who belong to that group (or by users
+    with is_admin=True). NULL on the channel side = unrestricted."""
+    __tablename__ = "call_groups"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    description: Mapped[str] = mapped_column(String(256), nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class UserCallGroup(Base):
+    """Join table — composite PK enforces uniqueness."""
+    __tablename__ = "user_call_groups"
+
+    user_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    call_group_id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
 
 class SOSEvent(Base):
