@@ -371,61 +371,44 @@ the APK-flash cycle becomes the bottleneck.
   14 unit tests (`tests/test_phone_acl.py`). Commits `01ee04c`, `094855e`.
   Extended to `Phone/Call-N` sub-channels in commit `a1d7281`.
 
-- **True call hold — channel switching while on hold + caller hold tone/music** (added 2026-04-22).
-  Today the green-button "hold" is really a one-way mute (caller hears
-  silence; operator still hears caller). Two real gaps:
+### ~~True call hold — channel switching while on hold + caller hold tone/music~~ — **Resolved 2026-04-22**
+Green button now does real consultation hold: caller hears music loop,
+operator can navigate freely (carousel knob unlocks while held), green
+from anywhere resumes + auto-navigates back to `Phone/Call-N` and
+re-raises `ActiveCallActivity` with the original caller id. Putting a
+call on hold also pre-navigates the operator to their pre-call channel
+so they can PTT immediately. Module-level `_HELD_CLIENT` enforces one
+held call at a time (second-call HOLD logged as refused); 180 s
+auto-hangup timeout via background thread; `_HELD_CLIENT` +
+`/tmp/openptt-hold-state.json` reset instantly when the caller hangs
+up so the "CALL HOLD" banner clears on the app's next 5 s poll. Also
+handles the inverse: when the `PTTPhone-<slot>` bot leaves Mumble
+(caller-side hangup or bridge teardown) AND the operator's session is
+still in a `Call-*` channel, restore the pre-call channel so the
+radio isn't stranded. `phoneHangup()` restores pre-call itself so the
+MENU key works even when the bridge SIGUSR1 is a no-op.
 
-  1. **Operator can't switch channels while a call is active.** The
-     carousel knob is intentionally locked inside `Phone/Call-*`
-     (`MumlaActivity.dispatchKeyEvent` rejects F5/F6/DPAD when
-     `isInActivePhoneCall()` returns true) so the operator doesn't
-     accidentally drop the call. For HOLD that lock should relax —
-     consultation hold means "park the caller, navigate to a different
-     channel to confer with colleagues, navigate back, resume." The
-     `PTTPhone-N` bot stays in `Phone/Call-N`; the operator just leaves
-     and re-enters. Phone-ACL bounce is fine since they're allowed.
+Asset: `Opus1.mp3` pre-transcoded to `sip_bridge/assets/hold-music.slin8`
+(8 kHz mono slin8, 338 s, 16912 frames). `render-hold-music.sh` script
+committed for future re-rendering. Admin endpoints:
+`POST /api/sip/hold-toggle` + `GET /api/sip/hold-state`;
+`/mute-toggle` kept as a deprecated alias for one release.
 
-  2. **Caller hears silence, not a hold tone.** When `mute_caller` is
-     on, the bridge ships 320-byte silence frames downlink. Need to
-     replace silence with a recognisable hold-music loop or a periodic
-     "you are on hold" tone so the caller knows the call is still live.
+Carousel-empty bug fix piggybacks: `HumlaObserver.onConnected` now
+triggers a rebuild, closing a cold-start race where `onChannelAdded`
+fired before the fragment's observer was registered. And
+`docker-compose.yml` pins `MUMBLE_CONFIG_DATABASE` so an image refresh
+can't silently switch the sqlite path on the running murmur again.
 
-  **Shape (sketched, not committed):**
-  - Distinguish HOLD from MUTE in the bridge state machine. Today
-    `Client.mute_caller` does both jobs; split into:
-    `mute_caller` (current behaviour — caller hears silence; operator
-    keeps audio) and `hold_caller` (caller hears hold loop; operator
-    audio is also blocked outbound until resume).
-  - Server-side: pre-render a hold-music WAV (sub-30s loop, low-bitrate
-    mu-law) at sip-bridge startup, mounted alongside the Piper greeting.
-    `Client.tick()` swaps from the live Mumble rx mix to the hold loop
-    while `hold_caller=True`. Or use Asterisk's built-in `MusicOnHold()`
-    application via dialplan + a SIP re-INVITE — leans on Asterisk
-    instead of writing a mixer.
-  - App-side: green-button gesture stays the same (toggle hold) but
-    the resulting state is HOLD not MUTE. Knob lock is relaxed when
-    `hold_caller=True` — operator can knob away to a different channel.
-    A persistent toast or status-bar chip shows "Call on hold —
-    return via Phone channel" so they remember to come back.
-  - Resume: pressing green again while NOT in `Phone/Call-N` resumes
-    the held call (re-enters the slot's sub-channel + flips
-    `hold_caller=False`). Pressing green while inside the slot
-    behaves as today (toggle).
-
-  **Open questions:**
-  - MusicOnHold via Asterisk dialplan vs. our own mixer in
-    `Client.tick()`? Asterisk's MOH is battle-tested but couples the
-    bridge tighter to Asterisk; our own mixer keeps the bridge
-    self-contained. Pick at brainstorm.
-  - Hold timeout — auto-hangup after N minutes on hold to free the
-    slot? Or rely on caller hangup detection? (Asterisk already
-    detects caller-side BYE.)
-  - With multiple `PTTPhone-N` slots, does HOLD on slot 1 prevent the
-    operator from accepting a NEW call on slot 2? Or are they
-    independent?
-
-  Effort estimate: M. Bridge changes + app knob-lock relax + small
-  dialplan or mixer + a hold-music asset. No DB schema changes.
+Commits (server): `b1be154`, `6ca2d73`, `6d29f0a`, `c755f56`, `e469160`.
+Commits (app): `29e9ff3`, `c1da0ae`, `736a16a`, `6f315a9`, `e7ad4a6`,
+`04928a2`, `68f35b4`, `258a2d3`, `547d387`, `0776b63`. Design:
+[`docs/plans/2026-04-22-true-call-hold-design.md`](plans/2026-04-22-true-call-hold-design.md).
+Plan: [`docs/plans/2026-04-22-true-call-hold.md`](plans/2026-04-22-true-call-hold.md).
+Smoke-tested on R259060623 + R259060618 (`3.7.3-63-g0776b63-debug`):
+hold/resume audio + banner, concurrent-call refusal, 180 s auto-hangup,
+caller-hangup-while-held channel restore, and the mute-toggle alias
+for un-upgraded radios all green.
 
 ### Dashboard IA + visual overhaul — shipped 2026-04-19
 Consolidated 8 flat tabs into 4 grouped modes (Live Ops · Directory ·
