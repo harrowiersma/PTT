@@ -9,6 +9,7 @@ from server.api.admin import router as admin_router
 from server.api.loneworker import router as loneworker_router
 from server.api.auth import router as auth_router
 from server.api.bulk import router as bulk_router
+from server.api.call_groups import router as call_groups_router
 from server.api.call_logs import router as call_logs_router
 from server.api.metrics import router as metrics_router
 from server.api.channels import router as channels_router
@@ -222,6 +223,7 @@ app.include_router(auth_router)
 app.include_router(user_status_router)
 app.include_router(users_router)
 app.include_router(channels_router)
+app.include_router(call_groups_router)
 app.include_router(status_router)
 app.include_router(gps_router)
 app.include_router(sip_router)
