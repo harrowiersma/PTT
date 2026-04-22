@@ -446,6 +446,28 @@ hold/resume audio + banner, concurrent-call refusal, 180 s auto-hangup,
 caller-hangup-while-held channel restore, and the mute-toggle alias
 for un-upgraded radios all green.
 
+### ~~Red button (POWER) as reject/hangup~~ — **Resolved 2026-04-22**
+Ad-hoc ask from the evening of the same-day ship train. P50's red button
+is physically the same key as POWER (raw kernel `KEY_POWER`, Android
+`KEYCODE_POWER` 26 — confirmed via adb `getevent` probe). Before this
+ship, pressing red during a call did nothing useful (OS default: screen
+off). Intercepted `KEYCODE_POWER` in `IncomingCallActivity.dispatchKeyEvent`
+(→ Decline) and `ActiveCallActivity.dispatchKeyEvent` (→ Hangup), scoped
+so the main carousel retains default OS power-off behaviour. The OS-level
+`PhoneWindowManager` still turns the screen off in parallel — we can't
+suppress that from `dispatchKeyEvent`, but the call action fires first.
+Accepted UX tradeoff: mirrors the "hang up handset → phone at rest"
+metaphor. For held calls from a non-phone channel, operator presses
+green to resume (auto-navigates back into `ActiveCallActivity`), then red
+to end — two presses from the held state, keeps `MumlaActivity`'s POWER
+semantics clean.
+
+Verified via live logcat during a real inbound call: `hardware POWER →
+Decline` fires cleanly; `/api/status/server` confirms the Mumble session
+stays in the operator's original channel (no phantom move). Commits
+(app): `39a873d`. Smoke-tested on R259060623 + R259060618
+(`3.7.3-65-g39a873d-debug`).
+
 ### Dashboard IA + visual overhaul — shipped 2026-04-19
 Consolidated 8 flat tabs into 4 grouped modes (Live Ops · Directory ·
 SIP Gateway · System) with secondary segmented controls under each.
