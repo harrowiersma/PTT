@@ -272,6 +272,24 @@ feature flag without regressing the first.
   `i5d8a2f4c6b7`). Flag off → falls back to layer 1 (bounce-only).
   Operator flips it after observing that every connected user has a
   captured cert hash.
+- Password-authenticated registration (fix commit `3ed7b3e`): first
+  pass registered users with pw=NULL + only a cert hash, intending
+  cert-based auth, which broke password logins. Now `register_user`
+  also hashes `User.mumble_password` with PBKDF2-HMAC-SHA384 (Murmur's
+  exact recipe from `src/murmur/PBKDF2.cpp` — UTF-8 password, 8-byte
+  random salt, 48-byte dk, 8000 iters) so Mumble's own auth path
+  validates the row unchanged. Cert hash is additive when provided.
+
+**Companion app commit — openPTT-app `91fd796`:**
+- `HumanChannels.isVisible(IChannel)` now also checks the channel's
+  Mumble Traverse permission; carousel and F5/F6 knob rotation hide
+  channels the server says the user can't Traverse.
+- `ChannelCarouselFragment` fires `requestPermissions()` for each
+  Root child on rebuild and re-runs rebuild when
+  `onChannelPermissionsUpdated` arrives, so the hide step completes
+  within one round-trip of a fresh connect.
+- Smoked on yuliia's P50: Sales vanishes from the carousel and F6
+  rotates Internal → Weather → business, skipping Sales entirely.
 
 Original open questions (2026-04-21) and their resolution:
 - Tree-hiding vs bounce-only → **both.** Layer 1 always on, layer 2
