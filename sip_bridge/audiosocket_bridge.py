@@ -14,6 +14,7 @@ Wire format per frame: 1-byte type + 2-byte big-endian length + payload.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import signal
@@ -23,6 +24,7 @@ import sys
 import threading
 import time
 from collections import deque
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -126,6 +128,26 @@ def _get_ringback_frames() -> list[bytes]:
     if _ringback_frames is None:
         _ringback_frames = _build_ringback_frames()
     return _ringback_frames
+
+
+# Pre-transcoded hold-music asset. Rendered from Opus1.mp3 via
+# sip_bridge/assets/render-hold-music.sh and committed alongside the
+# bridge source so the container doesn't need ffmpeg at runtime.
+HOLD_FRAMES_PATH = Path(__file__).parent / "assets" / "hold-music.slin8"
+_hold_frames: list[bytes] | None = None
+
+
+def _get_hold_frames() -> list[bytes]:
+    """Load the pre-transcoded hold-music asset and slice into 20 ms
+    slin8 frames. Cached: first call pays the file read, subsequent
+    calls return the same list."""
+    global _hold_frames
+    if _hold_frames is None:
+        raw = HOLD_FRAMES_PATH.read_bytes()
+        _hold_frames = [raw[i:i + SLIN8_FRAME_BYTES]
+                        for i in range(0, len(raw), SLIN8_FRAME_BYTES)
+                        if len(raw[i:i + SLIN8_FRAME_BYTES]) == SLIN8_FRAME_BYTES]
+    return _hold_frames
 
 # AudioSocket frame-type constants
 _TYPE_HANGUP = 0x00
@@ -316,11 +338,14 @@ class Client:
         self._ul_count = 0
         self._dl_count = 0
         self._last_log = time.monotonic()
-        # Green-button mute: when True, the downlink sends silence to
-        # Asterisk regardless of Mumble activity. Radio users can step
-        # aside, talk in another channel, and come back without the
-        # caller overhearing. Toggled by SIGUSR2 from the admin.
-        self.mute_caller = False
+        # Green-button hold: when True, the downlink ships hold-music
+        # frames to the caller while still draining the rx queue (so
+        # unhold doesn't dump backlog). Toggled by SIGUSR2 from the
+        # admin. See _on_hold for the per-call state machine.
+        self.hold_caller: bool = False
+        # monotonic() timestamp when this client entered hold; used by
+        # the timeout loop (PHONE_HOLD_TIMEOUT_SECONDS).
+        self.hold_started_at: float | None = None
 
     def attach_mumble(self, mumble) -> None:
         self._mumble = mumble
@@ -409,6 +434,8 @@ class Client:
         """
         ringback_frames = _get_ringback_frames()
         ringback_idx = 0
+        hold_frames = _get_hold_frames()
+        hold_idx = 0
         next_tick = time.monotonic()
         while not self._stop:
             now = time.monotonic()
@@ -419,12 +446,13 @@ class Client:
 
             slin8: Optional[bytes] = None
 
-            # Highest priority: muted → ship silence regardless of source.
-            # Radio users can hop to another channel and chat without the
-            # caller overhearing.
-            if self.mute_caller:
-                slin8 = b"\x00" * SLIN8_FRAME_BYTES
-                # Still drain the rx queue so we don't accumulate lag on unmute.
+            # Highest priority: held → ship hold-music regardless of source.
+            # Radio user can hop to another channel and chat without the
+            # caller overhearing. rx_queue is drained so unhold doesn't
+            # dump backlog.
+            if self.hold_caller:
+                slin8 = hold_frames[hold_idx % len(hold_frames)]
+                hold_idx += 1
                 try:
                     self._rx_queue.popleft()
                 except IndexError:

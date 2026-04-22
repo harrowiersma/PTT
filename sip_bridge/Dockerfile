@@ -40,6 +40,7 @@ COPY render_config.py /app/sip_bridge/render_config.py
 COPY render_entry.py /app/sip_bridge/render_entry.py
 COPY ari_bridge.py /app/sip_bridge/ari_bridge.py
 COPY audiosocket_bridge.py /app/sip_bridge/audiosocket_bridge.py
+COPY assets /app/sip_bridge/assets
 COPY templates /app/sip_bridge/templates
 COPY configs /app/sip_bridge/configs
 COPY supervisord.conf /app/supervisord.conf
