@@ -143,43 +143,29 @@ pill + hydration). Both P50s flashed with `3.7.3-44-g5a26fff-debug`.
 Design: `docs/plans/2026-04-21-user-status-presence-design.md`.
 Plan: `docs/plans/2026-04-21-user-status-presence.md`.
 
-### Hide offline-status users from P50 channel user list (app-side work)
-Surfaced 2026-04-21 once presence landed. Today the channel user list on
-the radio is rendered from Humla's live Mumble users map, which doesn't
-know about our `status_label`. A user who presses the orange button to
-go Offline is still Mumble-connected, so they stay visible in the list
-on every other radio — noisy when operators are trying to see who's
-actually reachable.
+### ~~Hide offline-status users from P50 channel user list~~ — **Resolved 2026-04-22**
+Shipped as 8 tasks across server + app (debug-build APK installed on
+both P50s). New `GET /api/users/presence-map` endpoint returns the
+whole `{lc-username: {status_label, is_audible}}` picture in one call
+(no auth, bots excluded). App-side `PresenceCache` polls every 20 s
+while Mumble-connected (immediate refresh on connect + after every
+`postStatus`); cache notifies `PresenceCache.Listener`s on map-content
+change so channel-list adapters re-submit without a Mumble event.
+`PresenceFilter.isHidden` (mirrors `BotUsers.isBot`) wired into
+`UserRowAdapter.submit` + `ChannelCardFragment` + `ChannelCarouselFragment`
+member counts. Self always visible; Busy users render with an amber
+**BUSY** badge in the row; only Offline hides.
 
-**Shape (sketched, not committed):**
-- Server: `GET /api/users/status-map` returning
-  `{username -> {status_label, is_audible}}`. No auth; small payload.
-  (Or extend `/api/users/status` to accept a comma-separated `usernames=`
-  query; either works, the map endpoint is less chatty.)
-- App: `MumlaService` polls the map every 15–30 s and caches
-  `Map<String, String>` keyed by lowercased username. A presence-aware
-  filter (mirror of `BotUsers.isBot(u)` at
-  `ChannelCardFragment.java:104` + `UserRowAdapter.java:35` +
-  `ChannelCarouselFragment.java:291`) drops rows whose status is
-  `offline`. Single helper `PresenceFilter.isVisible(user, statusMap)`
-  so every call-site shares the predicate — same pattern we used for
-  `HumanChannels.isVisible` in the carousel-filter refactor (app PR #1).
-- App: small softkey / carousel eye-icon toggle to temporarily show
-  everyone, for dispatch debugging ("where did Sarah go?"). Default
-  state hides offline.
+Decisions locked: hide Offline only (not Busy), polling at 20 s, no
+"show everyone" toggle (YAGNI).
 
-**Open questions to answer at brainstorm time:**
-- Should Busy users also be hidden, visually dimmed, or rendered with a
-  Busy badge? (Default: show with the pill so dispatcher sees intent.)
-- Poll every 15 s vs server-push (pymumble text message piggy-back)?
-  Polling is simpler; push is crisper. Pick at brainstorm.
-- Where does the "show everyone" toggle live — a drawer item, a
-  carousel softkey, or just a debug setting in app preferences?
-
-Effort estimate: S-M. One new server endpoint (~20 LOC), one new app
-helper + three call-site wirings, optional UI toggle. No schema
-changes. Good follow-up after presence warm-up, pairs naturally with
-the Private 1:1 PTT item below (both need the status-aware user list).
+Commits (server): `19709ce` (presence-map endpoint).
+Commits (app): `9081ef0` (PresenceCache + lifecycle) → `f831d93`
+(PresenceFilter + 9 JUnit) → `a12b45b` (UserRowAdapter wiring) →
+`b5d994e` (member counts) → `1ecf50d` (Busy badge) → `18e0b83`
+(repaint listener).
+Design: `docs/plans/2026-04-22-hide-offline-from-channel-list-design.md`.
+Plan: `docs/plans/2026-04-22-hide-offline-from-channel-list.md`.
 
 ### Private 1:1 PTT (not channel-based) (implementation TBD)
 Zello's signature feature. User picks a target from their contact list
