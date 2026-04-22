@@ -185,6 +185,57 @@ async def lifespan(app: FastAPI):
     elif not _feature_enabled("sip"):
         logger.info("SIP disabled by feature flag — Phone ACL poller not started")
 
+    # Start call-group ACL poller. Mirrors phone-acl but covers every
+    # channel with a call_group_id. Always on (not feature-gated) — the
+    # default NULL group_id preserves visible-to-all behaviour so running
+    # the poller on a fresh DB is a no-op.
+    call_group_task = None
+    if connected and client.has_mumble:
+        import asyncio
+        from sqlalchemy import select
+        from server.database import async_session
+        from server.models import Channel, User, UserCallGroup
+
+        async def _refresh_call_groups():
+            while True:
+                try:
+                    async with async_session() as db:
+                        rows = (await db.execute(
+                            select(User.username, User.is_admin, UserCallGroup.call_group_id)
+                            .outerjoin(UserCallGroup, UserCallGroup.user_id == User.id)
+                        )).all()
+                        user_groups: dict[str, set[int]] = {}
+                        user_admin: dict[str, bool] = {}
+                        for username, is_admin, gid in rows:
+                            lc = username.lower()
+                            user_admin[lc] = bool(is_admin)
+                            if gid is not None:
+                                user_groups.setdefault(lc, set()).add(gid)
+                            else:
+                                user_groups.setdefault(lc, set())
+
+                        # Channels keyed by their Mumble id — that's what
+                        # the bounce check sees from USERUPDATED.
+                        crows = (await db.execute(
+                            select(Channel.mumble_id, Channel.call_group_id)
+                            .where(Channel.mumble_id.is_not(None))
+                        )).all()
+                        channel_groups = {mid: gid for (mid, gid) in crows}
+
+                    client.update_call_group_state(
+                        user_groups, channel_groups, user_admin,
+                    )
+                except Exception as e:
+                    logger.warning("call-groups: refresh failed: %s", e)
+                await asyncio.sleep(30)
+
+        try:
+            call_group_task = asyncio.create_task(_refresh_call_groups())
+            app.state.call_group_task = call_group_task
+            logger.info("Call-group state poller started (30 s)")
+        except Exception as e:
+            logger.warning("Call-group poller failed to start: %s", e)
+
     if connected:
         logger.info("Connected to Murmur via pymumble")
     else:
@@ -203,6 +254,9 @@ async def lifespan(app: FastAPI):
     phone_acl_task = getattr(app.state, "phone_acl_task", None)
     if phone_acl_task is not None:
         phone_acl_task.cancel()
+    call_group_task = getattr(app.state, "call_group_task", None)
+    if call_group_task is not None:
+        call_group_task.cancel()
     if app.state.murmur_client:
         app.state.murmur_client.disconnect()
     logger.info("openPTT TRX-Server stopped")
