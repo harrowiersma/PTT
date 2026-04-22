@@ -16,7 +16,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.api.admin import log_audit
@@ -63,6 +63,10 @@ class CallGroupDetail(CallGroupResponse):
 
 class MembershipReplace(BaseModel):
     user_ids: list[int]
+
+
+class ChannelsReplace(BaseModel):
+    channel_ids: list[int]
 
 
 async def _to_response(db: AsyncSession, group: CallGroup) -> CallGroupResponse:
@@ -206,6 +210,47 @@ async def replace_members(
     for uid in body.user_ids:
         db.add(UserCallGroup(user_id=uid, call_group_id=group_id))
     await log_audit(db, admin["sub"], "call_group.members_replace",
+                     target_type="call_group", target_id=str(group.id))
+    await db.commit()
+    return await _to_response(db, group)
+
+
+@router.put("/{group_id}/channels", response_model=CallGroupResponse)
+async def replace_channels(
+    group_id: int, body: ChannelsReplace,
+    db: AsyncSession = Depends(get_db),
+    admin: dict = Depends(get_current_admin),
+):
+    """Assign the listed channels to this group (wholesale replace).
+
+    Channels previously assigned to this group but not in the list get
+    their call_group_id cleared (back to NULL = visible-to-all). Channels
+    never linked here are untouched — this endpoint never steals a
+    channel away from another group. To move a channel between groups,
+    save both groups.
+    """
+    group = (await db.execute(
+        select(CallGroup).where(CallGroup.id == group_id)
+    )).scalar_one_or_none()
+    if group is None:
+        raise HTTPException(status_code=404, detail="Call group not found")
+
+    # Clear the ones currently assigned but dropped from the new list.
+    await db.execute(
+        update(Channel)
+        .where(Channel.call_group_id == group_id)
+        .where(~Channel.id.in_(body.channel_ids))
+        .values(call_group_id=None)
+    )
+    # Assign the new set — overwrites whatever group they had before.
+    if body.channel_ids:
+        await db.execute(
+            update(Channel)
+            .where(Channel.id.in_(body.channel_ids))
+            .values(call_group_id=group_id)
+        )
+
+    await log_audit(db, admin["sub"], "call_group.channels_replace",
                      target_type="call_group", target_id=str(group.id))
     await db.commit()
     return await _to_response(db, group)
