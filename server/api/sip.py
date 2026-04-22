@@ -14,6 +14,7 @@ shared secret in X-Internal-Auth and MUST NOT be forwarded by nginx —
 the nginx config returns 404 for /api/sip/internal/*.
 """
 
+import json
 import logging
 import os
 
@@ -338,19 +339,73 @@ async def hangup_current_call(req: RadioCallControlRequest):
     return {"ok": True, "action": "hangup", "username": req.username}
 
 
-@router.post("/mute-toggle")
-async def mute_toggle(req: RadioCallControlRequest):
-    """Toggle the caller-inaudible state. Called by the P50 app when the
-    green (KEYCODE_CALL) key is pressed in the Phone channel. Radio user
-    can still hear the caller; caller hears silence until the next toggle.
+@router.post("/hold-toggle")
+async def hold_toggle(req: RadioCallControlRequest):
+    """Toggle the call-hold state on the most-recent active call. Called
+    by the P50 app when the green (KEYCODE_CALL) key is pressed in the
+    Phone channel — and also from any non-Phone channel to RESUME a
+    held call.
+
+    Caller hears the hold-music loop while held; operator's carousel
+    knob lock relaxes so they can navigate away to confer.
     """
-    logger.info("radio mute toggle requested by user=%r", req.username)
+    logger.info("radio hold toggle requested by user=%r", req.username)
     try:
         _signal_sip_bridge("SIGUSR2")
     except Exception as e:
-        logger.error("mute signal failed: %s", e)
+        logger.error("hold signal failed: %s", e)
         raise HTTPException(status_code=503, detail=f"signal failed: {e}")
-    return {"ok": True, "action": "mute-toggle", "username": req.username}
+    return {"ok": True, "action": "hold-toggle", "username": req.username}
+
+
+@router.post("/mute-toggle", deprecated=True)
+async def mute_toggle_alias(req: RadioCallControlRequest):
+    """DEPRECATED — alias for /hold-toggle. Will be removed once all
+    field devices are on the hold-aware app build. Same code path; kept
+    under the old route name so radios that haven't upgraded keep
+    working. Returns the new action label so callers can migrate."""
+    logger.info("radio mute-toggle (deprecated alias) requested by user=%r", req.username)
+    try:
+        _signal_sip_bridge("SIGUSR2")
+    except Exception as e:
+        logger.error("hold signal failed: %s", e)
+        raise HTTPException(status_code=503, detail=f"signal failed: {e}")
+    return {"ok": True, "action": "hold-toggle", "username": req.username}
+
+
+def _read_hold_state_from_bridge() -> dict | None:
+    """Read /tmp/openptt-hold-state.json from inside the sip-bridge
+    container via docker exec. Returns the parsed JSON, or None if the
+    file doesn't exist / can't be read."""
+    try:
+        import docker
+    except ImportError as e:
+        logger.warning("docker SDK unavailable, hold-state unread: %s", e)
+        return None
+    try:
+        client = docker.from_env()
+        container = client.containers.get(SIP_BRIDGE_CONTAINER_NAME)
+        result = container.exec_run(
+            ["cat", "/tmp/openptt-hold-state.json"],
+        )
+        if result.exit_code != 0:
+            return None
+        return json.loads(result.output.decode("utf-8", "replace"))
+    except Exception as e:
+        logger.warning("hold-state read failed: %s", e)
+        return None
+
+
+@router.get("/hold-state")
+async def hold_state():
+    """Read the bridge's current hold state. Device-trusted (no auth);
+    same convention as /api/users/status. App polls every 5 s while
+    connected to know whether to relax the carousel knob lock and
+    show the hold-banner UI."""
+    state = _read_hold_state_from_bridge()
+    if state is None:
+        return {"holding": False}
+    return state
 
 
 # --- Numbers (DIDs) ---
