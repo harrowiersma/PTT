@@ -197,3 +197,41 @@ async def patch_status(
         is_audible=row.is_audible,
         is_audible_updated_at=row.is_audible_updated_at,
     )
+
+
+class PresenceEntry(BaseModel):
+    status_label: str | None
+    is_audible: bool | None
+
+
+# Lowercased usernames mirroring server/murmur/client.py::BOT_USERNAMES.
+# Kept literal here (not imported) so the endpoint doesn't tug the murmur
+# module into its dependency graph for one tuple.
+_BOT_USERNAMES = {"PTTAdmin", "PTTWeather", "PTTPhone"}
+
+
+def _is_bot_username(name: str) -> bool:
+    """Mirror of MurmurClient._is_bot_username — keep both in sync."""
+    if name in _BOT_USERNAMES:
+        return True
+    return name.startswith("PTTPhone-")
+
+
+@router.get("/presence-map", response_model=dict[str, PresenceEntry])
+async def get_presence_map(db: AsyncSession = Depends(get_db)):
+    """Return every (non-bot) user's presence in one shot.
+
+    The radio app polls this every 20 s to decide who to hide from its
+    channel user list. Lowercased keys for case-insensitive lookup. No
+    auth — matches the GET /status convention; the data leaked is the
+    same shape any logged-in user would see.
+    """
+    rows = (await db.execute(select(User))).scalars().all()
+    return {
+        u.username.lower(): PresenceEntry(
+            status_label=u.status_label,
+            is_audible=u.is_audible,
+        )
+        for u in rows
+        if not _is_bot_username(u.username)
+    }
