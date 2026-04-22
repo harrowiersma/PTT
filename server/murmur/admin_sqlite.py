@@ -205,6 +205,112 @@ def register_user(username: str, cert_hash: str) -> int:
     return uid
 
 
+# --- Mumble ACL bit constants (from Mumble's Permission enum) -------
+_PERM_TRAVERSE = 0x02
+_PERM_ENTER = 0x04
+_PERM_SPEAK = 0x08
+# Bits we strip from @all so non-members can't see or join the channel.
+_DENY_TRAVERSE_ENTER = _PERM_TRAVERSE | _PERM_ENTER
+# Bits we grant per-member so they can see, join, and talk. Priority
+# ordering ensures the per-user grant overrides the @all deny.
+_GRANT_MEMBER = _PERM_TRAVERSE | _PERM_ENTER | _PERM_SPEAK
+
+
+def _set_channel_acl_no_lock(
+    mumble_channel_id: int, member_user_ids: list[int],
+) -> None:
+    """ACL replace — caller must hold _admin_lock + own the restart."""
+    _sqlite_exec(
+        f"DELETE FROM acl WHERE server_id={_SERVER_ID} "
+        f"AND channel_id={int(mumble_channel_id)};"
+    )
+    # Deny-@all at priority=1 — revokes Traverse+Enter so non-members
+    # see nothing in the channel tree.
+    _sqlite_exec(
+        f"INSERT INTO acl (server_id, channel_id, priority, user_id, "
+        f"group_name, apply_here, apply_sub, grantpriv, revokepriv) VALUES "
+        f"({_SERVER_ID}, {int(mumble_channel_id)}, 1, NULL, 'all', 1, 1, "
+        f"0, {_DENY_TRAVERSE_ENTER});"
+    )
+    # Per-member allow at priority=2+i — Mumble evaluates ACLs in
+    # priority order and grants override revokes on later entries for
+    # the matching user.
+    for i, uid in enumerate(member_user_ids):
+        _sqlite_exec(
+            f"INSERT INTO acl (server_id, channel_id, priority, user_id, "
+            f"group_name, apply_here, apply_sub, grantpriv, revokepriv) VALUES "
+            f"({_SERVER_ID}, {int(mumble_channel_id)}, {2 + i}, {int(uid)}, "
+            f"NULL, 1, 1, {_GRANT_MEMBER}, 0);"
+        )
+
+
+def _clear_channel_acl_no_lock(mumble_channel_id: int) -> None:
+    """ACL wipe — caller must hold _admin_lock + own the restart."""
+    _sqlite_exec(
+        f"DELETE FROM acl WHERE server_id={_SERVER_ID} "
+        f"AND channel_id={int(mumble_channel_id)};"
+    )
+
+
+def set_channel_acl(
+    mumble_channel_id: int,
+    member_user_ids: list[int],
+    *,
+    restart: bool = True,
+) -> None:
+    """Replace the ACL on a Mumble channel with a deny-@all + per-member
+    allow pair. After the rows are written, restart Murmur so the new
+    ACL takes effect (Murmur only reads the sqlite at startup).
+
+    Pass restart=False when orchestrating a multi-channel batch —
+    batched_acl_apply uses that to fold many changes into one restart.
+    """
+    with _admin_lock:
+        _set_channel_acl_no_lock(mumble_channel_id, member_user_ids)
+        logger.info(
+            "set ACL on channel %d (members=%d)",
+            mumble_channel_id, len(member_user_ids),
+        )
+    if restart:
+        restart_murmur()
+
+
+def clear_channel_acl(
+    mumble_channel_id: int,
+    *,
+    restart: bool = True,
+) -> None:
+    """Remove every ACL row for a channel. The channel reverts to its
+    parent's inherited permissions — in practice, visible-to-all."""
+    with _admin_lock:
+        _clear_channel_acl_no_lock(mumble_channel_id)
+        logger.info("cleared ACL on channel %d", mumble_channel_id)
+    if restart:
+        restart_murmur()
+
+
+def batched_acl_apply(
+    changes: list[tuple[int, list[int] | None]],
+) -> None:
+    """Apply a list of channel ACL changes with exactly one Murmur restart.
+
+    Each change is ``(mumble_channel_id, member_user_ids)``. When
+    ``member_user_ids`` is None the channel's ACL is cleared entirely
+    (back to visible-to-all); otherwise it's replaced with the deny/allow
+    pair. Empty ``changes`` → no sqlite, no restart.
+    """
+    if not changes:
+        return
+    with _admin_lock:
+        for cid, members in changes:
+            if members is None:
+                _clear_channel_acl_no_lock(cid)
+            else:
+                _set_channel_acl_no_lock(cid, members)
+        logger.info("batched ACL apply: %d change(s)", len(changes))
+    restart_murmur()
+
+
 def restart_murmur(timeout: int = 10) -> None:
     """Restart the murmur container so sqlite edits take effect.
     Uses the Docker socket mounted at /var/run/docker.sock. Disruption
