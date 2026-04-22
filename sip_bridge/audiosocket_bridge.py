@@ -391,6 +391,23 @@ def _on_hold(signum, frame) -> None:
     _write_hold_state()
 
 
+def _clear_hold_if_holding(client: "Client") -> None:
+    """If `client` is the currently-held call, release hold state and
+    rewrite the state file. Called from the serve() cleanup path when a
+    caller hangs up mid-hold, so the app's hold banner clears within
+    its next 5 s poll instead of hanging around until the 180 s
+    timeout."""
+    global _HELD_CLIENT
+    with _HELD_LOCK:
+        if _HELD_CLIENT is not client:
+            return
+        _HELD_CLIENT.hold_caller = False
+        _HELD_CLIENT.hold_started_at = None
+        _HELD_CLIENT = None
+    LOG.info("hold cleared on teardown, slot=%d", client.slot)
+    _write_hold_state()
+
+
 def _hold_timeout_check() -> None:
     """One pass of the hold-timeout loop. Hangs up the held call if it's
     been on hold longer than PHONE_HOLD_TIMEOUT_SECONDS."""
@@ -738,6 +755,13 @@ def serve() -> None:
                 # so stale signals don't fire against a dead Client.
                 if _get_most_recent() is _client:
                     _set_most_recent(None)
+                # If this client was the held one, clear hold state AND
+                # rewrite the state file. Without this, a caller hanging
+                # up mid-hold leaves /tmp/openptt-hold-state.json stuck
+                # at {holding: true}; the app banner never clears and
+                # the 180s timeout eventually tries to hang up an
+                # already-dead client.
+                _clear_hold_if_holding(_client)
                 _notify_call_ended()
 
         threading.Thread(target=_run_and_cleanup, daemon=True,

@@ -117,6 +117,43 @@ def test_state_file_written_on_hold(monkeypatch, tmp_path):
     assert state["holding"] is False
 
 
+def test_clear_hold_on_teardown_resets_state(monkeypatch, tmp_path):
+    """When a held caller's Client is torn down (caller hangup mid-hold),
+    _HELD_CLIENT is cleared and the state file is rewritten to
+    {holding: false} so the app banner stops lingering until timeout."""
+    state_path = tmp_path / "hold-state.json"
+    monkeypatch.setattr(ab, "HOLD_STATE_FILE", state_path)
+
+    held = _make_client(slot=1)
+    held.hold_caller = True
+    held.hold_started_at = time.monotonic()
+    ab._HELD_CLIENT = held
+
+    ab._clear_hold_if_holding(held)
+
+    assert ab._HELD_CLIENT is None
+    assert held.hold_caller is False
+    state = json.loads(state_path.read_text())
+    assert state == {"holding": False}
+
+
+def test_clear_hold_ignores_other_client(monkeypatch, tmp_path):
+    """Tearing down a non-held client must not touch hold state."""
+    state_path = tmp_path / "hold-state.json"
+    monkeypatch.setattr(ab, "HOLD_STATE_FILE", state_path)
+
+    held = _make_client(slot=1)
+    held.hold_caller = True
+    held.hold_started_at = time.monotonic()
+    ab._HELD_CLIENT = held
+
+    other = _make_client(slot=2)
+    ab._clear_hold_if_holding(other)
+
+    assert ab._HELD_CLIENT is held
+    assert held.hold_caller is True
+
+
 def test_timeout_force_hangs_up(monkeypatch):
     """Past PHONE_HOLD_TIMEOUT_SECONDS, the timeout loop hangs up the held call."""
     client = _make_client(slot=1)
