@@ -160,6 +160,51 @@ def delete_user_registration(username: str) -> bool:
         return True
 
 
+def _next_mumble_user_id() -> int:
+    """Highest user_id in Murmur sqlite + 1. SuperUser is always user_id=0,
+    so the first real user registration lands at user_id=1."""
+    out = _sqlite_exec(
+        f"SELECT COALESCE(MAX(user_id), 0) + 1 FROM users "
+        f"WHERE server_id={_SERVER_ID};"
+    ).strip()
+    return int(out) if out else 1
+
+
+def register_user(username: str, cert_hash: str) -> int:
+    """Register an app user in Murmur's sqlite with their cert hash.
+
+    Inserts one row into `users` (cert-only auth — pw/salt/kdf all NULL)
+    and one row into `user_info` with key='user_hash' holding the SHA-1
+    cert hash. After the edit, the murmur container is restarted so the
+    new registration is loaded.
+
+    Returns the newly-assigned Mumble user_id.
+    """
+    # Serialize the SELECT/INSERT/INSERT sequence so two concurrent calls
+    # don't both pick the same _next_mumble_user_id(). restart_murmur is
+    # called AFTER releasing the lock — it takes its own lock, so we can't
+    # nest (threading.Lock is non-reentrant).
+    with _admin_lock:
+        uid = _next_mumble_user_id()
+        _sqlite_exec(
+            f"INSERT INTO users (server_id, user_id, name, pw, salt, "
+            f"kdfiterations, lastchannel, texture, last_active, "
+            f"last_disconnect) VALUES "
+            f"({_SERVER_ID}, {uid}, {_sql_quote(username)}, "
+            f"NULL, NULL, NULL, 0, NULL, "
+            f"datetime('now'), datetime('now'));"
+        )
+        _sqlite_exec(
+            f"INSERT INTO user_info (server_id, user_id, key, value) VALUES "
+            f"({_SERVER_ID}, {uid}, 'user_hash', {_sql_quote(cert_hash)});"
+        )
+        logger.info(
+            "registered %s in Murmur sqlite (user_id=%d)", username, uid,
+        )
+    restart_murmur()
+    return uid
+
+
 def restart_murmur(timeout: int = 10) -> None:
     """Restart the murmur container so sqlite edits take effect.
     Uses the Docker socket mounted at /var/run/docker.sock. Disruption
