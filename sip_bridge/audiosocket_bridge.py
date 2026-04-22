@@ -323,6 +323,105 @@ def _get_most_recent() -> "Optional[Client]":
         return _most_recent_client
 
 
+# Hold-state. At most ONE call may be on hold at a time; a second HOLD
+# attempt while another is held is logged as refused (operator resumes
+# first, then holds the other). _HELD_CLIENT is the module-level pointer
+# to the held Client; _HELD_LOCK protects both it and the per-Client
+# hold_caller flag against the timeout thread.
+_HELD_CLIENT: "Optional[Client]" = None
+_HELD_LOCK = threading.Lock()
+HOLD_STATE_FILE = Path("/tmp/openptt-hold-state.json")
+PHONE_HOLD_TIMEOUT_SECONDS = int(os.environ.get("PHONE_HOLD_TIMEOUT_SECONDS", "180"))
+
+
+def _write_hold_state() -> None:
+    """Snapshot the held-call state to disk so the admin can read it
+    without entering this Python process. Called on every hold/resume
+    transition and once at serve() startup."""
+    if _HELD_CLIENT is None or not _HELD_CLIENT.hold_caller:
+        payload = {"holding": False}
+    else:
+        elapsed = 0
+        if _HELD_CLIENT.hold_started_at is not None:
+            elapsed = int(time.monotonic() - _HELD_CLIENT.hold_started_at)
+        payload = {
+            "holding": True,
+            "slot": _HELD_CLIENT.slot,
+            "held_for_seconds": elapsed,
+        }
+    try:
+        HOLD_STATE_FILE.write_text(json.dumps(payload))
+    except OSError as e:
+        LOG.warning("hold state file write failed: %s", e)
+
+
+def _on_hold(signum, frame) -> None:
+    """SIGUSR2 handler — toggle per-call hold state.
+
+    Three branches:
+      1. No call held + target on a call → put target ON hold.
+      2. Target IS the held call → resume.
+      3. Some OTHER call is held → refuse (log warning + leave state).
+    """
+    global _HELD_CLIENT
+    target = _get_most_recent()
+    if target is None:
+        LOG.info("SIGUSR2 received, no active call — ignoring")
+        return
+
+    with _HELD_LOCK:
+        if target.hold_caller:
+            target.hold_caller = False
+            target.hold_started_at = None
+            if _HELD_CLIENT is target:
+                _HELD_CLIENT = None
+            LOG.info("SIGUSR2 — resume slot=%d", target.slot)
+        elif _HELD_CLIENT is not None and _HELD_CLIENT is not target:
+            LOG.warning(
+                "SIGUSR2 — refused, slot=%d already held",
+                _HELD_CLIENT.slot,
+            )
+            return
+        else:
+            target.hold_caller = True
+            target.hold_started_at = time.monotonic()
+            _HELD_CLIENT = target
+            LOG.info("SIGUSR2 — hold slot=%d", target.slot)
+
+    _write_hold_state()
+
+
+def _hold_timeout_check() -> None:
+    """One pass of the hold-timeout loop. Hangs up the held call if it's
+    been on hold longer than PHONE_HOLD_TIMEOUT_SECONDS."""
+    global _HELD_CLIENT
+    with _HELD_LOCK:
+        if _HELD_CLIENT is None or _HELD_CLIENT.hold_started_at is None:
+            return
+        if time.monotonic() - _HELD_CLIENT.hold_started_at \
+                <= PHONE_HOLD_TIMEOUT_SECONDS:
+            return
+        slot = _HELD_CLIENT.slot
+        target = _HELD_CLIENT
+        _HELD_CLIENT = None
+    LOG.info("hold timeout, hanging up slot=%d", slot)
+    try:
+        target.hangup_from_radio()
+    except Exception as e:
+        LOG.warning("hold-timeout hangup failed slot=%d: %s", slot, e)
+    _write_hold_state()
+
+
+def _hold_timeout_loop(stop_event: threading.Event) -> None:
+    """Daemon background thread; ticks every 10 s."""
+    while not stop_event.is_set():
+        stop_event.wait(10)
+        try:
+            _hold_timeout_check()
+        except Exception as e:
+            LOG.warning("hold timeout loop error: %s", e)
+
+
 class Client:
     """One AudioSocket TCP connection. Handles frame parsing + audio pump."""
 
@@ -560,24 +659,28 @@ def _install_control_signals() -> None:
         LOG.info("SIGUSR1 received — radio-initiated hangup (slot=%d)", client.slot)
         client.hangup_from_radio()
 
-    def _on_mute(signum, frame):
-        client = _get_most_recent()
-        if client is None:
-            LOG.info("SIGUSR2 received, no active call — ignoring")
-            return
-        client.mute_caller = not client.mute_caller
-        LOG.info("SIGUSR2 received — slot=%d mute_caller=%s",
-                 client.slot, client.mute_caller)
-
     signal.signal(signal.SIGUSR1, _on_hangup)
-    signal.signal(signal.SIGUSR2, _on_mute)
-    LOG.info("radio control signals installed (SIGUSR1=hangup, SIGUSR2=mute-toggle)")
+    signal.signal(signal.SIGUSR2, _on_hold)
+    LOG.info("radio control signals installed (SIGUSR1=hangup, SIGUSR2=hold-toggle)")
 
 
 def serve() -> None:
     LOG.info("multi-caller slots: %d", PHONE_MAX_CALLS)
     ensure_phone_slots_via_admin(PHONE_MAX_CALLS)
     _install_control_signals()
+
+    # Seed the state file so admin's first hold-state read doesn't hit
+    # a missing file and fall back to {holding: false} via error path.
+    _write_hold_state()
+
+    # Background thread: hang up held calls after PHONE_HOLD_TIMEOUT_SECONDS.
+    _hold_timeout_stop = threading.Event()
+    threading.Thread(
+        target=_hold_timeout_loop,
+        args=(_hold_timeout_stop,),
+        name="hold-timeout",
+        daemon=True,
+    ).start()
 
     pool = _SlotPool(PHONE_MAX_CALLS)
 

@@ -39,3 +39,94 @@ def test_client_starts_with_hold_caller_false():
     client = _make_client(slot=1)
     assert client.hold_caller is False
     assert client.hold_started_at is None
+
+
+import json  # noqa: E402
+import time  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _reset_held_client():
+    """Each state-machine test starts with no held client."""
+    ab._HELD_CLIENT = None
+    yield
+    ab._HELD_CLIENT = None
+
+
+def test_signal_puts_call_on_hold(monkeypatch):
+    """Pressing green on an active call sets hold_caller and updates _HELD_CLIENT."""
+    client = _make_client(slot=1)
+    monkeypatch.setattr(ab, "_get_most_recent", lambda: client)
+
+    ab._on_hold(signum=10, frame=None)
+
+    assert client.hold_caller is True
+    assert ab._HELD_CLIENT is client
+    assert client.hold_started_at is not None
+
+
+def test_second_signal_resumes(monkeypatch):
+    """Pressing green again on the same call clears hold_caller and _HELD_CLIENT."""
+    client = _make_client(slot=1)
+    monkeypatch.setattr(ab, "_get_most_recent", lambda: client)
+
+    ab._on_hold(signum=10, frame=None)
+    assert client.hold_caller is True
+
+    ab._on_hold(signum=10, frame=None)
+    assert client.hold_caller is False
+    assert ab._HELD_CLIENT is None
+    assert client.hold_started_at is None
+
+
+def test_second_call_hold_refused_when_already_held(monkeypatch, caplog):
+    """If a different call is already held, the new HOLD attempt is refused."""
+    held = _make_client(slot=1)
+    held.hold_caller = True
+    held.hold_started_at = time.monotonic()
+    ab._HELD_CLIENT = held
+
+    other = _make_client(slot=2)
+    monkeypatch.setattr(ab, "_get_most_recent", lambda: other)
+
+    with caplog.at_level("WARNING"):
+        ab._on_hold(signum=10, frame=None)
+
+    assert other.hold_caller is False
+    assert ab._HELD_CLIENT is held
+    assert any("refused" in r.message.lower() for r in caplog.records)
+
+
+def test_state_file_written_on_hold(monkeypatch, tmp_path):
+    """The state file is updated when a call enters hold and when it resumes."""
+    state_path = tmp_path / "hold-state.json"
+    monkeypatch.setattr(ab, "HOLD_STATE_FILE", state_path)
+
+    client = _make_client(slot=2)
+    monkeypatch.setattr(ab, "_get_most_recent", lambda: client)
+
+    ab._on_hold(signum=10, frame=None)
+
+    state = json.loads(state_path.read_text())
+    assert state["holding"] is True
+    assert state["slot"] == 2
+    assert state["held_for_seconds"] >= 0
+
+    ab._on_hold(signum=10, frame=None)
+    state = json.loads(state_path.read_text())
+    assert state["holding"] is False
+
+
+def test_timeout_force_hangs_up(monkeypatch):
+    """Past PHONE_HOLD_TIMEOUT_SECONDS, the timeout loop hangs up the held call."""
+    client = _make_client(slot=1)
+    client.hold_caller = True
+    client.hold_started_at = time.monotonic() - 10_000  # well past any sane timeout
+    ab._HELD_CLIENT = client
+
+    ab._hold_timeout_check()
+
+    # _send_frame(hangup) invokes sock.sendall under the covers; and/or
+    # the socket is closed. Either is acceptable evidence the hangup fired.
+    assert client._sock.sendall.called or client._sock.close.called
+    assert ab._HELD_CLIENT is None
