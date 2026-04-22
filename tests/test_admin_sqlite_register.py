@@ -33,49 +33,82 @@ def fake_restart():
         yield m
 
 
-def test_register_user_inserts_users_and_user_info(fake_sqlite, fake_restart):
+def test_register_user_inserts_users_row(fake_sqlite, fake_restart):
     calls, responses = fake_sqlite
-    # SELECT MAX(user_id)+1 → "5" ; INSERT users → "" ; INSERT user_info → ""
-    responses.extend(["5", "", ""])
+    # SELECT MAX(user_id)+1 → "5" ; INSERT users → ""
+    responses.extend(["5", ""])
     from server.murmur.admin_sqlite import register_user
 
-    uid = register_user("alice", "deadbeef" * 5)
+    uid = register_user("alice", "hunter2")
 
     assert uid == 5
-    # One users INSERT + one user_info INSERT.
+    # One users INSERT, no user_info (no cert_hash passed).
     users_ins = [s for s in calls if "INSERT INTO users" in s]
     info_ins = [s for s in calls if "INSERT INTO user_info" in s]
     assert len(users_ins) == 1
-    assert len(info_ins) == 1
-    # Both reference the new user_id.
+    assert len(info_ins) == 0
     assert ", 5," in users_ins[0]
-    assert ", 5," in info_ins[0]
-    # The user_info row stores the cert hash under key='user_hash'.
+    assert "'alice'" in users_ins[0]
+    # Password hash is hex-encoded 48 bytes (96 hex chars) with
+    # 8000 iterations and a hex-encoded 16-char salt.
+    import re
+    pw_matches = re.findall(r"'([0-9a-f]{96})'", users_ins[0])
+    salt_matches = re.findall(r"'([0-9a-f]{16})'", users_ins[0])
+    assert len(pw_matches) == 1
+    assert len(salt_matches) == 1
+    assert "8000" in users_ins[0]  # kdfiterations
+    fake_restart.assert_called_once()
+
+
+def test_register_user_with_cert_hash_writes_user_info(fake_sqlite, fake_restart):
+    calls, responses = fake_sqlite
+    responses.extend(["7", "", ""])
+    from server.murmur.admin_sqlite import register_user
+
+    uid = register_user("bob", "pw", cert_hash="deadbeef" * 5)
+    assert uid == 7
+    info_ins = [s for s in calls if "INSERT INTO user_info" in s]
+    assert len(info_ins) == 1
     assert "'user_hash'" in info_ins[0]
     assert "'" + "deadbeef" * 5 + "'" in info_ins[0]
-    # Username quoted correctly.
-    assert "'alice'" in users_ins[0]
-    # Murmur restarted once.
-    fake_restart.assert_called_once()
+
+
+def test_register_user_password_hash_matches_mumble_algorithm():
+    """PBKDF2-HMAC-SHA384, UTF-8 password, raw-bytes salt, 48-byte dk
+    stored as lowercase hex — the exact recipe in
+    src/murmur/PBKDF2.cpp. This test pins the algorithm so we can't
+    silently drift."""
+    import hashlib
+    from server.murmur.admin_sqlite import _mumble_hash_password, _MURMUR_KDF_ITERATIONS
+
+    pw_hex, salt_hex, iters = _mumble_hash_password("hunter2")
+    assert iters == _MURMUR_KDF_ITERATIONS
+    assert len(pw_hex) == 96  # 48 bytes of output
+    assert len(salt_hex) == 16  # 8 bytes of salt
+    # Recompute and compare.
+    expected = hashlib.pbkdf2_hmac(
+        "sha384", b"hunter2", bytes.fromhex(salt_hex), iters, dklen=48,
+    ).hex()
+    assert pw_hex == expected
 
 
 def test_register_user_picks_next_free_id(fake_sqlite, fake_restart):
     calls, responses = fake_sqlite
     # MAX query returns 0 → first user id is 1 (SuperUser is 0).
-    responses.extend(["1", "", ""])
+    responses.extend(["1", ""])
     from server.murmur.admin_sqlite import register_user
 
-    uid = register_user("bob", "hashb")
+    uid = register_user("bob", "pw")
     assert uid == 1
 
 
 def test_register_user_escapes_apostrophes(fake_sqlite, fake_restart):
     """Usernames with apostrophes must be safely quoted."""
     calls, responses = fake_sqlite
-    responses.extend(["3", "", ""])
+    responses.extend(["3", ""])
     from server.murmur.admin_sqlite import register_user
 
-    uid = register_user("O'Brien", "hashc")
+    uid = register_user("O'Brien", "pw")
     assert uid == 3
     users_ins = next(s for s in calls if "INSERT INTO users" in s)
     assert "'O''Brien'" in users_ins
@@ -85,17 +118,17 @@ def test_register_user_serialized(fake_sqlite, fake_restart):
     """Two concurrent register_user calls must serialize under _admin_lock —
     they can't both read the same MAX and collide on the same user_id."""
     calls, responses = fake_sqlite
-    # Six responses total: two SELECTs + four INSERT/INFO.
-    responses.extend(["5", "", "", "6", "", ""])
+    # Four responses: two SELECTs + two INSERTs (no cert_hash, no user_info).
+    responses.extend(["5", "", "6", ""])
     from server.murmur.admin_sqlite import register_user
 
     results: list[int] = []
 
-    def _go(name, h):
-        results.append(register_user(name, h))
+    def _go(name, pw):
+        results.append(register_user(name, pw))
 
-    t1 = threading.Thread(target=_go, args=("u1", "h1"))
-    t2 = threading.Thread(target=_go, args=("u2", "h2"))
+    t1 = threading.Thread(target=_go, args=("u1", "p1"))
+    t2 = threading.Thread(target=_go, args=("u2", "p2"))
     t1.start()
     t2.start()
     t1.join()

@@ -18,7 +18,7 @@ from server.models import User
 @pytest.mark.asyncio
 async def test_flag_disabled_no_registration(db_session):
     """Default state (flag off) → no work done even if users are pending."""
-    u = User(username="alice", mumble_password="x", mumble_cert_hash="h1")
+    u = User(username="alice", mumble_password="pw1", mumble_cert_hash="h1")
     db_session.add(u)
     await db_session.commit()
 
@@ -34,10 +34,11 @@ async def test_flag_disabled_no_registration(db_session):
 
 @pytest.mark.asyncio
 async def test_flag_enabled_registers_pending(db_session, monkeypatch):
-    """Flag on + pending user → register_user called, uid written back."""
+    """Flag on + pending user → register_user called with username +
+    plaintext password + cert hash, uid written back."""
     monkeypatch.setitem(_features._cache, "call_groups_hiding", True)
 
-    u = User(username="bob", mumble_password="x", mumble_cert_hash="h2")
+    u = User(username="bob", mumble_password="bobsecret", mumble_cert_hash="h2")
     db_session.add(u)
     await db_session.commit()
     await db_session.refresh(u)
@@ -50,7 +51,7 @@ async def test_flag_enabled_registers_pending(db_session, monkeypatch):
         count = await run_pending_registrations_once()
 
     assert count == 1
-    m_register.assert_called_once_with("bob", "h2")
+    m_register.assert_called_once_with("bob", "bobsecret", "h2")
     await db_session.refresh(u)
     assert u.mumble_registered_user_id == 17
 
@@ -86,8 +87,14 @@ async def test_continues_on_per_user_failure(db_session, monkeypatch):
     """One user's register_user raising must not stop the others."""
     monkeypatch.setitem(_features._cache, "call_groups_hiding", True)
 
-    u_fail = User(username="fail_user", mumble_password="x", mumble_cert_hash="hx")
-    u_ok = User(username="ok_user", mumble_password="x", mumble_cert_hash="hy")
+    u_fail = User(
+        username="fail_user", mumble_password="fp",
+        mumble_cert_hash="hx",
+    )
+    u_ok = User(
+        username="ok_user", mumble_password="op",
+        mumble_cert_hash="hy",
+    )
     db_session.add_all([u_fail, u_ok])
     await db_session.commit()
     await db_session.refresh(u_fail)
@@ -95,7 +102,7 @@ async def test_continues_on_per_user_failure(db_session, monkeypatch):
 
     from server.murmur.registration import run_pending_registrations_once
 
-    def _side_effect(name, cert_hash):
+    def _side_effect(name, password, cert_hash=None):
         if name == "fail_user":
             raise RuntimeError("murmur restart timed out")
         return 99
@@ -113,6 +120,24 @@ async def test_continues_on_per_user_failure(db_session, monkeypatch):
     await db_session.refresh(u_ok)
     assert u_fail.mumble_registered_user_id is None
     assert u_ok.mumble_registered_user_id == 99
+
+
+@pytest.mark.asyncio
+async def test_skips_user_with_empty_mumble_password(db_session, monkeypatch):
+    """Users whose mumble_password is empty can't be registered via our
+    PBKDF2 path — skip rather than register with a blank password."""
+    monkeypatch.setitem(_features._cache, "call_groups_hiding", True)
+
+    u = User(username="noauth", mumble_password="", mumble_cert_hash="h")
+    db_session.add(u)
+    await db_session.commit()
+
+    from server.murmur.registration import run_pending_registrations_once
+
+    with patch("server.murmur.admin_sqlite.register_user") as m_register:
+        count = await run_pending_registrations_once()
+    assert count == 0
+    m_register.assert_not_called()
 
 
 def test_call_groups_hiding_in_feature_keys():

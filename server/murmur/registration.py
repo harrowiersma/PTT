@@ -57,10 +57,20 @@ async def run_pending_registrations_once() -> int:
 
     registered = 0
     for user in pending:
+        if not user.mumble_password:
+            # Historical rows without a plaintext Mumble password can't
+            # be registered via our path — skip rather than register
+            # with a blank password. Operator can re-provision the user.
+            logger.warning(
+                "auto-register: %s has no mumble_password; skipping",
+                user.username,
+            )
+            continue
         try:
             uid = await asyncio.to_thread(
                 admin_sqlite.register_user,
                 user.username,
+                user.mumble_password,
                 user.mumble_cert_hash,
             )
         except Exception as e:

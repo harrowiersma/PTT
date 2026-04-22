@@ -24,13 +24,27 @@ Trade-offs:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
+import secrets
 import shlex
 import threading
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# Mumble's PBKDF2 config (from src/murmur/PBKDF2.cpp):
+#   - HMAC-SHA384
+#   - 8-byte random salt (stored as 16-char hex)
+#   - 48-byte derived key (stored as 96-char hex)
+#   - iterations: auto-benchmarked on first boot (~10 ms CPU budget);
+#     floor is 1000. The admin path uses a fixed value matching what
+#     fresh Murmur installs typically pick on modern hardware — any
+#     value >= 1000 is valid, Murmur honours whatever is in the row.
+_MURMUR_KDF_ITERATIONS = 8000
+_MURMUR_SALT_BYTES = 8
+_MURMUR_DK_LEN = 48
 
 # Docker container name for Murmur. Lives alongside admin in the compose stack.
 MURMUR_CONTAINER_NAME = os.environ.get("MURMUR_CONTAINER_NAME", "ptt-murmur-1")
@@ -170,20 +184,54 @@ def _next_mumble_user_id() -> int:
     return int(out) if out else 1
 
 
-def register_user(username: str, cert_hash: str) -> int:
-    """Register an app user in Murmur's sqlite with their cert hash.
+def _mumble_hash_password(password: str) -> tuple[str, str, int]:
+    """Produce (pw_hex, salt_hex, iterations) in Murmur's wire format.
 
-    Inserts one row into `users` (cert-only auth — pw/salt/kdf all NULL)
-    and one row into `user_info` with key='user_hash' holding the SHA-1
-    cert hash. After the edit, the murmur container is restarted so the
-    new registration is loaded.
+    Murmur's `users.pw` column stores PBKDF2-HMAC-SHA384 with UTF-8
+    password bytes and a fresh random 8-byte salt. The derived key is
+    48 bytes, stored as lowercase hex; the salt is stored as lowercase
+    hex. Iterations go in `kdfiterations`. See
+    src/murmur/PBKDF2.cpp::getHash in upstream Mumble.
+    """
+    salt = secrets.token_bytes(_MURMUR_SALT_BYTES)
+    dk = hashlib.pbkdf2_hmac(
+        "sha384",
+        password.encode("utf-8"),
+        salt,
+        _MURMUR_KDF_ITERATIONS,
+        dklen=_MURMUR_DK_LEN,
+    )
+    return dk.hex(), salt.hex(), _MURMUR_KDF_ITERATIONS
+
+
+def register_user(
+    username: str,
+    password: str,
+    cert_hash: str | None = None,
+) -> int:
+    """Register an app user in Murmur's sqlite with their password.
+
+    Murmur accepts cert-based auth (cert hash in user_info.user_hash)
+    OR password auth (PBKDF2-SHA384 hash in users.pw + users.salt +
+    users.kdfiterations). Our P50 clients auto-registered historically
+    by supplying name+password on first connect, so the admin DB
+    carries the plaintext in users.mumble_password. Passing that
+    through here means Mumble's existing password-auth path keeps
+    working unchanged — the ACL feature just adds a Mumble user_id
+    that ACL rows can reference.
+
+    When cert_hash is provided we also write the user_info.user_hash
+    row so a matching client cert can log the user in without a
+    password prompt. That path has had format-match issues in the
+    past, so password auth is the primary path and cert is additive.
 
     Returns the newly-assigned Mumble user_id.
     """
-    # Serialize the SELECT/INSERT/INSERT sequence so two concurrent calls
-    # don't both pick the same _next_mumble_user_id(). restart_murmur is
-    # called AFTER releasing the lock — it takes its own lock, so we can't
-    # nest (threading.Lock is non-reentrant).
+    pw_hex, salt_hex, iters = _mumble_hash_password(password)
+    # Serialize the SELECT/INSERT sequence so two concurrent calls don't
+    # both pick the same _next_mumble_user_id(). restart_murmur is
+    # called AFTER releasing the lock — it takes its own lock, so we
+    # can't nest (threading.Lock is non-reentrant).
     with _admin_lock:
         uid = _next_mumble_user_id()
         _sqlite_exec(
@@ -191,15 +239,17 @@ def register_user(username: str, cert_hash: str) -> int:
             f"kdfiterations, lastchannel, texture, last_active, "
             f"last_disconnect) VALUES "
             f"({_SERVER_ID}, {uid}, {_sql_quote(username)}, "
-            f"NULL, NULL, NULL, 0, NULL, "
-            f"datetime('now'), datetime('now'));"
+            f"{_sql_quote(pw_hex)}, {_sql_quote(salt_hex)}, {int(iters)}, "
+            f"0, NULL, datetime('now'), datetime('now'));"
         )
-        _sqlite_exec(
-            f"INSERT INTO user_info (server_id, user_id, key, value) VALUES "
-            f"({_SERVER_ID}, {uid}, 'user_hash', {_sql_quote(cert_hash)});"
-        )
+        if cert_hash:
+            _sqlite_exec(
+                f"INSERT INTO user_info (server_id, user_id, key, value) VALUES "
+                f"({_SERVER_ID}, {uid}, 'user_hash', {_sql_quote(cert_hash)});"
+            )
         logger.info(
-            "registered %s in Murmur sqlite (user_id=%d)", username, uid,
+            "registered %s in Murmur sqlite (user_id=%d, cert=%s)",
+            username, uid, bool(cert_hash),
         )
     restart_murmur()
     return uid
