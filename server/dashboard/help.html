@@ -383,6 +383,22 @@
             <p>&bull; <strong>Weather</strong> &mdash; double-press PTT to hear a spoken weather report for your GPS location.</p>
             <p>&bull; <strong>Phone</strong> &mdash; reserved for inbound phone calls (see <a href="#sip">SIP Phone Gateway</a>). Sub-channels under Phone are entered automatically when you accept a call; no need to navigate there manually.</p>
         </div>
+        <div class="feature">
+            <h3><span class="badge badge-admin">Admin</span> Call Groups &mdash; scoped channel access</h3>
+            <p>Call Groups let you restrict a channel to a subset of users &mdash; the sales team, a single customer site, a duty roster. A channel without a group assignment stays visible to everyone (the default); a channel assigned to a group is reachable only by its members. Admin-role users bypass the restriction so they can always moderate.</p>
+            <p><strong>Setting it up</strong> (<strong>Directory &rarr; Call Groups</strong>):</p>
+            <ol>
+                <li>Create a group (e.g. "Sales").</li>
+                <li>Open the group, tick the members who should have access, and tick the channels the group owns. Save.</li>
+                <li>Un-ticking a channel releases it back to visible-to-all; ticking it into a different group reassigns.</li>
+            </ol>
+            <p><strong>Two enforcement layers</strong> run side by side:</p>
+            <p>&bull; <strong>Layer 1 &mdash; bounce on entry</strong> (always on): if a non-member ends up in a restricted channel they are moved out to Root within ~30&nbsp;seconds. Used as a safety net.</p>
+            <p>&bull; <strong>Layer 2 &mdash; hide from the channel tree</strong> (toggle in <a href="#features">Features</a>): the restricted channel is removed from the carousel and knob rotation on the P50 entirely. Non-members can&rsquo;t see it, can&rsquo;t scroll to it, and attempts to join are refused at the protocol level. This is the "enterprise" behaviour most teams want once things are running smoothly.</p>
+            <p><strong>Pending pills in the member modal:</strong> every user shows a pill &mdash; <em>pending cert</em> (they&rsquo;ve never connected yet, so we haven&rsquo;t captured their Mumble cert hash), <em>pending registration</em> (cert captured but they&rsquo;re not registered in Murmur&rsquo;s sqlite yet &mdash; the scheduler catches them within 60&nbsp;s), or <em>registered</em> (good to go, the ACL will allow them in). Pending users are locked out of hidden channels by design &mdash; they reconnect once and are fine.</p>
+            <p><strong>Force all reconnect</strong> on the Call Groups tab restarts Murmur (~3&nbsp;s of disruption) so every client re-reads the channel tree. Use it if something drifts &mdash; e.g. a user was registered mid-session and the group&rsquo;s ACL was applied before they had a user id. Rarely needed in normal operation.</p>
+            <p><strong>Rollout tip:</strong> Layer 2 requires every user to have connected at least once after deploying so the bridge can capture their Mumble cert hash. The Features tab toggle stays off by default; flip it once the <em>pending cert</em> pills in your groups are all cleared.</p>
+        </div>
 
         <h2 id="gps"><span class="num">03</span> GPS Tracking</h2>
         <div class="feature">
