@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from server.api.schemas import ChannelCreate, ChannelResponse, ChannelUpdate
+from server.api.schemas import ChannelCreate, ChannelResponse
 from server.auth import get_current_admin
 from server.database import get_db
 from server.dependencies import get_murmur_client
@@ -44,7 +44,6 @@ async def create_channel(
         description=channel_data.description,
         max_users=channel_data.max_users,
         mumble_id=mumble_id,
-        call_group_id=channel_data.call_group_id,
     )
     db.add(channel)
     await db.commit()
@@ -62,31 +61,6 @@ async def get_channel(
     channel = result.scalar_one_or_none()
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
-    return channel
-
-
-@router.patch("/{channel_id}", response_model=ChannelResponse)
-async def update_channel(
-    channel_id: int,
-    body: ChannelUpdate,
-    db: AsyncSession = Depends(get_db),
-    _admin: dict = Depends(get_current_admin),
-):
-    result = await db.execute(select(Channel).where(Channel.id == channel_id))
-    channel = result.scalar_one_or_none()
-    if not channel:
-        raise HTTPException(status_code=404, detail="Channel not found")
-
-    fields_set = body.model_fields_set
-    if "description" in fields_set:
-        channel.description = body.description
-    if "max_users" in fields_set and body.max_users is not None:
-        channel.max_users = body.max_users
-    if "call_group_id" in fields_set:
-        channel.call_group_id = body.call_group_id
-
-    await db.commit()
-    await db.refresh(channel)
     return channel
 
 
