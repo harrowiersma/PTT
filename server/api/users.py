@@ -5,7 +5,7 @@ import secrets
 import qrcode
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.api.schemas import QRResponse, UserCreate, UserResponse, UserUpdate
@@ -13,7 +13,7 @@ from server.auth import get_current_admin
 from server.config import settings
 from server.database import get_db
 from server.dependencies import get_murmur_client
-from server.models import User
+from server.models import User, UserCallGroup
 from server.murmur.client import MurmurClient
 from server.traccar_client import TraccarClient
 
@@ -22,13 +22,38 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/users", tags=["users"])
 
 
+async def _load_call_group_ids(db: AsyncSession, user_id: int) -> list[int]:
+    rows = (await db.execute(
+        select(UserCallGroup.call_group_id)
+        .where(UserCallGroup.user_id == user_id)
+    )).all()
+    return [r[0] for r in rows]
+
+
+async def _replace_call_groups(db: AsyncSession, user_id: int,
+                                group_ids: list[int]) -> None:
+    """Wipe-and-reinsert the join rows for this user."""
+    await db.execute(
+        delete(UserCallGroup).where(UserCallGroup.user_id == user_id)
+    )
+    for gid in group_ids:
+        db.add(UserCallGroup(user_id=user_id, call_group_id=gid))
+
+
+async def _user_to_response(db: AsyncSession, user: User) -> UserResponse:
+    resp = UserResponse.model_validate(user)
+    resp.call_group_ids = await _load_call_group_ids(db, user.id)
+    return resp
+
+
 @router.get("", response_model=list[UserResponse])
 async def list_users(
     db: AsyncSession = Depends(get_db),
     _admin: dict = Depends(get_current_admin),
 ):
     result = await db.execute(select(User).order_by(User.created_at.desc()))
-    return result.scalars().all()
+    users = result.scalars().all()
+    return [await _user_to_response(db, u) for u in users]
 
 
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -91,10 +116,14 @@ async def create_user(
     await db.commit()
     await db.refresh(user)
 
+    if user_data.call_group_ids is not None:
+        await _replace_call_groups(db, user.id, user_data.call_group_ids)
+        await db.commit()
+
     if murmur and murmur.is_connected:
         murmur.register_user(user.username, mumble_password)
 
-    return user
+    return await _user_to_response(db, user)
 
 
 @router.get("/{user_id}", response_model=UserResponse)
@@ -107,7 +136,7 @@ async def get_user(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    return user
+    return await _user_to_response(db, user)
 
 
 @router.patch("/{user_id}", response_model=UserResponse)
@@ -138,9 +167,12 @@ async def update_user(
         # Allow setting to 0/null to unlink
         user.traccar_device_id = user_data.traccar_device_id if user_data.traccar_device_id != 0 else None
 
+    if user_data.call_group_ids is not None:
+        await _replace_call_groups(db, user.id, user_data.call_group_ids)
+
     await db.commit()
     await db.refresh(user)
-    return user
+    return await _user_to_response(db, user)
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
