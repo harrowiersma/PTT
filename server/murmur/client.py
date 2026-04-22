@@ -96,6 +96,14 @@ class MurmurClient:
         self._phone_eligible: set[str] = set()
         # Cached "permission denied" TTS payload. Rendered on first bounce.
         self._phone_deny_pcm: bytes | None = None
+        # Call-group ACL state, refreshed every 30 s by the lifespan task.
+        # _user_call_groups maps username (lowercase) → set of call-group ids.
+        # _channel_call_group maps mumble channel id → call-group id or None.
+        # _user_is_admin lets admins bypass the check.
+        self._user_call_groups: dict[str, set[int]] = {}
+        self._channel_call_group: dict[int, int | None] = {}
+        self._user_is_admin: dict[str, bool] = {}
+        self._call_group_deny_pcm: bytes | None = None
 
     def connect(self) -> bool:
         """Connect to Murmur as a bot user via pymumble."""
@@ -472,6 +480,43 @@ class MurmurClient:
         """
         self._phone_eligible = set(usernames)
 
+    def update_call_group_state(
+        self,
+        user_groups: dict[str, set[int]],
+        channel_groups: dict[int, int | None],
+        user_admin: dict[str, bool],
+    ) -> None:
+        """Refresh the in-memory call-group state. Atomic swap."""
+        self._user_call_groups = user_groups
+        self._channel_call_group = channel_groups
+        self._user_is_admin = user_admin
+
+    def _call_group_check(self, name: str, new_channel_id: int) -> bool:
+        """True if `name` may join `new_channel_id` per call-group rules."""
+        lc = name.lower() if name else ""
+        if self._user_is_admin.get(lc, False):
+            return True
+        chan_group = self._channel_call_group.get(new_channel_id)
+        if chan_group is None:
+            return True
+        return chan_group in self._user_call_groups.get(lc, set())
+
+    def _get_call_group_deny_pcm(self) -> bytes | None:
+        """Lazily render and cache the call-group-deny TTS."""
+        if self._call_group_deny_pcm is not None:
+            return self._call_group_deny_pcm
+        try:
+            from server.weather_bot import text_to_audio_pcm
+            pcm = text_to_audio_pcm(
+                "This channel requires call group membership"
+            )
+            if pcm:
+                self._call_group_deny_pcm = pcm
+            return pcm
+        except Exception as e:
+            logger.error("failed to render call-group-deny TTS: %s", e)
+            return None
+
     def _resolve_phone_channel_id(self) -> int | None:
         """Find Murmur's Phone channel by name; None if not yet seen."""
         if not self._mumble:
@@ -551,23 +596,37 @@ class MurmurClient:
             if prev_channel_id is None or prev_channel_id == new_channel_id:
                 return
 
+            # Phone ACL: only applies when entering a Phone-family channel.
             gated = self._resolve_phone_and_children()
-            if not gated or new_channel_id not in gated:
-                return
+            if gated and new_channel_id in gated:
+                if name not in self._phone_eligible:
+                    logger.info(
+                        "phone-acl: bouncing '%s' (session=%s) back to channel %d",
+                        name, session_id, prev_channel_id,
+                    )
+                    self._bounce_from_channel(
+                        session_id, prev_channel_id, self._get_phone_deny_pcm(),
+                    )
+                    return
 
-            if name in self._phone_eligible:
+            # Call-group ACL: applies to every channel. Runs after phone-acl
+            # so phone-eligible users still get call-group-gated.
+            if not self._call_group_check(name, new_channel_id):
+                logger.info(
+                    "call-group: bouncing '%s' (session=%s) from channel %d",
+                    name, session_id, new_channel_id,
+                )
+                self._bounce_from_channel(
+                    session_id, prev_channel_id, self._get_call_group_deny_pcm(),
+                )
                 return
-
-            # Non-eligible user just entered Phone. Bounce them back.
-            logger.info(
-                "phone-acl: bouncing '%s' (session=%s) back to channel %d",
-                name, session_id, prev_channel_id,
-            )
-            self._bounce_from_phone(session_id, prev_channel_id)
         except Exception as e:
             logger.error("USERUPDATED handler error: %s", e)
 
-    def _bounce_from_phone(self, session_id: int, previous_channel_id: int) -> None:
+    def _bounce_from_channel(
+        self, session_id: int, previous_channel_id: int,
+        deny_pcm: bytes | None,
+    ) -> None:
         """Move `session_id` back to `previous_channel_id` and whisper why."""
         mm = self._mumble
         if not mm:
@@ -581,15 +640,14 @@ class MurmurClient:
             # second violation on the next callback tick.
             self._user_last_channel[session_id] = previous_channel_id
         except Exception as e:
-            logger.error("phone-acl: move_in failed for session %s: %s", session_id, e)
+            logger.error("bounce: move_in failed for session %s: %s", session_id, e)
             return
 
-        pcm = self._get_phone_deny_pcm()
-        if pcm:
+        if deny_pcm:
             try:
-                self.whisper_audio(session_id, pcm, with_preamble=True)
+                self.whisper_audio(session_id, deny_pcm, with_preamble=True)
             except Exception as e:
-                logger.error("phone-acl: whisper failed for session %s: %s", session_id, e)
+                logger.error("bounce: whisper failed for session %s: %s", session_id, e)
 
     # -------------------------------------------------------------------
 
