@@ -1,6 +1,6 @@
 # openPTT TRX — Open Issues
 
-Last updated: 2026-04-21
+Last updated: 2026-04-22
 
 This document is the rolling ledger of outstanding work. Items move from
 "Open" to "Resolved" with their resolution commit so history is auditable.
@@ -233,39 +233,57 @@ Effort: M-L (depending on investigation outcome). Lower than
 maintaining a custom voice client if Graph supports the audio path
 cleanly.
 
-### Call groups — per-user channel-access scoping (implementation TBD)
-Today every user can see and join every channel the Mumble server
-knows about. As the fleet grows (multiple teams, sites, or customers
-sharing a server) we need a way to scope a user's visible channel set
-to a subset — a "call group."
+### ~~Call groups — per-user channel-access scoping~~ — **Resolved 2026-04-22**
 
-**Shape (sketched, not committed):**
-- New `call_groups` table + `user_call_groups` join table.
-- Each channel gets an optional `call_group_id` (null = visible to all,
-  the current default).
-- A user sees and can join only channels whose `call_group_id` is in
-  their group membership set, or is null.
-- Enforcement lives in `MurmurClient`: on `CHANNEL_CHANGE`, bounce a
-  user out of any channel whose `call_group_id` isn't in their set
-  (same mechanism as the Phone ACL in commit `01ee04c`).
-- Dashboard: a Call Groups tab under Directory. On the user edit form,
-  a multi-select of groups. On a channel edit form, a single-select.
+Shipped in two layers, staged so the second can be rolled back via a
+feature flag without regressing the first.
 
-**Open questions:**
-- Do we also hide non-visible channels from the user's client channel
-  tree (requires Murmur-side ACL work, harder) or just bounce on entry
-  (simpler, uses the pattern we already have)?
-- How does this interact with the Phone / Call-N sub-channels? Probably
-  orthogonal — `can_answer_calls` gates Phone, call group gates the
-  broader channel tree.
-- Should there be a default "all users" group, or do new users start
-  with zero group memberships?
-- Super-admin escape hatch: admins ignore call-group restrictions so
-  they can moderate any channel.
+**Layer 1 (bounce-on-entry) — commits `237dec3`, `6c7e231`, `f590f3e`,
+`6136cc5`:**
+- `call_groups` + `user_call_groups` tables, optional
+  `channels.call_group_id` (NULL = visible-to-all).
+- Lifespan poller (30 s) mirrors DB state into the bridge's
+  `MurmurClient`, which bounces any non-member who enters a tagged
+  channel (same pattern as the Phone ACL in commit `01ee04c`).
+- Sweep on every state refresh so users already sitting in a tagged
+  channel when the bridge (re)connects are evicted within one cycle.
+- Admins (`users.is_admin`) bypass the check so they can moderate.
+- Dashboard: Call Groups sub-tab under Directory, group modal with
+  member and channel checkboxes, delete-cascade-compatible join-row
+  cleanup.
 
-Effort estimate: M. Schema + migration + ACL callback + two dashboard
-tabs. No Murmur protocol changes required if we do bounce-on-entry;
-much more if we go client-tree-hiding.
+**Layer 2 (true Murmur ACL hiding) — commits `a605678`, `a3b12b1`,
+`d47ba5a`, `b44f498`, `086b431`, `40130c4`, `0b5fbdd`:**
+- `users.mumble_cert_hash` + `users.mumble_registered_user_id` columns
+  (migration `h4c9e5a7f3b2`).
+- Bridge captures each user's Mumble cert SHA-1 on USERCREATED /
+  USERUPDATED and writes it back to the admin DB.
+- Background auto-registration scheduler (60 s, batch size 10)
+  registers captured users in Murmur's sqlite so the ACL table can
+  reference them by `user_id`.
+- `admin_sqlite.set_channel_acl` / `clear_channel_acl` /
+  `batched_acl_apply` write a deny-@all + per-member allow pair to
+  Murmur's `acl` table. One murmur restart per batch.
+- Endpoint wiring in `server/api/call_groups.py`: PUT /members, PUT
+  /channels, DELETE /{id} recompute the ACL after the DB commit.
+- Dashboard: per-user registration pill in the group modal, "Force all
+  reconnect" escape hatch on the Call Groups tab.
+- Feature flag `call_groups_hiding` (seeded `false` by migration
+  `i5d8a2f4c6b7`). Flag off → falls back to layer 1 (bounce-only).
+  Operator flips it after observing that every connected user has a
+  captured cert hash.
+
+Original open questions (2026-04-21) and their resolution:
+- Tree-hiding vs bounce-only → **both.** Layer 1 always on, layer 2
+  on when the operator opts in.
+- Interaction with Phone / Call-N → orthogonal (as predicted).
+  `can_answer_calls` still gates Phone; call groups scope the rest of
+  the tree.
+- Default group → none. New users start with zero memberships; all
+  their channels stay visible-to-all until a group is assigned.
+- Super-admin escape hatch → `users.is_admin == true` bypasses the
+  bounce check in layer 1. Layer 2's ACL references admins like any
+  other user but they can always use /force-reconnect.
 
 ### Physical / operational
 - ~~**#6 Install openPTT TRX on harro's P50**~~ — **Resolved 2026-04-18**:
