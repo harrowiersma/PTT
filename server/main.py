@@ -251,6 +251,50 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("Auto-registration scheduler failed to start: %s", e)
 
+    # Murmur health-check + auto-reconnect. pymumble has internal
+    # reconnect=True, but it can wedge if Murmur is down long enough or
+    # the container is recreated (e.g. disk-full crash + manual
+    # restart). This probe detects both TCP-level outages and a wedged
+    # pymumble worker thread, and rebinds cleanly when either is true —
+    # so /api/status/server stops returning a stale users=[].
+    import asyncio as _ka_asyncio
+    import socket as _ka_socket
+
+    async def _murmur_keepalive():
+        host, port = client.mumble_host, client.mumble_port
+        while True:
+            try:
+                with _ka_socket.create_connection((host, port), timeout=5):
+                    tcp_ok = True
+            except Exception:
+                tcp_ok = False
+            py_alive = bool(
+                client._mumble is not None
+                and getattr(client._mumble, "is_alive", lambda: True)()
+            )
+            if not tcp_ok or not py_alive:
+                logger.warning(
+                    "Murmur keepalive: tcp=%s py_alive=%s — rebinding",
+                    tcp_ok, py_alive,
+                )
+                try:
+                    client.disconnect()
+                except Exception as e:
+                    logger.debug("keepalive disconnect: %s", e)
+                try:
+                    if client.connect():
+                        logger.info("Murmur keepalive: reconnected")
+                except Exception as e:
+                    logger.error("Murmur keepalive: reconnect failed: %s", e)
+            await _ka_asyncio.sleep(30)
+
+    try:
+        murmur_keepalive_task = _ka_asyncio.create_task(_murmur_keepalive())
+        app.state.murmur_keepalive_task = murmur_keepalive_task
+        logger.info("Murmur keepalive started (30 s)")
+    except Exception as e:
+        logger.warning("Murmur keepalive failed to start: %s", e)
+
     if connected:
         logger.info("Connected to Murmur via pymumble")
     else:
