@@ -108,6 +108,30 @@ If the device does not appear:
 - Confirm the Traccar device exists in the server's Traccar admin UI with `uniqueId` = the mumble username
 - Check device GPS fix: step outside, wait for first fix (cold starts can take 30–60s)
 
+## Step 7a: Pair a Bluetooth PTT ring (Hytera POA121)
+
+For legal hands-free PTT in the car, the app supports a paired Hytera POA121.
+The POA121 is a BLE-only device and doesn't go through Android's standard
+media-button path — openPTT TRX speaks Hytera's proprietary GATT protocol
+directly, so no key-detection or pairing-app dance is required.
+
+1. Pair the ring in **Android Settings → Connected devices → Pair new device**.
+   The radio should show "POA121" once paired. Confirm volume up/down on the
+   ring adjust media volume.
+2. Open **openPTT TRX → Settings → General → Bluetooth PTT**.
+3. Enable **Hytera POA121 (Bluetooth PTT)**. The summary should update to
+   `Paired: POA121 (9C:06:6E:...)`. If it shows "Not paired", repeat step 1.
+4. Connect to a Mumble server. Within ~1 second of "Connected" the BLE link
+   activates (visible in `adb logcat | grep BtPttGatt` as
+   `all notify chars subscribed`).
+5. Press and hold the ring's PTT button → speak → release. A roger beep
+   confirms TX, exactly like the side button on the P50.
+
+The handler reconnects automatically through the ~15-second BLE
+`GATT_CONN_TIMEOUT` cycles, and only holds the BLE link while connected to
+a voice server (so the ring stays available to other apps when openPTT TRX
+isn't in a session).
+
 ## Step 7: Lock to PTT App (Optional)
 
 To make the P50 boot directly into openPTT TRX:
@@ -123,6 +147,23 @@ To make the P50 boot directly into openPTT TRX:
 - Force-stop and reopen the app (`adb shell am force-stop ch.harro.openptt`)
 - Confirm the app is connected to the server
 - Check logs: `adb logcat | grep MeigPtt`
+
+### Bluetooth PTT (POA121) button doesn't work
+- **Toggle off**: open **Settings → Bluetooth PTT** and confirm
+  **Hytera POA121 (Bluetooth PTT)** is enabled.
+- **Not paired**: if the summary says "Not paired", repair the ring in
+  Android Settings → Bluetooth. The radio must list it as `POA121`.
+- **Not in a session**: the BLE link only activates while you're connected
+  to a Mumble server. Verify the connected notification is showing.
+- **Check the live log**: `adb logcat -s BtPttGatt:V`. A healthy session
+  shows `all notify chars subscribed` once after connect, periodic
+  `heartbeat # state=CONNECTED`, and `PTT DOWN` / `PTT UP` lines on each
+  press. If you see only `starting GATT` with no follow-up, force-stop
+  the app (`adb shell am force-stop ch.harro.openptt`) and reconnect.
+- **GATT permission**: `adb shell pm grant ch.harro.openptt
+  android.permission.BLUETOOTH_CONNECT` if the permission was revoked.
+- **Battery save**: confirm openPTT TRX is excluded from battery
+  optimization — aggressive doze will kill the BLE connection.
 
 ### Audio is choppy
 - Check WiFi/cellular signal strength
