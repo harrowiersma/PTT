@@ -49,7 +49,7 @@ services:
     volumes:
       - murmur-data:/data
     healthcheck:
-      test: ["CMD-SHELL", "awk '$$4 == \"0A\" && $$2 ~ /:FCE2$$/ {f=1} END {exit !f}' /proc/net/tcp"]
+      test: ["CMD-SHELL", "awk '$$4 == \"0A\" && $$2 ~ /:FCE2$$/ {f=1} END {exit !f}' /proc/net/tcp /proc/net/tcp6"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -85,7 +85,7 @@ services:
     healthcheck:
       # Traccar exposes both :5055 (OsmAnd) and :8082 (HTTP). Check :5055
       # since it's the one the P50s actually POST GPS to.
-      test: ["CMD-SHELL", "awk '$$4 == \"0A\" && $$2 ~ /:13BF$$/ {f=1} END {exit !f}' /proc/net/tcp"]
+      test: ["CMD-SHELL", "awk '$$4 == \"0A\" && $$2 ~ /:13BF$$/ {f=1} END {exit !f}' /proc/net/tcp /proc/net/tcp6"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -126,7 +126,7 @@ services:
       # FastAPI process is answering. The keepalive task inside admin
       # covers the murmur-link half of the story; this check just needs
       # to know FastAPI itself hasn't wedged.
-      test: ["CMD-SHELL", "awk '$$4 == \"0A\" && $$2 ~ /:1F40$$/ {f=1} END {exit !f}' /proc/net/tcp"]
+      test: ["CMD-SHELL", "awk '$$4 == \"0A\" && $$2 ~ /:1F40$$/ {f=1} END {exit !f}' /proc/net/tcp /proc/net/tcp6"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -191,7 +191,7 @@ services:
       - ./nginx-stream.conf:/etc/nginx/stream.d/ptt.conf:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
     healthcheck:
-      test: ["CMD-SHELL", "awk '$$4 == \"0A\" && $$2 ~ /:0050$$/ {f=1} END {exit !f}' /proc/net/tcp"]
+      test: ["CMD-SHELL", "awk '$$4 == \"0A\" && $$2 ~ /:0050$$/ {f=1} END {exit !f}' /proc/net/tcp /proc/net/tcp6"]
       interval: 30s
       timeout: 5s
       retries: 3
