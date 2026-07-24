@@ -10,7 +10,7 @@ from server.auth import get_current_admin
 from server.config import settings
 from server.database import get_db
 from server.features_gate import requires_feature
-from server.models import SOSEvent
+from server.models import SOSChannelRestore, SOSEvent
 
 logger = logging.getLogger(__name__)
 
@@ -19,9 +19,6 @@ router = APIRouter(
     tags=["sos"],
     dependencies=[requires_feature("sos")],
 )
-
-# Track original channels so we can move users back after SOS
-_original_channels: dict[int, int] = {}  # session_id -> channel_id
 
 
 class SOSRequest(BaseModel):
@@ -44,8 +41,12 @@ def _get_murmur():
         return None
 
 
-def _move_all_to_emergency(murmur) -> int | None:
-    """Create Emergency channel if needed, save original channels, move all users there."""
+async def _move_all_to_emergency(murmur, db: AsyncSession, event: SOSEvent) -> int | None:
+    """Create Emergency channel if needed, persist per-user restore rows,
+    move everyone to Emergency. Restore rows survive an admin restart —
+    if the admin crashes between trigger and ack, /api/sos/ack reads
+    them from the DB instead of finding an empty in-memory dict.
+    """
     if not murmur or not murmur.has_mumble:
         return None
 
@@ -73,15 +74,32 @@ def _move_all_to_emergency(murmur) -> int | None:
         logger.error("Could not create Emergency channel")
         return None
 
-    # Save original channels and move all users to Emergency
-    _original_channels.clear()
+    # Snapshot each real user's current channel and persist BEFORE the
+    # move, so a crash between the DB write and the move-in still lets
+    # us restore (the move-in is idempotent — restoring to their
+    # actual channel is safe even if they never got moved).
+    to_move: list[tuple[int, str, int]] = []
     for session_id, user in mm.users.items():
         if user["name"] in ("PTTAdmin", "PTTWeather", "PTTPhone"):
             continue
         current_channel = user.get("channel_id", 0)
         if current_channel != emergency_id:
-            _original_channels[session_id] = current_channel
-            mm.users[session_id].move_in(emergency_id)
+            to_move.append((session_id, user["name"], current_channel))
+
+    for _, username, chan in to_move:
+        db.add(SOSChannelRestore(
+            sos_event_id=event.id,
+            username=username,
+            channel_id=chan,
+        ))
+    await db.commit()
+
+    for session_id, _, _ in to_move:
+        if session_id in mm.users:
+            try:
+                mm.users[session_id].move_in(emergency_id)
+            except Exception as e:
+                logger.warning("SOS move failed for session %d: %s", session_id, e)
 
     # Send alert message to Emergency channel
     if emergency_id in mm.channels:
@@ -89,28 +107,47 @@ def _move_all_to_emergency(murmur) -> int | None:
             "<b style='color:red'>SOS ALERT</b> — All users moved to Emergency channel"
         )
 
-    user_count = len(_original_channels)
-    logger.warning("SOS: Moved %d users to Emergency channel (ID %d)", user_count, emergency_id)
+    logger.warning("SOS[event=%d]: moved %d users to Emergency (channel_id=%d)",
+                   event.id, len(to_move), emergency_id)
     return emergency_id
 
 
-def _restore_channels(murmur):
-    """Move all users back to their original channels after SOS is acknowledged."""
+async def _restore_channels(murmur, db: AsyncSession, event: SOSEvent) -> int:
+    """Move users back to their original channels after SOS ack. Reads
+    from sos_channel_restore rows so it works even if the admin process
+    restarted between trigger and ack. Idempotent: matching restore rows
+    are deleted on success."""
     if not murmur or not murmur.has_mumble:
-        return
+        return 0
 
     mm = murmur._mumble
     if not mm:
-        return
+        return 0
+
+    rows = (await db.execute(
+        select(SOSChannelRestore).where(SOSChannelRestore.sos_event_id == event.id)
+    )).scalars().all()
+
+    # Build a username -> channel_id map for fast lookup.
+    restore_by_name = {r.username: r.channel_id for r in rows}
 
     restored = 0
-    for session_id, original_channel in _original_channels.items():
-        if session_id in mm.users:
-            try:
-                mm.users[session_id].move_in(original_channel)
-                restored += 1
-            except Exception as e:
-                logger.warning("Could not restore user session %d: %s", session_id, e)
+    for session_id, user in mm.users.items():
+        chan = restore_by_name.get(user["name"])
+        if chan is None:
+            continue
+        try:
+            mm.users[session_id].move_in(chan)
+            restored += 1
+        except Exception as e:
+            logger.warning("Could not restore user %s: %s", user["name"], e)
+
+    # Delete the restore rows now that we've acted on them. If restore
+    # partially failed (user offline, channel gone), we still delete —
+    # the SOSEvent.acknowledged_at timestamp is the audit trail.
+    for row in rows:
+        await db.delete(row)
+    await db.commit()
 
     # Send all-clear message
     for chan_id, chan in mm.channels.items():
@@ -120,8 +157,9 @@ def _restore_channels(murmur):
             )
             break
 
-    _original_channels.clear()
-    logger.info("SOS acknowledged: restored %d users to original channels", restored)
+    logger.info("SOS ack[event=%d]: restored %d users to original channels",
+                event.id, restored)
+    return restored
 
 
 def _verify_sos_auth(request: Request) -> None:
@@ -165,15 +203,15 @@ async def trigger_sos(
 
     logger.warning("SOS ALERT: %s at (%f, %f) - %s", sos.username, sos.latitude, sos.longitude, sos.message)
 
-    # Move all users to Emergency channel
+    # Move all users to Emergency channel + persist restore state.
     murmur = _get_murmur()
-    _move_all_to_emergency(murmur)
+    await _move_all_to_emergency(murmur, db, event)
 
     # Send webhook if configured
     if settings.sos_webhook_url:
         try:
             import httpx
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 await client.post(settings.sos_webhook_url, json={
                     "event": "sos",
                     "username": sos.username,
@@ -210,11 +248,12 @@ async def traccar_event_webhook(
             )
             db.add(sos)
             await db.commit()
+            await db.refresh(sos)
             logger.warning("SOS via Traccar: %s", device.get("name"))
 
-            # Move all users to Emergency channel
+            # Move all users to Emergency channel + persist restore state.
             murmur = _get_murmur()
-            _move_all_to_emergency(murmur)
+            await _move_all_to_emergency(murmur, db, sos)
 
         return {"status": "received"}
     except Exception as e:
@@ -265,9 +304,9 @@ async def acknowledge_sos(
     event.acknowledged_by = ack.acknowledged_by
     await db.commit()
 
-    # Restore users to original channels
+    # Restore users to original channels (reads sos_channel_restore).
     murmur = _get_murmur()
-    _restore_channels(murmur)
+    await _restore_channels(murmur, db, event)
 
     logger.info("SOS %d acknowledged by %s", sos_id, ack.acknowledged_by)
     return {"status": "acknowledged"}

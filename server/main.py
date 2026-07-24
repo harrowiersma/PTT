@@ -94,23 +94,27 @@ async def lifespan(app: FastAPI):
                                     break
                         return
 
-                    # Acknowledge all active SOS events
+                    # Ack all active SOS events + restore per-event.
+                    # Restore rows are keyed by sos_event_id, so we
+                    # process each active event individually.
                     from datetime import datetime, timezone
-                    await db.execute(
-                        update(SOSEvent)
-                        .where(SOSEvent.acknowledged == False)
-                        .values(
-                            acknowledged=True,
-                            acknowledged_by=username,
-                            acknowledged_at=datetime.now(timezone.utc),
-                        )
-                    )
+                    active_rows = (await db.execute(
+                        select(SOSEvent).where(SOSEvent.acknowledged == False)
+                    )).scalars().all()
+                    now_ts = datetime.now(timezone.utc)
+                    for ev in active_rows:
+                        ev.acknowledged = True
+                        ev.acknowledged_by = username
+                        ev.acknowledged_at = now_ts
                     await db.commit()
 
-                # Restore channels
-                murmur = _get_murmur()
-                _restore_channels(murmur)
-                logger.info("SOS acknowledged by admin '%s' via Emergency channel text", username)
+                    # Restore channels for each acknowledged event.
+                    murmur = _get_murmur()
+                    for ev in active_rows:
+                        await _restore_channels(murmur, db, ev)
+
+                logger.info("SOS acknowledged by admin '%s' via Emergency channel text (n=%d)",
+                            username, len(active_rows))
 
             # Run async function from sync callback
             try:

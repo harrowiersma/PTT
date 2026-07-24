@@ -1,6 +1,6 @@
 import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from server.database import Base
@@ -207,6 +207,32 @@ class SOSEvent(Base):
     )
     triggered_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class SOSChannelRestore(Base):
+    """Per-user return-to-channel record for an active SOS event.
+    Populated when /api/sos/trigger moves everyone into Emergency;
+    consumed when /api/sos/ack restores them. Persisting to DB (vs the
+    former in-memory dict on the admin process) means an admin restart
+    mid-SOS doesn't strand anyone in Emergency. See docs/ops-notes.md."""
+    __tablename__ = "sos_channel_restore"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    sos_event_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("sos_events.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    username: Mapped[str] = mapped_column(String(64), nullable=False)
+    channel_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("sos_event_id", "username", name="uq_sos_restore_event_user"),
     )
 
 

@@ -56,7 +56,7 @@ class TraccarClient:
         if TraccarClient._session_cookie and now < TraccarClient._session_expires:
             return {"Cookie": TraccarClient._session_cookie}
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(
                 f"{self.base_url}/api/session",
                 data={"email": self.auth[0], "password": self.auth[1]},
@@ -72,7 +72,7 @@ class TraccarClient:
         """Get latest position for all devices."""
         try:
             headers = await self._get_session()
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.get(
                     f"{self.base_url}/api/positions", headers=headers
                 )
@@ -111,7 +111,7 @@ class TraccarClient:
 
     async def _get_devices(self, headers: dict) -> list[dict]:
         """Get all registered devices (internal, with pre-fetched headers)."""
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(f"{self.base_url}/api/devices?all=true", headers=headers)
             return resp.json() if resp.status_code == 200 else []
 
@@ -129,7 +129,7 @@ class TraccarClient:
         try:
             headers = await self._get_session()
             headers["Content-Type"] = "application/json"
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.post(
                     f"{self.base_url}/api/devices",
                     headers=headers,
@@ -150,7 +150,7 @@ class TraccarClient:
         """Delete a device from Traccar."""
         try:
             headers = await self._get_session()
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.delete(
                     f"{self.base_url}/api/devices/{device_id}", headers=headers
                 )
@@ -169,7 +169,7 @@ class TraccarClient:
         try:
             headers = await self._get_session()
             headers["Content-Type"] = "application/json"
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 # Fetch current device
                 get_resp = await client.get(
                     f"{self.base_url}/api/devices/{device_id}", headers=headers

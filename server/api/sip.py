@@ -576,11 +576,35 @@ import asyncio as _asyncio
 # and cached for the life of the process. ~200 ms double-beep, soft.
 _ding_pcm_cache: bytes | None = None
 
-# Call-notification state. Only one active call at a time (single-caller
-# design), so a single-task slot is enough. Guarded by an asyncio lock.
-_notify_state: dict = {"active": False, "caller_id": None, "task": None}
+# Per-call notification state, keyed by CallLog.id. Replaces the
+# previous single-slot _notify_state which corrupted correctness with
+# PHONE_MAX_CALLS > 1: call #2's call-started overwrote #1's
+# call_log_id, so /call-ended stamped the wrong row and #1's row was
+# never closed (2026-07-24 resilience audit F6).
+#
+# Entry shape: {
+#   "caller_id": str,
+#   "slot": int | None,       # assigned by /internal/call-assigned
+#   "task": asyncio.Task,
+#   "active": bool,
+#   "someone_in_phone": bool, # signal from _ding_eligible_users
+#   "started_at": float,      # monotonic; used for FIFO fallback
+# }
+_active_calls: dict[int, dict] = {}
 _notify_lock = _asyncio.Lock()
 _NOTIFY_INTERVAL_S = 3.0
+
+
+def _oldest_active_call_log_id() -> int | None:
+    """FIFO fallback for legacy code paths (dialplan /call-ended with no
+    slot) that need to identify "which call ended." Only correct when
+    calls end in start-order; the bridge always passes slot now, so
+    this only fires for the extensions.conf dialplan CURL."""
+    active = [(cid, e) for cid, e in _active_calls.items() if e.get("active")]
+    if not active:
+        return None
+    active.sort(key=lambda kv: kv[1].get("started_at", 0.0))
+    return active[0][0]
 
 
 def _get_ding_pcm() -> bytes:
@@ -616,14 +640,14 @@ async def _fetch_eligible_usernames(db: AsyncSession) -> set[str]:
     return {row[0] for row in result.all()}
 
 
-def _ding_eligible_users(murmur, eligible: set[str]) -> list[str]:
+def _ding_eligible_users(murmur, eligible: set[str], call_log_id: int | None = None) -> list[str]:
     """Whisper the ding to every eligible user not already answering.
 
     Returns the list of usernames notified on this tick. Also treats any
     eligible user sitting in Phone or Phone/Call-N as "already answering"
-    and signals the loop to stop pinging (Priority 7 — with multi-caller
-    sub-channels, Phone is the waiting lounge and each Call-N is an
-    active conversation; either counts as attention).
+    and signals THIS CALL's notify loop to stop pinging (Priority 7 —
+    with multi-caller sub-channels, Phone is the waiting lounge and each
+    Call-N is an active conversation; either counts as attention).
     """
     mm = murmur._mumble
     ding_pcm = _get_ding_pcm()
@@ -657,35 +681,39 @@ def _ding_eligible_users(murmur, eligible: set[str]) -> list[str]:
         if murmur.whisper_audio(sid, ding_pcm, with_preamble=False):
             notified.append(name)
 
-    # Signal "stop pinging" by stashing on the state dict; the poller reads it.
-    _notify_state["someone_in_phone"] = in_phone_already
+    # Signal "stop pinging" by stashing on THIS call's entry (per-call).
+    # Fallback to no-op when call_log_id is not provided (defensive).
+    if call_log_id is not None and call_log_id in _active_calls:
+        _active_calls[call_log_id]["someone_in_phone"] = in_phone_already
     return notified
 
 
-async def _notify_loop(caller_id: str, murmur, db_session_factory):
+async def _notify_loop(call_log_id: int, caller_id: str, murmur, db_session_factory):
     """Re-ping eligible users every _NOTIFY_INTERVAL_S until either a user
     with can_answer_calls joins the Phone channel, or /internal/call-ended
-    clears the active flag.
+    clears the active flag for THIS call.
     """
     from server.database import async_session as _session_factory
     try:
-        while _notify_state["active"]:
+        while _active_calls.get(call_log_id, {}).get("active"):
             async with _session_factory() as db:
                 eligible = await _fetch_eligible_usernames(db)
             if not eligible:
-                logger.info("notify-loop: no eligible users; stopping")
+                logger.info("notify-loop[%d]: no eligible users; stopping", call_log_id)
                 break
-            notified = _ding_eligible_users(murmur, eligible)
-            if _notify_state.get("someone_in_phone"):
-                logger.info("notify-loop: a can_answer_calls user reached Phone; stopping")
+            notified = _ding_eligible_users(murmur, eligible, call_log_id)
+            if _active_calls.get(call_log_id, {}).get("someone_in_phone"):
+                logger.info("notify-loop[%d]: a can_answer_calls user reached Phone; stopping", call_log_id)
                 break
-            logger.info("notify-loop: re-pinged %s (caller=%s)", notified, caller_id)
+            logger.info("notify-loop[%d]: re-pinged %s (caller=%s)", call_log_id, notified, caller_id)
             await _asyncio.sleep(_NOTIFY_INTERVAL_S)
     except _asyncio.CancelledError:
-        logger.info("notify-loop cancelled for caller=%s", caller_id)
+        logger.info("notify-loop[%d] cancelled for caller=%s", call_log_id, caller_id)
     finally:
-        _notify_state["active"] = False
-        _notify_state["task"] = None
+        entry = _active_calls.get(call_log_id)
+        if entry is not None:
+            entry["active"] = False
+            entry["task"] = None
 
 
 @internal_router.api_route("/internal/call-started", methods=["GET", "POST"])
@@ -709,27 +737,37 @@ async def internal_call_started(
         logger.info("call-started: no users have can_answer_calls=true; skipping")
         return {"notified": [], "reason": "no eligible users"}
 
-    notified = _ding_eligible_users(murmur, eligible)
-    logger.info("call-started: first ping notified %s (caller=%s)", notified, caller_id)
-
-    async with _notify_lock:
-        existing = _notify_state.get("task")
-        if existing and not existing.done():
-            existing.cancel()
-        _notify_state["active"] = True
-        _notify_state["caller_id"] = caller_id
-        _notify_state["task"] = _asyncio.create_task(_notify_loop(caller_id, murmur, None))
-
-    # Open a CallLog row — started_at defaults to NOW(). Subsequent
-    # hooks (call-assigned, /sip/answered, call-ended) will update it.
-    # Stash the id on _notify_state so those hooks can find this row
-    # without racing on "most recent active call".
+    # Open the CallLog row FIRST so we have an id to key per-call state
+    # by. Every subsequent hook (call-assigned, /sip/answered, call-ended)
+    # references this row either via _active_calls[call_log_id] or by
+    # slot lookup.
     from server.models import CallLog as _CallLog
     log = _CallLog(caller_id=caller_id)
     db.add(log)
     await db.commit()
     await db.refresh(log)
-    _notify_state["call_log_id"] = log.id
+
+    import time as _t
+    entry = {
+        "caller_id": caller_id,
+        "slot": None,
+        "task": None,
+        "active": True,
+        "someone_in_phone": False,
+        "started_at": _t.monotonic(),
+    }
+
+    async with _notify_lock:
+        _active_calls[log.id] = entry
+        entry["task"] = _asyncio.create_task(
+            _notify_loop(log.id, caller_id, murmur, None)
+        )
+
+    # First ping happens after the entry is in place so the loop's
+    # someone_in_phone signal has somewhere to land.
+    notified = _ding_eligible_users(murmur, eligible, log.id)
+    logger.info("call-started[%d]: first ping notified %s (caller=%s)",
+                log.id, notified, caller_id)
 
     return {"notified": notified, "caller_id": caller_id, "looping": True,
             "call_log_id": log.id}
@@ -758,7 +796,31 @@ async def internal_call_assigned(
     """
     if not murmur or not murmur.has_mumble:
         raise HTTPException(status_code=503, detail="Murmur not available")
-    caller_id = _notify_state.get("caller_id") or "unknown"
+
+    # Match this slot to the most recent pending call (started but not
+    # yet slot-assigned). In the common case there is exactly one such
+    # entry; under a burst of concurrent inbound calls we take the
+    # newest — the bridge's slot allocator is FIFO too, so this pairs
+    # calls to slots in start-order.
+    match_id: int | None = None
+    match_entry: dict | None = None
+    for cid, e in sorted(_active_calls.items(), key=lambda kv: -kv[1].get("started_at", 0.0)):
+        if e.get("active") and e.get("slot") is None:
+            match_id, match_entry = cid, e
+            break
+
+    if match_entry is not None:
+        match_entry["slot"] = slot
+        caller_id = match_entry.get("caller_id") or "unknown"
+    else:
+        # No matching pending call — dialplan may have fired call-started
+        # earlier and been cleaned up already. Fall back to whatever the
+        # newest active call knows.
+        caller_id = "unknown"
+        newest = sorted(_active_calls.items(), key=lambda kv: -kv[1].get("started_at", 0.0))
+        if newest:
+            caller_id = newest[0][1].get("caller_id") or "unknown"
+
     sub_channel = f"Call-{slot}"
     payload = f"INCOMING_CALL|{caller_id}|{sub_channel}"
 
@@ -794,13 +856,12 @@ async def internal_call_assigned(
         if murmur.whisper_text(sid, payload):
             whispered.append(name)
 
-    # Stamp the active CallLog row with slot + assigned_at so the
+    # Stamp the matched CallLog row with slot + assigned_at so the
     # dashboard can correlate the call to its sub-channel later.
     from server.models import CallLog as _CallLog
     import datetime as _dt
-    log_id = _notify_state.get("call_log_id")
-    if log_id:
-        row = await db.get(_CallLog, log_id)
+    if match_id is not None:
+        row = await db.get(_CallLog, match_id)
         if row is not None and row.ended_at is None:
             row.slot = slot
             row.assigned_at = _dt.datetime.now(_dt.timezone.utc)
@@ -867,22 +928,46 @@ async def sip_answered(
 
 @internal_router.api_route("/internal/call-ended", methods=["GET", "POST"])
 async def internal_call_ended(
+    slot: int | None = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """Stop the ding loop. Called by the dialplan + by the sip-bridge
-    on connection close. Also closes out the active CallLog row with
-    an ended_at timestamp + computed duration."""
+    """Stop the ding loop for a specific call and close its CallLog row.
+
+    Called by the sip-bridge (with `slot` — authoritative) and by the
+    dialplan on hangup (no `slot` — falls back to oldest active call).
+    With PHONE_MAX_CALLS > 1 the slot parameter is what disambiguates —
+    without it, /call-ended used to overwrite whichever call_log_id was
+    most-recently set in the single-slot state (audit F6)."""
+    # Resolve the call_log_id from the slot param, or fall back to
+    # oldest-active for the dialplan-side signal.
+    target_id: int | None = None
+    if slot is not None:
+        for cid, e in _active_calls.items():
+            if e.get("slot") == slot and e.get("active"):
+                target_id = cid
+                break
+        if target_id is None:
+            logger.warning("call-ended: no active call for slot=%s", slot)
+    else:
+        target_id = _oldest_active_call_log_id()
+        if target_id is None:
+            logger.info("call-ended: no active calls to close (dialplan fallback)")
+
     async with _notify_lock:
-        task = _notify_state.get("task")
-        _notify_state["active"] = False
-        if task and not task.done():
-            task.cancel()
+        if target_id is not None:
+            entry = _active_calls.get(target_id, {})
+            task = entry.get("task")
+            entry["active"] = False
+            if task and not task.done():
+                task.cancel()
+            # Leave the entry in _active_calls with active=False so late
+            # notify-loop cancellations resolve cleanly; a short GC pass
+            # below trims fully-closed entries.
 
     from server.models import CallLog as _CallLog
     import datetime as _dt
-    log_id = _notify_state.get("call_log_id")
-    if log_id:
-        row = await db.get(_CallLog, log_id)
+    if target_id is not None:
+        row = await db.get(_CallLog, target_id)
         if row is not None and row.ended_at is None:
             now = _dt.datetime.now(_dt.timezone.utc)
             row.ended_at = now
@@ -893,10 +978,21 @@ async def internal_call_ended(
                     started = started.replace(tzinfo=_dt.timezone.utc)
                 row.duration_s = int((now - started).total_seconds())
             await db.commit()
-        _notify_state["call_log_id"] = None
 
-    logger.info("call-ended: ding loop stopped")
-    return {"stopped": True}
+    # GC: drop finished entries so _active_calls doesn't grow forever.
+    # We keep it minimal — retain entries seen in the last 60 s in case
+    # a stale notify-loop task tries to look itself up.
+    import time as _t
+    now_mono = _t.monotonic()
+    stale = [
+        cid for cid, e in _active_calls.items()
+        if not e.get("active") and (now_mono - e.get("started_at", 0.0)) > 60.0
+    ]
+    for cid in stale:
+        _active_calls.pop(cid, None)
+
+    logger.info("call-ended[%s]: ding loop stopped (slot=%s)", target_id, slot)
+    return {"stopped": True, "call_log_id": target_id}
 
 
 @internal_router.post("/internal/tts")

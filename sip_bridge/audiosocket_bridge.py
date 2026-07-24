@@ -47,21 +47,27 @@ INTERNAL_SECRET = os.environ.get("PTT_INTERNAL_API_SECRET", "").strip()
 PHONE_MAX_CALLS = int(os.environ.get("PHONE_MAX_CALLS", "3"))
 
 
-def _notify_call_ended() -> None:
+def _notify_call_ended(slot: int | None = None) -> None:
     """POST /internal/call-ended so admin stops the ding-notification loop.
     Called from the main serve() loop after a client connection closes —
     the dialplan's CURL(call-ended) runs only on orderly hangup via our
     Hangup() priority, which doesn't execute when the caller hangs up
     first.
+
+    Slot is required for correct multi-call bookkeeping (PHONE_MAX_CALLS
+    > 1) — without it admin has to guess which of the concurrent calls
+    just ended. Kept optional for backwards compatibility with the
+    dialplan's parameterless CURL().
     """
     if not INTERNAL_SECRET:
         return
     try:
         import httpx
         with httpx.Client(timeout=5, headers={"X-Internal-Auth": INTERNAL_SECRET}) as c:
-            c.get(f"{ADMIN_BASE_URL}/api/sip/internal/call-ended")
+            params = {"slot": slot} if slot is not None else None
+            c.get(f"{ADMIN_BASE_URL}/api/sip/internal/call-ended", params=params)
     except Exception as e:
-        LOG.warning("call-ended POST failed: %s", e)
+        LOG.warning("call-ended POST failed (slot=%s): %s", slot, e)
 
 
 def _notify_call_assigned(slot: int) -> None:
@@ -762,7 +768,11 @@ def serve() -> None:
                 # the 180s timeout eventually tries to hang up an
                 # already-dead client.
                 _clear_hold_if_holding(_client)
-                _notify_call_ended()
+                # Pass slot so admin can close the correct CallLog row.
+                # Without this, /call-ended used to overwrite whichever
+                # call_log_id was single-slot-tracked, leaving prior
+                # concurrent calls' rows perpetually open (audit F6).
+                _notify_call_ended(slot=_slot)
 
         threading.Thread(target=_run_and_cleanup, daemon=True,
                          name=f"audiosocket-slot{slot}-{addr}").start()

@@ -48,8 +48,27 @@ class ShiftRequest(BaseModel):
 # In-memory config (per deployment, not per user for now)
 _config = LoneWorkerConfig()
 _last_check_ins: dict[str, datetime] = {}
-_reminded: set[str] = set()  # Users already reminded this cycle (prevent spam)
+# Escalation state: last time we reminded a given user, and how many
+# reminders have gone out this shift. Replaces the previous one-shot
+# `_reminded: set` that silently stopped escalating after the first ping.
+_last_reminded_at: dict[str, datetime] = {}
+_remind_count: dict[str, int] = {}
+_sos_triggered: set[str] = set()  # avoids re-triggering SOS mid-shift
 _murmur_client = None  # Set by start_overdue_checker()
+
+# Escalation cadence. Standard telephony-alert progression: quiet at
+# first, then more frequent, then escalate to a real safety event.
+_REMIND_INTERVAL_MINUTES = 5
+_AUTO_SOS_AFTER_REMINDERS = 3
+
+
+def _clear_escalation_state(username: str) -> None:
+    """Drop all escalation bookkeeping for a user. Call on any event
+    that means 'they're OK for now': check-in, shift start, shift end."""
+    key = username.lower()
+    _last_reminded_at.pop(key, None)
+    _remind_count.pop(key, None)
+    _sos_triggered.discard(key)
 
 
 def start_overdue_checker(murmur_client):
@@ -104,6 +123,14 @@ def _run_shift_cycle():
             shift.ended_at = now
             shift.end_reason = "auto_expired"
             logger.info("Auto-expired shift id=%d user_id=%d", shift.id, shift.user_id)
+            # Look up the username so we can clear the in-memory
+            # escalation ladder — otherwise a repeat-offender user
+            # starting a new shift inherits the previous count.
+            user_row = db.execute(
+                _select(User).where(User.id == shift.user_id)
+            ).scalar_one_or_none()
+            if user_row is not None:
+                _clear_escalation_state(user_row.username)
         if expired_rows:
             db.commit()
 
@@ -123,9 +150,67 @@ def _run_shift_cycle():
             # Never checked in this shift — use shift start as the baseline.
             last = shift.started_at
         minutes_ago = (now - last).total_seconds() / 60
-        if minutes_ago > _config.check_in_interval_minutes and uname not in _reminded:
-            _reminded.add(uname)
-            _send_voice_reminder(user.username)
+        if minutes_ago <= _config.check_in_interval_minutes:
+            continue
+
+        # Overdue. Time-throttled reminders so we escalate instead of
+        # firing once and going silent forever (the 2026-07 audit bug).
+        last_ping = _last_reminded_at.get(uname)
+        if last_ping is not None:
+            since_ping = (now - last_ping).total_seconds() / 60
+            if since_ping < _REMIND_INTERVAL_MINUTES:
+                continue
+
+        _last_reminded_at[uname] = now
+        _remind_count[uname] = _remind_count.get(uname, 0) + 1
+        count = _remind_count[uname]
+        logger.info("Lone-worker overdue reminder #%d for %s (%.1fm since last check-in)",
+                    count, user.username, minutes_ago)
+        _send_voice_reminder(user.username)
+
+        # After N missed reminders, honour auto_sos_on_overdue. This is
+        # the "worker may be incapacitated" escalation — before the fix,
+        # LoneWorkerConfig.auto_sos_on_overdue existed but was never
+        # actually consulted.
+        if (
+            _config.auto_sos_on_overdue
+            and count >= _AUTO_SOS_AFTER_REMINDERS
+            and uname not in _sos_triggered
+        ):
+            _sos_triggered.add(uname)
+            logger.warning(
+                "Lone-worker auto-SOS for %s after %d missed reminders",
+                user.username, count,
+            )
+            _trigger_auto_sos(user)
+
+
+def _trigger_auto_sos(user):
+    """Fire an SOS on behalf of an overdue lone worker. Runs in the same
+    background thread as the shift cycle — kept synchronous and
+    best-effort. Mirrors the payload the P50 app posts when a real SOS
+    is triggered."""
+    import requests
+    from server.config import settings
+    try:
+        # Use the internal loopback URL — admin listens on 127.0.0.1:8000
+        # inside its own container. The X-SOS-Token header is the same
+        # unauth mechanism the P50 app uses.
+        resp = requests.post(
+            "http://127.0.0.1:8000/api/sos/trigger",
+            headers={"X-SOS-Token": settings.sos_token or ""},
+            json={
+                "username": user.username,
+                "reason": "lone_worker_overdue",
+                "latitude": None,
+                "longitude": None,
+            },
+            timeout=10,
+        )
+        if resp.status_code >= 400:
+            logger.error("auto-SOS POST failed: %s %s", resp.status_code, resp.text[:200])
+    except Exception as e:
+        logger.error("auto-SOS request errored: %s", e)
 
 
 def _send_voice_reminder(username: str):
@@ -210,7 +295,7 @@ async def check_in(req: CheckInRequest):
     """Record a check-in for a worker. Called by the device or admin."""
     now = datetime.now(timezone.utc)
     _last_check_ins[req.username.lower()] = now
-    _reminded.discard(req.username.lower())  # Clear reminder flag so they get reminded again next time
+    _clear_escalation_state(req.username)  # Reset the escalation ladder on any check-in
     logger.info("Check-in received from %s", req.username)
     return {"status": "ok", "username": req.username, "checked_in_at": now.isoformat()}
 
@@ -266,7 +351,7 @@ async def shift_start(
     await db.refresh(shift)
 
     _last_check_ins[user.username.lower()] = started  # counts as a check-in
-    _reminded.discard(user.username.lower())
+    _clear_escalation_state(user.username)
     logger.info(
         "Shift started for %s: id=%d duration=%dh",
         user.username, shift.id, duration_hours,
@@ -306,7 +391,7 @@ async def shift_stop(
     active.end_reason = "user_ended"
     await db.commit()
     await db.refresh(active)
-    _reminded.discard(user.username.lower())
+    _clear_escalation_state(user.username)
     logger.info("Shift stopped for %s: id=%d", user.username, active.id)
     return _shift_dict(active, user)
 

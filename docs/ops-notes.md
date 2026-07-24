@@ -1,8 +1,80 @@
 # Operational notes
 
-Server-side hardening added incrementally after two disk-full outages.
-Kept here so the next person who finds a wedged dashboard knows what to
-look at.
+Server-side hardening added incrementally after two disk-full outages
+and one silent-alerting incident. Kept here so the next person who finds
+a wedged dashboard knows what to look at.
+
+## Alert delivery (added 2026-07-24)
+
+External heartbeat via [healthchecks.io](https://healthchecks.io). The
+admin already exposes an unauthenticated `GET /api/status/health` that
+returns `{status,murmur}`; `/etc/cron.hourly/ptt-heartbeat` hits it,
+maps to a ping URL, and healthchecks emails the operator if pings stop
+for >2h. This is the ONLY layer that pages you when the whole VM is off
+— every internal safety net (Docker restart, keepalive, cron) fails
+silently otherwise.
+
+Configuration:
+
+- `/etc/default/openptt-alerts` — URL config file. `ALERT_HEARTBEAT_URL`
+  is the healthchecks.io ping URL; leaving it blank makes every alert a
+  no-op (still logs to journald under tag `openptt-alert`).
+- `/usr/local/bin/openptt-alert` — thin wrapper that any script can
+  call. Modes: `ok <name> [msg]`, `incident <title> <body>`,
+  `dead-mans <name>`.
+- Add two more free healthchecks.io checks for `ALERT_DISK_URL` and
+  `ALERT_BACKUP_URL` if you want per-check granularity (heartbeat alone
+  catches the outage class but not slow-burn issues).
+
+## Docker Compose hardening (added 2026-07-24)
+
+`docker-compose.yml` now uses:
+
+- `x-logging` anchor with `max-size=50m, max-file=3` on every service —
+  log rotation baked into the deployment, not just the host.
+- `healthcheck:` on murmur, postgres, admin, traccar, nginx (sip-bridge
+  is host-networked so we skip it — its telemetry surfaces via admin's
+  call-flow logs instead).
+- `depends_on: condition: service_healthy` chain: admin waits for
+  postgres+murmur healthy; sip-bridge, nginx, traccar wait for admin
+  healthy. A crash-looping container no longer masquerades as "Up".
+
+## Server code resilience fixes (added 2026-07-24)
+
+- **admin↔murmur keepalive** — `server/main.py` re-binds pymumble on
+  wedge, replacing the manual `docker compose restart admin` that used
+  to be needed after every murmur crash.
+- **Multi-call state** — `server/api/sip.py` `_active_calls: dict` now
+  keyed by CallLog.id instead of the previous single-slot dict that
+  corrupted concurrent-call bookkeeping. `sip-bridge` passes `slot=N`
+  in the `/internal/call-ended` callback for authoritative closure.
+- **SOS channel restore** — new `sos_channel_restore` table persists
+  per-user return-to-channel state (was module-global dict; admin
+  restart mid-SOS stranded users in Emergency).
+- **Lone-worker escalation** — replaced one-shot `_reminded` set with
+  time-throttled reminders that auto-fire `/api/sos` after N missed
+  check-ins (previously `auto_sos_on_overdue` config existed but was
+  never actually checked).
+- **Traccar timeout** — every `httpx.AsyncClient()` now has
+  `timeout=10.0`. A hung Traccar could otherwise choke every dashboard
+  request via `/api/status/server`.
+
+## Android app resilience fixes (added 2026-07-24)
+
+- **TX watchdog on primary PTT path** — the 60s force-release that
+  already existed for the BLE ring now covers every keying path
+  (`MumlaService.onTalkKeyDown`). A dropped ROM ACTION_UP broadcast can
+  no longer stick the mic keyed.
+- **ACTION_CANCEL** in `MumlaOverlay` and `MumlaHotCorner` PTT
+  listeners — a focus steal (e.g. incoming-call overlay) mid-press no
+  longer leaves TX on.
+- **ActiveCallActivity** — 60-min max-duration watchdog + hangup.
+  Prevents a stuck in-call screen with `FLAG_KEEP_SCREEN_ON` draining
+  the battery when the SIP bridge crashes mid-call.
+- **IncomingCallActivity.onNewIntent** — second `INCOMING_CALL` whisper
+  while the first is still ringing now correctly updates the visible
+  caller-id/sub-channel + re-arms the ring timeout (was silently
+  dropped by `singleTask` launch mode).
 
 ## Container log rotation (added 2026-07-20)
 
