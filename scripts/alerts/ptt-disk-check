@@ -1,0 +1,22 @@
+#!/bin/sh
+# Daily disk-usage check. Alerts if / is above DISK_ALERT_PCT (default 80%).
+# Two disk-full outages have already knocked us out for a week combined;
+# this fires days before the disk actually fills.
+
+set -u
+. /etc/default/openptt-alerts 2>/dev/null || true
+THRESHOLD=${DISK_ALERT_PCT:-80}
+
+USED=$(df --output=pcent / | tail -1 | tr -dc 0-9)
+if [ -z "$USED" ]; then
+  /usr/local/bin/openptt-alert incident "disk check failed" "could not parse df output"
+  exit 0
+fi
+
+if [ "$USED" -ge "$THRESHOLD" ]; then
+  TOP=$(du -sh /var/lib/docker/containers/*/ 2>/dev/null | sort -rh | head -3 | tr "\n" " ")
+  /usr/local/bin/openptt-alert incident "openPTT disk $USED% used (>= $THRESHOLD)" \
+    "df / at $USED%. Top container log dirs: $TOP"
+else
+  /usr/local/bin/openptt-alert ok disk "used=$USED% threshold=$THRESHOLD%"
+fi

@@ -1,0 +1,35 @@
+# openPTT alert delivery configuration.
+#
+# Fill in the URLs below to activate alerts. Signup: https://healthchecks.io
+# (free tier: 20 checks, email delivery, dead-man switch semantics).
+#
+# For each check, create it in healthchecks.io and paste the ping URL here.
+# Recommended checks + schedules:
+#
+#   ALERT_HEARTBEAT_URL      A "simple" check pinged hourly by
+#                            /etc/cron.hourly/ptt-heartbeat. If ping stops
+#                            arriving, healthchecks emails you.
+#
+#   ALERT_DISK_URL           A "simple" check pinged daily by disk-check
+#                            ONLY if usage is under threshold. Silence = alert.
+#
+#   ALERT_BACKUP_URL         A "simple" check pinged by backup.sh on success.
+#                            Silence = backup failed.
+#
+#   ALERT_INCIDENT_WEBHOOK   Optional. If a check detects an active problem
+#                            (murmur disconnected, disk >80%), POST here for
+#                            immediate push. Point at healthchecks.io failure
+#                            URL, ntfy, or a custom webhook. Leaving blank
+#                            means we rely on the dead-man switch above.
+#
+# All alerts also mirror to journald (tag openptt-alert). If nothing here is
+# configured, alerts silently no-op — no crash, just no email.
+
+ALERT_HEARTBEAT_URL=""
+ALERT_DISK_URL=""
+ALERT_BACKUP_URL=""
+ALERT_CERT_URL=""
+ALERT_INCIDENT_WEBHOOK=""
+
+# Disk-usage threshold for the daily check. Percent used.
+DISK_ALERT_PCT=80

@@ -1,0 +1,36 @@
+#!/bin/sh
+# Daily cert-expiry check. Alerts if any Lets Encrypt cert is within
+# CERT_ALERT_DAYS of expiry (default 14). Also silently pings healthchecks
+# via openptt-alert ok cert when all certs are good, so a *silence*
+# on the healthchecks dashboard is itself an alert.
+#
+# Why this exists: certbot renewal was failing silently for weeks
+# because containerised nginx held port 80 during standalone challenge.
+# Renewal is now fixed via pre/post hooks (see /etc/letsencrypt/
+# renewal-hooks), but the check runs anyway as belt-and-suspenders.
+
+set -u
+. /etc/default/openptt-alerts 2>/dev/null || true
+THRESHOLD=${CERT_ALERT_DAYS:-14}
+
+NOW=$(date +%s)
+FAILING=""
+for CERT in /etc/letsencrypt/live/*/cert.pem; do
+  [ -f "$CERT" ] || continue
+  END=$(openssl x509 -in "$CERT" -noout -enddate 2>/dev/null | cut -d= -f2)
+  [ -z "$END" ] && continue
+  END_EPOCH=$(date -d "$END" +%s 2>/dev/null || echo 0)
+  [ "$END_EPOCH" -eq 0 ] && continue
+  DAYS_LEFT=$(( (END_EPOCH - NOW) / 86400 ))
+  DOMAIN=$(basename "$(dirname "$CERT")")
+  if [ "$DAYS_LEFT" -lt "$THRESHOLD" ]; then
+    FAILING="$FAILING $DOMAIN=${DAYS_LEFT}d"
+  fi
+done
+
+if [ -n "$FAILING" ]; then
+  /usr/local/bin/openptt-alert incident "openPTT cert expiring soon" \
+    "certs within $THRESHOLD days of expiry:$FAILING"
+else
+  /usr/local/bin/openptt-alert ok cert "all certs ok (>= ${THRESHOLD}d remaining)"
+fi

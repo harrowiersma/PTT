@@ -1,0 +1,15 @@
+#!/bin/sh
+# Daily backup wrapper. Runs the existing /opt/ptt/scripts/backup.sh but
+# via anacron-eligible cron.daily so a missed 3 AM (host powered off or
+# under load) still runs on the next boot / hourly anacron tick.
+# Pings healthchecks on success — silence >36 h then alerts.
+
+set -u
+if /opt/ptt/scripts/backup.sh >> /var/log/ptt-backup.log 2>&1; then
+  /usr/local/bin/openptt-alert ok backup "$(date -Iseconds) succeeded"
+else
+  rc=$?
+  /usr/local/bin/openptt-alert incident "openPTT backup failed" \
+    "backup.sh exit=$rc, see /var/log/ptt-backup.log"
+  exit "$rc"
+fi

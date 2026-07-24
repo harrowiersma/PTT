@@ -23,25 +23,31 @@ Fix:
 
 ## Alert delivery (added 2026-07-24)
 
-External heartbeat via [healthchecks.io](https://healthchecks.io). The
-admin already exposes an unauthenticated `GET /api/status/health` that
-returns `{status,murmur}`; `/etc/cron.hourly/ptt-heartbeat` hits it,
-maps to a ping URL, and healthchecks emails the operator if pings stop
-for >2h. This is the ONLY layer that pages you when the whole VM is off
-— every internal safety net (Docker restart, keepalive, cron) fails
-silently otherwise.
+External alerting via [healthchecks.io](https://healthchecks.io) free
+tier. The whole stack is source-controlled at `scripts/alerts/` and
+installed by `sudo ./scripts/alerts/install.sh`. On a fresh VM: install
+the stack, then paste your project's ping URLs into
+`/etc/default/openptt-alerts`. Nothing runs against remote services
+until the URLs are filled in.
 
-Configuration:
+The four checks in the healthchecks.io project:
 
-- `/etc/default/openptt-alerts` — URL config file. `ALERT_HEARTBEAT_URL`
-  is the healthchecks.io ping URL; leaving it blank makes every alert a
-  no-op (still logs to journald under tag `openptt-alert`).
-- `/usr/local/bin/openptt-alert` — thin wrapper that any script can
-  call. Modes: `ok <name> [msg]`, `incident <title> <body>`,
-  `dead-mans <name>`.
-- Add two more free healthchecks.io checks for `ALERT_DISK_URL` and
-  `ALERT_BACKUP_URL` if you want per-check granularity (heartbeat alone
-  catches the outage class but not slow-burn issues).
+| Check name         | Cron file                          | Schedule |
+|--------------------|------------------------------------|----------|
+| openPTT heartbeat  | /etc/cron.hourly/ptt-heartbeat     | hourly   |
+| openPTT disk       | /etc/cron.daily/ptt-disk-check     | daily    |
+| openPTT backup     | /etc/cron.daily/ptt-backup         | daily    |
+| openPTT cert       | /etc/cron.daily/ptt-cert-check     | daily    |
+
+The heartbeat is the only one that catches a VM-completely-offline
+scenario — silence from any of the others just means that specific cron
+didn't run (still valuable, but the VM might otherwise be up).
+
+`/usr/local/bin/openptt-alert` — wrapper any script can call. Modes:
+`ok <name> [msg]`, `incident <title> <body>`, `dead-mans <name>`. Uses
+`ALERT_INCIDENT_WEBHOOK` (set in `/etc/default/openptt-alerts`) for
+active-problem push if configured; falls back to journald-only when
+unset.
 
 ## Docker Compose hardening (added 2026-07-24)
 

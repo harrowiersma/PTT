@@ -1,0 +1,15 @@
+#!/bin/sh
+# Prune the Murmur SQLite slog table + VACUUM. This is the table that
+# caused the 2026-06-16 "database or disk is full" crash — every
+# join/leave/text/status change is logged forever with no built-in
+# rotation. 30 days is plenty for post-mortem forensics.
+
+set -u
+{
+  echo "=== $(date -Iseconds) ==="
+  BEFORE=$(docker exec ptt-murmur-1 sh -c "ls -la /data/mumble-server.sqlite | awk {print\$5}" 2>&1 | awk "{print \$5}")
+  printf "DELETE FROM slog WHERE msgtime < datetime('now', '-30 days');\nVACUUM;\n" \
+    | docker exec -i ptt-murmur-1 sqlite3 /data/mumble-server.sqlite 2>&1
+  AFTER=$(docker exec ptt-murmur-1 sh -c "ls -la /data/mumble-server.sqlite" 2>&1 | awk "{print \$5}")
+  echo "slog prune: before=$BEFORE after=$AFTER"
+} | logger -t ptt-sqlite-prune

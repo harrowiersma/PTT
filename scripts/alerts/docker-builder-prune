@@ -1,0 +1,10 @@
+#!/bin/sh
+# Frees Docker BuildKit build cache. Added 2026-06-25 after the murmur
+# container crash-looped for 8 days because /dev/sda1 filled up with
+# 12.8 GB of stale build layers.
+{
+  echo "=== docker builder prune -af ==="
+  df -h / | tail -1
+  docker builder prune -af 2>&1
+  df -h / | tail -1
+} | logger -t docker-builder-prune

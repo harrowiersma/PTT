@@ -1,0 +1,59 @@
+#!/bin/sh
+# openpttt-alert — thin wrapper for cron alerts.
+#
+# Usage:
+#   openptt-alert ok         <check-name> [message]  # success heartbeat
+#   openptt-alert incident   <title>       <body>    # active problem
+#   openptt-alert dead-mans  <check-name>            # do nothing (silence = alert)
+#
+# Reads URLs from /etc/default/openptt-alerts. If a required URL is unset,
+# the command is a no-op after logging to journald under tag openptt-alert.
+# That keeps scripts idempotent whether or not the operator has finished
+# healthchecks.io setup.
+
+set -u
+CONF=/etc/default/openptt-alerts
+[ -r "$CONF" ] && . "$CONF"
+
+TAG=openptt-alert
+MODE="${1:-}"; shift || true
+
+case "$MODE" in
+  ok)
+    NAME="${1:-}"; MSG="${2:-ok}"
+    logger -t "$TAG" "OK: $NAME: $MSG"
+    case "$NAME" in
+      heartbeat) URL="${ALERT_HEARTBEAT_URL:-}" ;;
+      disk)      URL="${ALERT_DISK_URL:-}" ;;
+      backup)    URL="${ALERT_BACKUP_URL:-}" ;;
+      cert)      URL="${ALERT_CERT_URL:-}" ;;
+      *)         URL="" ;;
+    esac
+    [ -n "$URL" ] && curl --max-time 10 --retry 3 -fsS -o /dev/null "$URL" \
+      && logger -t "$TAG" "OK: $NAME: pinged" \
+      || [ -z "$URL" ] || logger -t "$TAG" "OK: $NAME: ping FAILED"
+    ;;
+  incident)
+    TITLE="${1:-openPTT incident}"; BODY="${2:-}"
+    logger -t "$TAG" "INCIDENT: $TITLE: $BODY"
+    URL="${ALERT_INCIDENT_WEBHOOK:-}"
+    if [ -n "$URL" ]; then
+      curl --max-time 10 --retry 3 -fsS -o /dev/null \
+        -H "Title: $TITLE" \
+        --data-binary "$BODY" \
+        "$URL" \
+        && logger -t "$TAG" "INCIDENT posted to webhook" \
+        || logger -t "$TAG" "INCIDENT webhook post FAILED"
+    fi
+    ;;
+  dead-mans)
+    NAME="${1:-}"
+    logger -t "$TAG" "DEAD-MANS: $NAME: not pinging (silence = alert)"
+    # explicit no-op — the check is armed by the absence of the OK ping
+    ;;
+  *)
+    echo "usage: openptt-alert {ok|incident|dead-mans} <name> [body]" >&2
+    exit 2
+    ;;
+esac
+exit 0

@@ -1,0 +1,18 @@
+#!/bin/sh
+# Hourly heartbeat + Murmur-connected probe. Reports OK to healthchecks
+# so a silence >2h triggers an alert. Also actively pushes an incident
+# if the admin says murmur_connected=false.
+
+set -u
+STATUS=$(curl --max-time 8 -fsS http://127.0.0.1:8000/api/status/health 2>/dev/null || echo "unreachable")
+case "$STATUS" in
+  *"\"status\":\"healthy\""*)
+    /usr/local/bin/openptt-alert ok heartbeat "healthy"
+    ;;
+  *"\"status\":\"degraded\""*)
+    /usr/local/bin/openptt-alert incident "openPTT degraded" "admin reports: $STATUS"
+    ;;
+  *)
+    /usr/local/bin/openptt-alert incident "openPTT admin unreachable" "curl to /api/status/health failed or returned unexpected body: $STATUS"
+    ;;
+esac
