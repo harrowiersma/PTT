@@ -4,6 +4,23 @@ Server-side hardening added incrementally after two disk-full outages
 and one silent-alerting incident. Kept here so the next person who finds
 a wedged dashboard knows what to look at.
 
+## Cert renewal + expiry monitoring (added 2026-07-24)
+
+Certbot auto-renewal was failing silently for weeks — the containerised
+nginx held port 80, so certbot's `standalone` HTTP-01 challenge couldn't
+bind. Both `ptt.harro.ch` and `voice.harro.ch` expired 2026-07-11.
+
+Fix:
+
+- `/etc/letsencrypt/renewal-hooks/pre/stop-nginx.sh` — `docker compose
+  stop nginx` before renewal.
+- `/etc/letsencrypt/renewal-hooks/post/start-nginx.sh` — restart after.
+  systemd's `certbot.timer` picks these up automatically. Brief downtime
+  (~30 s) for both endpoints during renewal.
+- `/etc/cron.daily/ptt-cert-check` — belts-and-suspenders daily alert
+  when any cert has &lt;14 d remaining. Pings healthchecks on success so
+  a silence on the healthchecks dashboard is itself an alert.
+
 ## Alert delivery (added 2026-07-24)
 
 External heartbeat via [healthchecks.io](https://healthchecks.io). The
